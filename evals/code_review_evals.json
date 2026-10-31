@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SpotCool AI Code Review Evaluation Benchmark Suite",
+  "description": "Historical regression cases and synthetic traps to benchmark and tune automated review agents without noise or regressions.",
+  "eval_suite_version": "1.0.0",
+  "evaluations": [
+    {
+      "id": "REV-EVAL-001",
+      "name": "instantaneous_louver_jump_trap",
+      "target_file": "src/digital_twin/actuator.py",
+      "category": "Kinematics & Digital Twin",
+      "expected_severity": "P0",
+      "expected_rule_triggered": "Instantaneous angle jumps",
+      "description": "Code modifies louver pan directly to target angle without stepping through the 15 deg/sec mechanical slew rate limiter.",
+      "snippet_diff": "- self.current_pan += clamp(target_pan - self.current_pan, -0.75, 0.75)\n+ self.current_pan = target_pan",
+      "passing_criteria": "Reviewer flags P0 blocking bug citing 15 deg/sec slew rate requirement from REVIEW.md"
+    },
+    {
+      "id": "REV-EVAL-002",
+      "name": "bounding_box_depth_leak_trap",
+      "target_file": "src/perception/depth_estimator.py",
+      "category": "Perception & Spatial Geometry",
+      "expected_severity": "P0",
+      "expected_rule_triggered": "Bounding box averaging",
+      "description": "Code averages the rectangular bounding box depth rather than taking the median of SAM 3 segmented human mask pixels.",
+      "snippet_diff": "- person_depth = np.median(depth_map[sam_mask])\n+ person_depth = np.mean(depth_map[y1:y2, x1:x2])",
+      "passing_criteria": "Reviewer flags P0 citing background wall skew error and demands SAM 3 mask median depth."
+    },
+    {
+      "id": "REV-EVAL-003",
+      "name": "unvalidated_llm_thermal_hallucination",
+      "target_file": "src/orchestrator/policy.py",
+      "category": "Thermodynamics & ASHRAE 55",
+      "expected_severity": "P0",
+      "expected_rule_triggered": "It hallucinates comfort",
+      "description": "Code asks Meta Llama to guess the best target room temperature instead of using pythermalcomfort Fanger PMV calculation.",
+      "snippet_diff": "+ prompt = 'Given occupant in t-shirt, what temperature should AC set?'\n+ setpoint = float(llama.generate(prompt))",
+      "passing_criteria": "Reviewer flags P0 citing thermodynamic grounding rule in REVIEW.md requiring deterministic PMV formula."
+    },
+    {
+      "id": "REV-EVAL-004",
+      "name": "sync_llm_blocking_10hz_loop",
+      "target_file": "src/perception/stream_worker.py",
+      "category": "Control Loop Timing",
+      "expected_severity": "P0",
+      "expected_rule_triggered": "Blocking the 10 Hz loop",
+      "description": "Code places synchronous blocking VLM API call inside the 10 Hz webcam frame capture and louver tracking loop.",
+      "snippet_diff": "+ clothing_result = llama_vision.analyze(frame)  # blocking 2-5s HTTP call\n+ update_louver_angle(coords)",
+      "passing_criteria": "Reviewer flags P0 citing loop separation rule (10 Hz kinematic vs 0.2 Hz semantic background worker)."
+    },
+    {
+      "id": "REV-EVAL-005",
+      "name": "clean_pr_zero_false_positive",
+      "target_file": "src/backend/state_bus.py",
+      "category": "False-Positive Elimination",
+      "expected_severity": "PASS",
+      "expected_rule_triggered": "None",
+      "description": "Standard refactor adding strictly typed Pydantic fields with docstrings and passing unit tests.",
+      "snippet_diff": "+ class LouverState(BaseModel):\n+     pan: float = Field(..., ge=-45.0, le=45.0)\n+     tilt: float = Field(..., ge=0.0, le=60.0)",
+      "passing_criteria": "Reviewer emits zero P0 or P1 false positives and marks status as PASS."
+    }
+  ]
+}

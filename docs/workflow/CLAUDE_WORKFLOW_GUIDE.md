@@ -222,3 +222,43 @@ Report any correctness bugs or missing constraints, and skip cosmetic style comm
 | **Compact Memory** | `/compact` | Compresses long conversational memory while maintaining key working state. |
 | **Check Tool Connections**| `/mcp` | Verifies active MCP servers and tools before running workflows. |
 | **Review Diffs** | `/review` | Analyzes uncommitted git diffs against the base branch. |
+| **Run Multi-Agent Review** | `/code-review` | Runs pre-PR parallel subagent reviews against base `REVIEW.md`. |
+| **Run Security Audit** | `/security-review` | Checks secret leaks, input validation, and trust boundaries. |
+| **Subsystem Explainer** | `/explain <module>` | Generates on-demand mental model without cognitive overload. |
+
+---
+
+## 5. Anthropic Code Review Architecture (Oct 2026)
+### Reference: [claude.dev/blog/solving-code-review-at-anthropic](https://claude.dev/blog/solving-code-review-at-anthropic/)
+
+When AI agents author ~90% of a codebase, manual line-by-line review becomes impossible. SpotCool AI adopts Anthropic's production review architecture:
+
+```
+[Developer / Claude writes code]
+               │
+               ▼
+   [Local: claude /code-review] ──► (Parallel Subagents: Correctness + Security)
+               │
+               ▼
+     [Local: pytest & ruff]
+               │
+               ▼
+     [Open Pull Request]
+               │
+               ▼
+[GitHub Action: Claude Code Review] ──► Reads base branch REVIEW.md
+               │                      Dispatches parallel PR reviewers
+               │                      Filters false positives & posts P0/P1/P2
+               ▼
+ [Risk-Based Human Review / CODEOWNERS]
+               │
+               ▼
+        [Merge to dev/main]
+```
+
+### Core Invariants:
+1. **Base-Branch Rule Isolation:** `REVIEW.md` is strictly read from `origin/main` (or `origin/dev`), preventing PRs from weakening their own grading criteria.
+2. **Explicit Definitions of Failure:** Reviewers check domain criteria ("it lies", "it misroutes", "it hallucinates comfort", "instant angle jumps", "bounding box depth leaks", "loop blocking").
+3. **The 3-Round Cap Rule:** If automated review and fix cycles fail after 3 rounds, automated commits halt and escalate to architectural redesign.
+4. **False-Positive Elimination:** Every finding must provide concrete file and line numbers plus a reproducible failure scenario; otherwise discarded.
+5. **Continuous Improvement Evals:** Review prompts and rules are benchmarked against historical traps in `evals/code_review_evals.json`.
