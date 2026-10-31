@@ -31,6 +31,11 @@ pytest tests/test_state_bus.py -k "test_louver_angle"
 /explain <module>  # On-demand mental model explainer for any subsystem
 ```
 
+## Workstation & Branch Policy
+* **Working Branch:** `feature/spotcool-dev` (All ongoing development on this machine).
+* **PR Integration Target:** `dev` (Merges into `main` for release).
+* **Universal Agent Rules:** See `AGENTS.md` for shared invariants between Claude Code and Antigravity.
+
 ## Non-Obvious Context & Gotchas
 
 * **Source of Truth:** Research, whiteboards, and rubrics are in `temp/H/`. Read `temp/H/INDEX.md` and `temp/H/whiteboard_and_rubric_analysis.md` before making architectural decisions.
