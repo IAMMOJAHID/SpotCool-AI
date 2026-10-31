@@ -23,6 +23,12 @@ mypy src/
 
 # Run single test
 pytest tests/test_state_bus.py -k "test_louver_angle"
+
+# Claude Code Review & Verification Commands
+# (Based on claude.dev/blog/solving-code-review-at-anthropic/)
+/code-review       # Pre-PR multi-agent review against base REVIEW.md
+/security-review   # Security, secrets, and trust boundary audit
+/explain <module>  # On-demand mental model explainer for any subsystem
 ```
 
 ## Non-Obvious Context & Gotchas
@@ -37,6 +43,12 @@ pytest tests/test_state_bus.py -k "test_louver_angle"
 ## EGM (Elephant-Goldfish Model)
 EGM artifact directory: docs/designs
 Use `/egm:egm-brainstorm`, `/egm:egm-draft`, and `/egm:egm-review` for spec-driven design reviews.
+
+## Code Review Standards (Anthropic Architecture)
+* **Charter:** See `REVIEW.md` for domain-specific "Definitions of Failure" and false-positive elimination rules.
+* **3-Round Cap:** Never loop through automated fix cycles more than 3 times; halt and rethink architecture.
+* **Base Branch Grounding:** Review rules are always read from the target base branch to ensure PRs cannot alter their own review standards.
+* **Risk Tiers:** See `.github/CODEOWNERS` for automated vs human approval requirements.
 
 ## Architecture
 
