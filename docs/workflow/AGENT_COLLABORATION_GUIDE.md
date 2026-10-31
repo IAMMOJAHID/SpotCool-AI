@@ -110,3 +110,4 @@ When toggling between Antigravity and Claude Code:
 | **Subsystem Mental Model** | Generates artifact with Mermaid | `/explain <path>` |
 | **Run Tests** | Automated run command | `pytest tests/` |
 | **Clean Context** | New conversation turn | `/clear` or `/compact` |
+

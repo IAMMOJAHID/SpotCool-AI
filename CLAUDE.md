@@ -2,6 +2,13 @@
 
 SpotCool AI replaces passive uniform AC cooling with autonomous 3D spatial spot cooling for the Meta Global AI Developer Hackathon.
 
+---
+
+@CLAUDE.md
+
+---
+
+
 ## Commands
 
 ```bash

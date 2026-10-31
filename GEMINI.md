@@ -33,3 +33,4 @@ Read and enforce all **Six Engineering Laws** defined in [`AGENTS.md`](file:///c
   - `/plan`: When decomposing multi-component features across backend, digital twin, and perception.
   - `/boost`: For complex thermodynamic or kinematic optimization algorithms.
   - `/learn`: To store newly discovered environment patterns.
+

@@ -6,6 +6,10 @@
 
 ---
 
+@AGENTS.md
+
+---
+
 ## 1. The Six Core Engineering Laws of SpotCool AI
 
 Every AI agent (Antigravity or Claude Code) must strictly follow these invariants:
@@ -104,3 +108,4 @@ SpotCool-AI/
 │   └── designs/                    # EGM architecture and design specs
 └── temp/H/                         # [Git-ignored] R&D whiteboards & hackathon rubrics
 ```
+
