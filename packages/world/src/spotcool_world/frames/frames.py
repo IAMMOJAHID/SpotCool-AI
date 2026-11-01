@@ -290,9 +290,12 @@ class ComplaintCueFrame(DataFrame):
 
     Parameters:
         data: The complaint payload.
+        audio: For a voice cue, the recording's file name under ``footage_dir/audio/``. It
+            stays inside the world: the dashboard payload has no such field.
     """
 
     data: ComplaintCueData
+    audio: str | None = None
 
 
 @dataclass(kw_only=True)

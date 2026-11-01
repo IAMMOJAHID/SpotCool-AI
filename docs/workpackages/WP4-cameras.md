@@ -15,7 +15,7 @@ A camera system that looks like a real recorder/VMS to the agent:
 1. **`CameraService` providers** (base class from WP0). Each camera keeps a **reader** that advances in **wall** time and holds only the latest encoded JPEG in memory, the way a real camera behaves.
    - **`clips/`:**
      - a `ClipLibrary` maps `(camera_id, scene)` to a clip file under `WorldSettings.footage_dir`;
-     - add `footage_dir: Path | None = None` to settings (env `SPOTCOOL_WORLD_FOOTAGE_DIR`, default location `C:/Users/hussa/dev/footage`, outside the repo);
+     - `footage_dir: Path | None = None` is in the settings from WP5 (env `SPOTCOOL_WORLD_FOOTAGE_DIR`, usual location `C:/Users/hussa/dev/footage`, outside the repo);
      - clips loop; a scene switch restarts at the new clip's frame 0.
    - **`clips/synthetic.py`:** generated frames (a room background with N drawn person silhouettes) so CI, tests and an emergency demo need **no footage**.
    - **`datasets/`:** WiseNET and MEVA adapters driven by an index YAML that WP8 writes. The index maps `(camera_id, scene)` to a dataset file plus start/end seconds, and records the people count in that segment.

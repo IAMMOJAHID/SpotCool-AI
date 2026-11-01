@@ -47,7 +47,7 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 | WP2 | [BMS over BACnet](WP2-bms-bacnet.md) | Claude Code | `wp/wp2-bms-bacnet` |
 | WP3 | [VRF gateway](WP3-vrf-gateway.md) | Claude Code | `wp/wp3-vrf-gateway` |
 | WP4 | [cameras](WP4-cameras.md) | Antigravity | `wp/wp4-cameras` |
-| WP5 | [scenarios, calendar, occupants](WP5-scenarios.md) | Antigravity | `wp/wp5-scenarios` |
+| WP5 | [scenarios, calendar, occupants](WP5-scenarios.md) | Claude Code | `wp/wp5-scenarios` |
 | WP6 | [telemetry, KPIs, recorder, dashboard feed](WP6-telemetry.md) | Claude Code | `wp/wp6-telemetry` |
 | WP7 | [dashboard app](WP7-dashboard.md) | Antigravity | `wp/wp7-dashboard` |
 | WP8 | [footage pipeline](WP8-footage.md) | Claude Code + people | `wp/wp8-footage` |

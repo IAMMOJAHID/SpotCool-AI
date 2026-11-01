@@ -6,14 +6,19 @@ from spotcool_world.processors.frame_processor import (
     FrameProcessor,
     FrameProcessorSetup,
 )
+from spotcool_world.processors.frame_publisher import WORLD_FRAMES_TOPIC, FramePublisher
 from spotcool_world.processors.plant_processor import PlantProcessor
+from spotcool_world.processors.scenario import ScenarioProcessor
 from spotcool_world.processors.tick_source import TickSource
 
 __all__ = [
+    "WORLD_FRAMES_TOPIC",
     "BusPublisher",
     "FrameDirection",
     "FrameProcessor",
     "FrameProcessorSetup",
+    "FramePublisher",
     "PlantProcessor",
+    "ScenarioProcessor",
     "TickSource",
 ]

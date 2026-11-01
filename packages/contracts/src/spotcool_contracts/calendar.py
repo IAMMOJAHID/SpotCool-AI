@@ -3,6 +3,10 @@
 Field names mirror Microsoft Graph's ``getSchedule`` response (camelCase on purpose), so an
 agent written against this contract can switch to a real Microsoft 365 tenant by changing only
 the base URL and adding authentication.
+
+Dates: the world puts simulation time on the 2026 calendar. A date-time is 2026-01-01 00:00 plus
+the simulation seconds (the BMS's ``SIM-CLOCK``), and ``timeZone`` is ``"UTC"``, which labels the
+simulation's local clock (no daylight saving). BOPTEST day index 199, the demo day, is 2026-07-19.
 """
 
 from typing import Literal

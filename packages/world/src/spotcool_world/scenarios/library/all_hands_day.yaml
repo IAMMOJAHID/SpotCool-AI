@@ -1,0 +1,30 @@
+# The honesty check: every zone is occupied all day, so spot cooling has nothing to switch off
+# and the savings should be about 0. WP8 filmed no occupied East clip, so `lint --clips` warns
+# about eas_few.mp4; WP4 decides the fallback.
+name: all_hands_day
+description: Everyone is in the office; every zone is busy from 08:30 to 18:00.
+day: 199                 # BOPTEST's peak_cool_day (2026-07-19 on the simulation calendar)
+start: "07:00"
+end: "19:00"
+zones:
+  cor:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "08:30", scene: many, people: 4}
+    - {at: "18:00", scene: empty, people: 0}
+  nor:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "08:30", scene: few, people: 2}
+    - {at: "18:00", scene: empty, people: 0}
+  sou:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "08:30", scene: meeting, people: 5}
+    - {at: "18:00", scene: empty, people: 0}
+  eas:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "08:30", scene: few, people: 2}
+    - {at: "18:00", scene: empty, people: 0}
+  wes:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "08:30", scene: few, people: 1}
+    - {at: "18:00", scene: empty, people: 0}
+events: []

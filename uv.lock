@@ -1054,6 +1054,9 @@ bacnet = [
 boptest = [
     { name = "httpx" },
 ]
+calendar = [
+    { name = "fastapi" },
+]
 cameras = [
     { name = "fastapi" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
@@ -1065,6 +1068,9 @@ dashboard = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
 ]
+occupants = [
+    { name = "httpx" },
+]
 rc = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -1073,9 +1079,11 @@ rc = [
 [package.metadata]
 requires-dist = [
     { name = "bacpypes3", marker = "extra == 'bacnet'", specifier = "==0.0.110" },
+    { name = "fastapi", marker = "extra == 'calendar'", specifier = ">=0.115,<1" },
     { name = "fastapi", marker = "extra == 'cameras'", specifier = ">=0.115,<1" },
     { name = "fastapi", marker = "extra == 'dashboard'", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'boptest'", specifier = ">=0.27,<1" },
+    { name = "httpx", marker = "extra == 'occupants'", specifier = ">=0.27,<1" },
     { name = "loguru", specifier = ">=0.7,<1" },
     { name = "numpy", marker = "extra == 'cameras'", specifier = ">=1.26,<3" },
     { name = "numpy", marker = "extra == 'rc'", specifier = ">=1.26,<3" },
@@ -1087,7 +1095,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'cameras'", specifier = ">=0.30,<1" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'dashboard'", specifier = ">=0.30,<1" },
 ]
-provides-extras = ["boptest", "bacnet", "cameras", "rc", "dashboard", "video"]
+provides-extras = ["boptest", "bacnet", "cameras", "rc", "dashboard", "calendar", "occupants", "video"]
 
 [[package]]
 name = "starlette"
