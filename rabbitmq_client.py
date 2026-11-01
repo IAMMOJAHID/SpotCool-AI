@@ -49,35 +49,60 @@ async def submit_and_wait(
             os.getenv("JOB_QUEUE_NAME", "spotcool.jobs"),
             durable=True,
         )
-        callback_queue = await channel.declare_queue(
-            exclusive=True,
-            auto_delete=True,
+        results = await channel.declare_queue(
+            os.getenv("RESULT_QUEUE_NAME", "spotcool.results"),
+            durable=True,
         )
-        loop = asyncio.get_running_loop()
-        response: asyncio.Future[dict[str, Any]] = loop.create_future()
-
-        async def handle_response(message: aio_pika.abc.AbstractIncomingMessage) -> None:
-            async with message.process():
-                if message.correlation_id == job_id and not response.done():
-                    response.set_result(json.loads(message.body))
-
-        consumer_tag = await callback_queue.consume(handle_response)
+        pending_messages: list[aio_pika.abc.AbstractIncomingMessage] = []
         try:
             await channel.default_exchange.publish(
                 Message(
                     body=job_body,
                     content_type="application/json",
                     correlation_id=job_id,
-                    reply_to=callback_queue.name,
                     delivery_mode=DeliveryMode.PERSISTENT,
                     message_id=str(uuid4()),
                 ),
                 routing_key=jobs.name,
                 mandatory=True,
             )
-            return await asyncio.wait_for(response, timeout=timeout)
+
+            deadline = asyncio.get_running_loop().time() + timeout
+            while True:
+                # Check the currently-ready messages once per pass so unrelated,
+                # requeued results cannot prevent this job's result being reached.
+                queue_state = await results.declare()
+                for _ in range(queue_state.message_count):
+                    message = await results.get(fail=False)
+                    if message is None:
+                        break
+
+                    try:
+                        result = json.loads(message.body)
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        pending_messages.append(message)
+                        continue
+
+                    result_job_id = result.get("job_id") if isinstance(result, dict) else None
+                    if (
+                        message.correlation_id == job_id
+                        or result_job_id == job_id
+                    ):
+                        await message.ack()
+                        return result
+
+                    pending_messages.append(message)
+
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Timed out waiting for job {job_id} on result queue "
+                        f"{results.name!r}."
+                    )
+                await asyncio.sleep(min(0.5, remaining))
         finally:
-            await callback_queue.cancel(consumer_tag)
+            for message in pending_messages:
+                await message.nack(requeue=True)
 
 
 def frame_to_b64(frame: Any) -> str:
