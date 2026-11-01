@@ -39,10 +39,12 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 
 Worktrees live **outside OneDrive**, so syncing doesn't lock files mid-build. Each worktree gets its own virtualenv; uv hardlinks packages from its cache, so extra venvs cost little disk.
 
+The base is `wp/wp0-contracts-rest-keys`, which is `wp/wp0-core-contracts` plus the contracts fixes measured on BOPTEST. Switch back to `wp/wp0-core-contracts` once it has been fast-forwarded.
+
 ```bash
-WP=wp1-plants                                   # change per WP
+WP=wp2-bms-bacnet                               # change per WP
 git -C "C:/Users/hussa/dev/SpotCool-AI" worktree add \
-    "C:/Users/hussa/dev/wt/$WP" -b "wp/$WP" wp/wp0-core-contracts
+    "C:/Users/hussa/dev/wt/$WP" -b "wp/$WP" wp/wp0-contracts-rest-keys
 cd "C:/Users/hussa/dev/wt/$WP"
 export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/$WP"
 uv sync --all-packages              # add --extra <name> for the extras your WP needs
