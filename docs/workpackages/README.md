@@ -115,6 +115,7 @@ Then give the agent its brief:
     - The value actually applied (baseline or override) comes back under the input's `_u` name.
     - The contracts use these keys from `d1a52f7` (branch `wp/wp0-contracts-rest-keys`).
   - **Inputs latch.** An empty `/advance` body keeps the last override active, so send `<x>_activate: 0` to release it.
+  - **Values describe the step that just ended.** At a stamp, an applied setpoint (`_u`) reports the value that was in force during the preceding step, so schedule edges show one stamp late. The baseline core reads 30.0 °C at 06:00 and 24.0 °C from 06:15, then 24.0 °C at 19:00 and 30.0 °C from 19:15. HVAC power behaves the same: 10.5 kW at the 19:00 stamp, 0 from 19:15. Anything that needs the schedule for the coming step must use the occupied hours (06:00–19:00), not the last setpoint.
   - **`PUT /stop/{id}`** returns 200 with a non-JSON body. Afterwards `/status/{id}` answers 400 "Invalid testid".
   - **KPI keys:** `cost_tot`, `emis_tot`, `ener_tot`, `idis_tot`, `pdih_tot` (null), `pele_tot`, `pgas_tot` (null), `tdis_tot`, `time_rat`.
   - **Savings levers.** Every zone was treated as empty all day; the baseline uses 195.3 kWh for that day.
