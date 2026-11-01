@@ -34,9 +34,21 @@ A real BACnet/IP device, "SpotCool-Office-BMS" (instance 1001, UDP 47808), built
      - set `SIM-CLOCK`;
      - on `ScenarioStateFrame`, set `WES-ENTRANCE-DOOR` from the West zone's `door_open`.
 3. **BMS logic** (`bms_logic.py`, pure and unit-tested). This is what a real BMS does on its own:
-   - **ASHRAE G36 occupied-standby.** When a zone's `OCC-SENSOR` effective value is Unoccupied for 5 sim-minutes or more during scheduled occupancy, add +0.5 °C to that zone's scheduled cooling setpoint, i.e. the relinquish default.
-     - Set `OCC-MODE` to Occupied, Standby or Unoccupied; schedule-unoccupied is when the baseline setpoint is ≥ 26 °C.
-     - An agent-commanded setpoint still wins, because a priority slot beats the relinquish default.
+   - **Occupied-standby (ASHRAE 90.1-2019 §6.5.3.8; G36).** A zone is in standby once its `OCC-SENSOR` effective value has been Unoccupied for 5 sim-minutes or more during scheduled occupancy.
+     - **Setpoints:** raise the cooling setpoint's relinquish default (the schedule) by 0.5 K, and lower the heating setpoint by 0.5 K. An agent-commanded setpoint still wins, because a priority slot beats the relinquish default.
+     - **Airflow shut-off** (the standard requires "all airflow supplied to the zone shall be shut off whenever the space temperature is between the active heating and cooling set points"):
+       - In the **SpotCool run's** `SetpointCommandFrame`, emit `hvac_oveZonAct<Z>_yDam_u = 0.0` (zone damper closed).
+       - Close the damper when the zone temperature is at least 0.5 K inside both active setpoints.
+       - Release it (`None`) when the temperature reaches either setpoint, so the VAV box conditions the zone normally.
+       - Between those thresholds, keep the last state (hysteresis).
+       - Leaving standby releases it at once.
+     - **Never on the baseline run.** The baseline is the same BMS without occupancy sensors, which is the fair comparison: SpotCool's claim is that it turns existing CCTV into the zone occupancy sensors a code-compliant BMS can use.
+     - **Measured on BOPTEST** (README "Facts"), with every zone empty all day:
+       - setpoint 28 °C alone saves 29 %, because the VAV boxes stop at minimum airflow and the zones float only to about 26 °C;
+       - adding the airflow shut-off saves 81 %.
+
+       The shut-off is the main lever.
+     - **Set `OCC-MODE`** to Occupied, Standby or Unoccupied; schedule-unoccupied is when the baseline setpoint is ≥ 26 °C.
    - **Heartbeat watchdog.** If `SPOTCOOL-HEARTBEAT`'s effective value hasn't changed for `HEARTBEAT_TIMEOUT_S` (120 wall seconds) after it was first written, release every priority-10 slot and publish a `BmsWriteFrame` with the reason "heartbeat timeout".
 4. **Network.** BACnet/IP needs a bound IP address.
    - Default: the machine's primary IPv4 address with mask /24, port 47808.
@@ -46,7 +58,12 @@ A real BACnet/IP device, "SpotCool-Office-BMS" (instance 1001, UDP 47808), built
 
 ## Tests
 - **`priority.py`:** every slot ordering; NULL releases; an operator at 8 beats the agent at 10; slots 1–7 are rejected; range and grid rejects.
-- **`bms_logic.py`:** standby after 5 minutes, not after 4; heartbeat timeout releases only slot 10.
+- **`bms_logic.py`:**
+  - standby starts after 5 minutes, not after 4;
+  - in standby the damper override is 0.0 inside the band, released at the cooling setpoint, and the hysteresis holds;
+  - leaving standby releases the damper;
+  - the baseline run never gets a damper override;
+  - heartbeat timeout releases only slot 10.
 - **Integration test on loopback** (mark it `bacnet`; skip if a socket can't bind), with the device and a BACpypes3 client on another port:
   - read `ZN-COR-T`;
   - write `ZN-COR-CLG-SP` = 26.5 at priority 10, and check the next `SetpointCommandFrame` has 299.65 K;

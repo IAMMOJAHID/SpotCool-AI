@@ -26,7 +26,7 @@ Responses are wrapped as `{status, message, payload}`.
 
 **Rules:**
 - **Only send `Content-Type: application/json` when there is a body.** The hosted service returns HTTP 500 for an empty JSON body.
-- **Inputs latch.** An override stays active until `<x>_activate = 0` is sent. An empty advance body changes nothing: on Nov 1 a core override sent from 10:00 to 11:00 was still applied at midnight. Each `advance` therefore sends, for **every** input the world manages:
+- **Inputs latch.** An override stays active until `<x>_activate = 0` is sent. An empty advance body changes nothing: on Nov 1 a core override sent from 10:00 to 11:00 was still applied at midnight. The world manages ten inputs: the five zone cooling setpoints `hvac_oveZonSup<Z>_TZonCooSet_u`, and the five zone dampers `hvac_oveZonAct<Z>_yDam_u` that WP2's occupied-standby closes. Each `advance` sends, for **every** managed input:
   - `<x>_u` and `<x>_activate = 1` when overridden;
   - `<x>_activate = 0` when released.
 
@@ -49,6 +49,12 @@ Responses are wrapped as `{status, message, payload}`.
   - Internal gains come from the **scenario's** people count (about 120 W sensible per person) plus equipment.
   - Outdoor temperature follows a peak-cooling-day sine (Chicago, 22–33 °C).
 - **HVAC:** a VAV cooling-capacity limit. Chiller electric power is cooling ÷ COP 3.5. Fan power is cubic in airflow.
+- **VAV boxes** (this is the behaviour BOPTEST showed):
+  - Each zone's airflow modulates between a minimum and a maximum to hold the cooling setpoint. At minimum airflow the zone floats: on BOPTEST, with a 28 °C setpoint, the zones settled at 24.7–26.1 °C.
+  - BOPTEST's minimum damper positions are 0.174 (cor, nor, sou) and 0.15 (eas, wes). Its minimum flows are 879, 185, 185, 154 and 120 L/s.
+  - Accept `hvac_oveZonAct<Z>_yDam_u` overrides: flow is proportional to damper position, and 0 leaves only leakage (about 13–15 % of minimum flow).
+  - Report the applied damper under `hvac_oveZonAct<Z>_yDam_u` and the flow under `hvac_reaZon<Z>_V_flow_y`.
+  - Without this, the RC run can't bracket the occupied-standby savings.
 - **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 21 °C and 15.6 °C.
 
   Document this in the module docstring. It is the RC stand-in for BOPTEST's controller, and the `_u` setpoint keys report it.
