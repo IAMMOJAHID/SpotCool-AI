@@ -35,13 +35,19 @@ A real BACnet/IP device, "SpotCool-Office-BMS" (instance 1001, UDP 47808), built
      - on `ScenarioStateFrame`, set `WES-ENTRANCE-DOOR` from the West zone's `door_open`.
 3. **BMS logic** (`bms_logic.py`, pure and unit-tested). This is what a real BMS does on its own:
    - **Occupied-standby (ASHRAE 90.1-2019 §6.5.3.8; G36).** A zone is in standby once its `OCC-SENSOR` effective value has been Unoccupied for 5 sim-minutes or more during scheduled occupancy.
+     - **Scheduled occupancy** for the step that starts at tick time t needs **both** of these:
+       - t is within the occupied hours [06:00, 19:00);
+       - the baseline cooling setpoint is below 26 °C.
+
+       The setpoint alone isn't enough. BOPTEST, like the RC plant, reports the setpoint that was in force during the step that just ended, so a schedule edge shows up one stamp late: the core still reads 24 °C at 19:00 and only 30 °C from 19:15. On the setpoint alone, standby would run until 19:15 and SpotCool would cool an empty building after hours.
      - **Setpoints:** raise the cooling setpoint's relinquish default (the schedule) by 0.5 K, and lower the heating setpoint by 0.5 K. An agent-commanded setpoint still wins, because a priority slot beats the relinquish default.
      - **Airflow shut-off** (the standard requires "all airflow supplied to the zone shall be shut off whenever the space temperature is between the active heating and cooling set points"):
        - In the **SpotCool run's** `SetpointCommandFrame`, emit `hvac_oveZonAct<Z>_yDam_u = 0.0` (zone damper closed).
-       - Close the damper when the zone temperature is at least 0.5 K inside both active setpoints.
-       - Release it (`None`) when the temperature reaches either setpoint, so the VAV box conditions the zone normally.
+       - Close the damper while the zone temperature is at or inside both active setpoints (1e-6 K tolerance).
+       - Release it (`None`) once the temperature is 0.5 K **beyond** either setpoint, so the VAV box conditions the zone normally.
        - Between those thresholds, keep the last state (hysteresis).
        - Leaving standby releases it at once.
+       - **Why the hysteresis sits above the cooling setpoint:** when released, the VAV box holds the zone exactly at the active setpoint. A re-close threshold below the setpoint is therefore never reached, so the shut-off would work once at most. The reviewer saw exactly that on RC: shut for 3 of 48 occupied ticks. With the hysteresis above the setpoint, the damper duty-cycles, and the zone floats between the setpoint and setpoint + 0.5 K.
      - **Never on the baseline run.** The baseline is the same BMS without occupancy sensors, which is the fair comparison: SpotCool's claim is that it turns existing CCTV into the zone occupancy sensors a code-compliant BMS can use.
      - **Measured on BOPTEST** (README "Facts"), with every zone empty all day:
        - setpoint 28 °C alone saves 29 %, because the VAV boxes stop at minimum airflow and the zones float only to about 26 °C;
@@ -60,7 +66,9 @@ A real BACnet/IP device, "SpotCool-Office-BMS" (instance 1001, UDP 47808), built
 - **`priority.py`:** every slot ordering; NULL releases; an operator at 8 beats the agent at 10; slots 1–7 are rejected; range and grid rejects.
 - **`bms_logic.py`:**
   - standby starts after 5 minutes, not after 4;
-  - in standby the damper override is 0.0 inside the band, released at the cooling setpoint, and the hysteresis holds;
+  - in standby the damper override is 0.0 at or inside the band, released at cooling setpoint + 0.5 K, and the hysteresis holds;
+  - a zone held at the raised setpoint re-closes (the damper duty-cycles);
+  - at the 19:00 tick standby ends even though the latest baseline still reads 24 °C;
   - leaving standby releases the damper;
   - the baseline run never gets a damper override;
   - heartbeat timeout releases only slot 10.

@@ -18,7 +18,9 @@ Person B's half of SpotCool is the **world**: the simulated building that the ag
 **The flow for each WP:**
 1. **Cut** `wp/<id>-<slug>` from the current `world/main`, so the WP builds on every WP finished before it. That is the sequential stack.
 2. **The agent builds it.** The lead re-runs the checks (the four in the definition of done, plus the live suite where it applies), and a separate reviewer agent reviews it. Fixes go in as their own commit.
-3. **The lead pushes the WP branch.** Then `git merge --no-ff` it into `world/main`, so the WP stays one revertible unit (`git revert -m 1 <merge>`). The lead re-runs the checks on the merged trunk and pushes `world/main`.
+3. **The lead pushes the WP branch and waits for its World CI run to be green** (`gh run list -R IAMMOJAHID/SpotCool-AI --branch wp/<id>-<slug>`). GitHub's Ubuntu runner is the second platform: the Windows laptop never takes POSIX-only paths. For example, a Linux-only SIGINT bug made CI fail from WP0 to WP2 unnoticed.
+   - **Merge only on green**, with `git merge --no-ff` into `world/main`, so the WP stays one revertible unit (`git revert -m 1 <merge>`).
+   - Then re-run the checks on the merged trunk, push `world/main`, and confirm its CI run is green too.
 4. **The handoff** branch is merged into `world/main` at the same milestone.
 
 **No pull requests between B's own branches.** Merges are local. A PR triggers the Claude review workflows, which spend `ANTHROPIC_API_KEY` credits. Every push still runs the free world CI. The PR from `world/main` into `dev` is the integration point, scheduled with Person A.
@@ -113,6 +115,7 @@ Then give the agent its brief:
     - The value actually applied (baseline or override) comes back under the input's `_u` name.
     - The contracts use these keys from `d1a52f7` (branch `wp/wp0-contracts-rest-keys`).
   - **Inputs latch.** An empty `/advance` body keeps the last override active, so send `<x>_activate: 0` to release it.
+  - **Values describe the step that just ended.** At a stamp, an applied setpoint (`_u`) reports the value that was in force during the preceding step, so schedule edges show one stamp late. The baseline core reads 30.0 °C at 06:00 and 24.0 °C from 06:15, then 24.0 °C at 19:00 and 30.0 °C from 19:15. HVAC power behaves the same: 10.5 kW at the 19:00 stamp, 0 from 19:15. Anything that needs the schedule for the coming step must use the occupied hours (06:00–19:00), not the last setpoint.
   - **`PUT /stop/{id}`** returns 200 with a non-JSON body. Afterwards `/status/{id}` answers 400 "Invalid testid".
   - **KPI keys:** `cost_tot`, `emis_tot`, `ener_tot`, `idis_tot`, `pdih_tot` (null), `pele_tot`, `pgas_tot` (null), `tdis_tot`, `time_rat`.
   - **Savings levers.** Every zone was treated as empty all day; the baseline uses 195.3 kWh for that day.
