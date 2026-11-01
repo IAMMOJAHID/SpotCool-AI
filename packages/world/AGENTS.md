@@ -394,6 +394,93 @@ dataset indexes and `CameraSceneProcessor` need only the core.
     on any address, fails its `run()` at once; Windows needs a check of its own for that
     (`SO_EXCLUSIVEADDRUSE` and a probe of the wildcard address).
 
+## Telemetry, recording and the dashboard feed
+
+These pieces turn the simulation into the numbers the video quotes, the stream the dashboard
+draws and a record any run can be replayed from. The processors need only the core; the
+dashboard server needs the `dashboard` extra and the report the `report` extra (matplotlib).
+
+- **Order.** `... -> CameraSceneProcessor -> TelemetryProcessor -> KpiProcessor ->
+  EventEmitterProcessor -> RecorderProcessor -> BusPublisher(bus)`. The KPI processor needs the
+  telemetry's summaries. The recorder goes after the emitter, before or after `BusPublisher`:
+  lockstep publishes a frame's events before the next frame reaches the recorder.
+- **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`summarize`): every
+  zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
+  (`power_kw`, BOPTEST's ElectricPower basis), their total, and the run's energy: the trapezoid
+  rule over the stamps from the run's initial state (`EnergyMeter`). A frame lacking a value
+  keeps no summary (a non-fatal error).
+- **`KpiProcessor`** scores both runs at each tick, once both runs' measurements stamped `t`
+  (the end of the step) have passed.
+  - Comfort where people were (K h, `comfort_kh`): the people of the latest
+    `ScenarioStateFrame` (the step that just ended, never `state_at(t)`), the band of the
+    baseline's applied setpoints at `t`; both runs get the same people and band.
+  - Energy saved (%): both runs' cumulative energy at the same stamp, on the SpotCool run only.
+  - A provisional `KpiFrame` per run every 4 steps, ahead of the tick, with `boptest` empty.
+  - At `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the plant's own
+    final one (BOPTEST's KPIs); the plants' frames are not passed on.
+  - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
+    computes them.
+- **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
+  (`frame_events`), ahead of the frame: tick (clock and day of year), run status, scenario
+  state, plant measurements (the summary), BMS write, KPI, VRF state, camera scene, calendar,
+  complaint cue (`data` only: the audio file name stays in the world), error, and one metrics
+  event per sample. Within a tick the `tick` event comes last.
+  - `ErrorFrame`s travel upstream, so the errors of processors above the emitter never reach
+    it. Turn them into events with `frame_events(error)` in the pipeline worker's
+    `on_pipeline_error`, which runs as a background task: a fatal one may arrive after the
+    recorder has finished (the manifest's `end_reason` then holds its message).
+- **One stream.** The topic `EVENTS_TOPIC` (`"events"`) carries the pipeline's events, the
+  occupant worker's delivery results (a second `complaint_cue` per cue, with `delivered` and
+  `detail`) and the agent's events from `/ws/agent`.
+- **`RecorderProcessor(settings)`** writes `settings.run_dir/<run_id>/`.
+  - `events.jsonl` (`serializers/jsonl.py`, the format `ReplayPlant` reads): every envelope on
+    the topic as an event record and every `PlantMeasurementsFrame` as a `RawRecord` (`index`
+    0: the initial state), in pipeline order. It subscribes in `setup()` (100 000 messages)
+    and takes the waiting events on every frame; a background task writes and flushes each
+    tick's records.
+  - `manifest.json` (`RunManifest`), at the `EndFrame` or `CancelFrame`: the run id, when it
+    started (UTC), how it ended and why, the settings (credentials in URLs and fields named like
+    secrets redacted), the git sha, both versions, the scenario's name and file sha256, the
+    plant and step, the start and end sim times, the final KPIs, and `dropped_events` (0 in a
+    valid record, a warning otherwise).
+  - Every recording failure is fatal: a run id outside `RUN_ID_PATTERN`, a directory that
+    already holds a record (never appended to), a failed write (no manifest then). A run that
+    never reaches its end frame keeps its flushed records, without a manifest.
+  - Events published after the end frame has passed the recorder are not recorded: a delivery
+    still in flight, the occupant worker's "not sent" results at its `stop()`.
+  - Records are JSON: no image or audio bytes (`tests/telemetry/test_recorder.py` checks).
+- **Dashboard server**: `create_dashboard_app(bus, run_dir, dist_dir=None)`
+  (`transports/websocket/dashboard.py`).
+  - `/ws/events`: every envelope as JSON text. Each client gets its own subscription (1000
+    messages, the oldest dropped first), made before its handshake ends; what it sends is
+    ignored.
+  - `/ws/agent`: publish-only. One `EventEnvelope` per JSON text message, `source: "agent"`,
+    type perception, decision, explanation or chat, at most 64 KB and 20 messages a second per
+    connection; an invalid message is dropped and answered with `{"error": "..."}`. It never
+    sends world events.
+  - `GET /runs` (`{"runs": [...]}`); `GET /runs/{run_id}/events.jsonl` (422 for an id outside
+    `RUN_ID_PATTERN`, 404 for an unknown run); `GET /healthz`; `/` serves `apps/dashboard/dist`
+    if it exists when the app is made. CORS as in `create_http_app`.
+  - A failing socket ends only its own connection; `HttpServerWorker.stop()` closes them all.
+- **Report**: `spotcool-world report <run_id>` (`runner/report.py`) writes `report.md`,
+  `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under
+  the settings' `run_dir`. The series come from the raw records through the telemetry's
+  functions, the people from the `scenario_state` events, the KPIs from the manifest.
+  - Recovery: for each zone and arrival (people after a step with none), the minutes until the
+    zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
+    on. Arrivals that never recover are listed.
+  - The honesty note closes the report.
+- **Wiring (WP11).**
+  - One `InProcessBus` for `WorkerRunner(bus=...)`, `BusPublisher(bus)` and
+    `create_dashboard_app(bus, settings.run_dir)`. Serve the app with
+    `HttpServerWorker(app, settings.http_host, settings.dashboard_port)` under the runner and
+    stop it from `on_pipeline_finished`.
+  - Set `PipelineParams.scenario` to `settings.scenario` (a library name or a `.yaml` path), so
+    the manifest gets the file's sha256, and keep run ids inside `RUN_ID_PATTERN`.
+- **Example** `09_record_and_report.py` runs `hybrid_tuesday` on two RC plants with a stand-in
+  for the agent (it reads ground truth and puts empty zones on standby), records the run and
+  writes its report, in about 5 s. Keep runs out of the repo: `SPOTCOOL_WORLD_RUN_DIR=<dir>`.
+
 ## Key directories
 
 | Path | Contents |
