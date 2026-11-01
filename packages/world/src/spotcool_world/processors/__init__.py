@@ -6,6 +6,7 @@ from spotcool_world.processors.frame_processor import (
     FrameProcessor,
     FrameProcessorSetup,
 )
+from spotcool_world.processors.plant_processor import PlantProcessor
 from spotcool_world.processors.tick_source import TickSource
 
 __all__ = [
@@ -13,5 +14,6 @@ __all__ = [
     "FrameDirection",
     "FrameProcessor",
     "FrameProcessorSetup",
+    "PlantProcessor",
     "TickSource",
 ]

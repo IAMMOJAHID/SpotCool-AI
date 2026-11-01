@@ -40,7 +40,10 @@ Responses are wrapped as `{status, message, payload}`.
 - **Step size:** BOPTEST's default is 3600 s, so always `PUT step` 900 explicitly.
 - **Keep-alive:** a test is stopped after 15 idle minutes. If a run pauses, send a no-op request before that.
 - **Always `PUT stop`**: in `stop()`, in `finally:`, and on SIGINT. This is a shared, free service.
-- **Metrics:** emit `MetricsFrame`s for call latency and BOPTEST's own time ratio.
+- **Metrics:**
+  - Each step emits `plant_step_latency` (s) and `plant_time_ratio` (simulated seconds per wall second).
+  - The start-phase call latencies (select, scenario or initialize, step) go in one structured INFO log line.
+  - BOPTEST's own `time_rat` arrives in the `KpiFrame`.
 
 ## RC plant
 - **The contract to honour:** it returns the **same raw output names** as BOPTEST for every point the BMS map reads (see `packages/contracts/.../points/office_bms.yaml`): zone temperatures in K, the applied setpoints under their `_u` keys, CO₂, `V_flow`, all 7 power meters, `weaSta_reaWeaTDryBul_y` and `weaSta_reaWeaRelHum_y`.
@@ -55,7 +58,7 @@ Responses are wrapped as `{status, message, payload}`.
   - Accept `hvac_oveZonAct<Z>_yDam_u` overrides: flow is proportional to damper position, and 0 leaves only leakage (about 13–15 % of minimum flow).
   - Report the applied damper under `hvac_oveZonAct<Z>_yDam_u` and the flow under `hvac_reaZon<Z>_V_flow_y`.
   - Without this, the RC run can't bracket the occupied-standby savings.
-- **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 21 °C and 15.6 °C.
+- **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 20 °C occupied and 12 °C otherwise (BOPTEST's values, the Modelica Buildings G36 defaults).
 
   Document this in the module docstring. It is the RC stand-in for BOPTEST's controller, and the `_u` setpoint keys report it.
 - **Calibration note** (docstring): the RC plant is deliberately simple. It exists for speed and for the honesty bracket, where its "people heat" matches the cameras. It does not replace BOPTEST.
@@ -66,7 +69,7 @@ Responses are wrapped as `{status, message, payload}`.
 - On `SetpointCommandFrame` for its own run: store the overrides for the next step.
 - On `TickFrame`:
   1. `raw = await service.step(overrides)` (the baseline run always steps with an empty overrides map);
-  2. push `PlantMeasurementsFrame(run, raw)` downstream, then the tick.
+  2. push `PlantMeasurementsFrame(run, raw)` downstream, then the tick. The frame is stamped with the **end** of the step (`tick.sim_time_s + tick.step_s`), the instant the raw values describe, which matches the base `Frame` contract. `raw["time"]` equals it.
 - On `EndFrame` or `CancelFrame`: `kpis()`, push a `KpiFrame` (BOPTEST KPIs; `provisional=False`), then `stop()`.
 - Failures become `push_error(...)`. A BOPTEST failure mid-run is fatal.
 

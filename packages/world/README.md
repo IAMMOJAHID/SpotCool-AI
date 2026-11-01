@@ -5,8 +5,9 @@ real building. It is built the way [pipecat](https://github.com/pipecat-ai/pipec
 agents: frames flow through processors, a pipeline orders one tick of work, the two building
 plants step in parallel, workers run on a bus and a runner owns their lifecycle.
 
-WP0 provides the core framework only (frames, processors, pipelines, workers, bus, runner, clock,
-observers, settings and the service and transport base classes). Plants, BACnet devices, cameras,
+WP0 provides the core framework (frames, processors, pipelines, workers, bus, runner, clock,
+observers, settings and the service and transport base classes). WP1 adds the plants: BOPTEST
+(hosted or local), an RC model and replay, behind one `PlantService`. BACnet devices, cameras,
 scenarios and telemetry arrive in later work packages as providers under those bases.
 
 ```bash

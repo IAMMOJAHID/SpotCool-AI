@@ -213,7 +213,10 @@ class SetpointCommandFrame(DataFrame):
 
 @dataclass(kw_only=True)
 class PlantMeasurementsFrame(DataFrame):
-    """Measurements after a plant step.
+    """Measurements after a plant step, stamped with the end of the step they describe.
+
+    ``sim_time_s`` is the tick's time plus its ``step_s`` (BOPTEST's ``raw["time"]``), so the
+    10:15 values of the step that starts at 10:00 carry 10:15.
 
     Parameters:
         run: Which run produced them.

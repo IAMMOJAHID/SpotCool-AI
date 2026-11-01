@@ -31,7 +31,7 @@ A real BACnet/IP device, "SpotCool-Office-BMS" (instance 1001, UDP 47808), built
      - on `PlantMeasurementsFrame(run="spotcool")`, update every `read` point, converting units with `spotcool_world.adapters.units.to_bms`;
      - on `PlantMeasurementsFrame(run="baseline")`, update each setpoint's **relinquish default** from `relinquish_from_baseline`, which is the value the building's own schedule applies at this moment;
      - compute `HVAC-TOTAL-PWR` (the sum of 501–507) and `HVAC-ENERGY` (the integral since the run started);
-     - set `SIM-CLOCK`;
+     - set `SIM-CLOCK` from the measurement frame's `sim_time_s`, which is the end of the step the values describe;
      - on `ScenarioStateFrame`, set `WES-ENTRANCE-DOOR` from the West zone's `door_open`.
 3. **BMS logic** (`bms_logic.py`, pure and unit-tested). This is what a real BMS does on its own:
    - **Occupied-standby (ASHRAE 90.1-2019 §6.5.3.8; G36).** A zone is in standby once its `OCC-SENSOR` effective value has been Unoccupied for 5 sim-minutes or more during scheduled occupancy.
