@@ -71,8 +71,8 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **PipelineWorker / WorkerRunner / bus** | Runnable units on an in-process pub/sub bus; the runner handles signals and shutdown | `workers/`, `runner/`, `bus/` | done |
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
-| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras WP4 |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router done (WP5); cameras WP4, VRF WP3, WebSocket WP6 |
+| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras done (WP4) |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; VRF WP3, WebSocket WP6 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records done (WP1); dashboard JSON WP6 |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
@@ -94,9 +94,9 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-`TickSource`, `ScenarioProcessor`, `ParallelPipeline`, `PlantProcessor`, `FramePublisher`,
-`BusPublisher` and the BMS's `input()` and `output()` exist so far; the other processors are later
-work packages.
+`TickSource`, `ScenarioProcessor`, `ParallelPipeline`, `PlantProcessor`, `CameraSceneProcessor`,
+`FramePublisher`, `BusPublisher` and the BMS's `input()` and `output()` exist so far; the other
+processors are later work packages.
 
 ### Lifecycle
 
@@ -327,21 +327,88 @@ cues and clothing. `load_scenario`, `lint` and `compile_scenario` turn it into a
 - **Lint.** `spotcool-world lint [SCENARIO ...] [--clips DIR] [--step-s S]` prints
   `file:line: level: message` and exits 1 on any error. YAML anchors and aliases are refused.
 
+## Cameras
+
+The camera system plays a video recorder for A's agent: a catalog, one snapshot per camera, and
+an MJPEG stream for the dashboard. The providers need the `cameras` extra; the base, the
+dataset indexes and `CameraSceneProcessor` need only the core.
+
+- **Pieces.**
+  - `CameraService` (`services/camera_service.py`) is one camera's provider: `ZoneCamera`
+    (`services/clips/`) for each zone, `PhoneCamera` (`services/live/`) for the live phone.
+  - `CameraSystem` runs the cameras from `start()` to `stop()`. `create_cameras(settings)` builds
+    the five zone cameras, plus `cam-meeting-live` when `live_camera_url` is set.
+  - `CameraSceneProcessor` sets every zone camera's scene and people count from each
+    `ScenarioStateFrame`. It pushes a `CameraSceneFrame` per camera whose scene changed, and for
+    every camera on a run's first state.
+  - `create_http_app([cameras_router(cameras), calendar_router(store)])` is the world's one HTTP
+    app. `HttpServerWorker(app, host, port)` (`workers/http_server.py`) serves any FastAPI app
+    with uvicorn, WebSocket routes and lifespan handlers included: this one on
+    `http_host:http_port`, and WP6's dashboard on `http_host:dashboard_port`.
+- **Where a zone camera's frames come from**, per scene; the first source that opens wins:
+  1. our clip `footage_dir/clips/<zone>_<scene>.mp4`;
+  2. the camera and scene's segment in a dataset index, `footage_dir/datasets/<name>/index.yaml`
+     (format in `scripts/footage/wisenet_index.py`). Indexes are tried in folder-name order, and
+     segments whose file is missing are left out. An index with a time that is not finite, or a
+     file that leads outside its folder (links followed), is refused;
+  3. synthetic frames: one coloured silhouette per person, with the camera and scene as caption.
+
+  The catalog's `source` is `dataset` for a dataset segment, else `scenario`. The choice is
+  logged once per camera and scene.
+- **Playback.** The scene follows sim time, the frames follow wall time. A new scene starts at its
+  clip's first frame, plays in real time and loops. Clips are not time-compressed: at
+  `speed=300` a 15-minute step lasts 3 s, so a scene shows only its first seconds. A run that
+  must show a clip's action, such as the 14:15 complaint (5-15 s into `sou_complaint.mp4`),
+  runs at `speed=60` or slower.
+- **Load.** Each zone camera makes `snapshot_fps` (5) frames a wall second in a worker thread,
+  because OpenCV blocks and the event loop runs the lockstep tick. It skips the frames in
+  between with `grab()` and keeps only its latest JPEG (1280x720, quality 80). A camera has no
+  frame until its first scene.
+- **HTTP.**
+  - `GET /cameras`: the catalog, with URLs built from the request.
+  - `GET /cameras/{id}/snapshot.jpg`: `image/jpeg` with `Cache-Control: no-store`. It answers 404
+    for an unknown id, 422 for a malformed one and 503 before the first frame, and sets
+    `X-Camera-Stale: 1` on a frame 5 s old or older.
+  - `GET /cameras/{id}/mjpeg`: new frames only, at most 5 a second. It ends when the client
+    disconnects or the server stops.
+  - `GET /healthz`. CORS lets `http://127.0.0.1:*` and `http://localhost:*` read every GET,
+    including the stale header.
+- **The live phone.** `PhoneCamera` polls `live_camera_url` at 2 fps with a 2 s timeout. It serves
+  only an HTTP 200 JPEG under 5 MB that decodes, as it came, and reports its size in the
+  catalog. It keeps the last good frame. It has no zone: it films the real room of the VRF
+  demo. A failing phone is logged when it starts and stops failing, and is never fatal. Logs
+  show the URL without its user name and password.
+- **Privacy (Law 6).** Frames stay in memory; nothing writes them, and camera code logs
+  `type(exc).__name__` and the message, never a traceback. `tests/cameras/test_privacy.py`
+  serves 50 snapshots and three MJPEG parts while `open` and `io.open` in write modes, `os.open`
+  with `O_WRONLY`, `O_RDWR` or `O_CREAT`, `cv2.imwrite` and `cv2.VideoWriter` all fail. It then
+  checks that none was called, and that the loguru records, the stdlib log records and the
+  process's stdout and stderr hold no JPEG bytes: raw, escaped (`\xff\xd8\xff`), hex
+  (`ffd8ff`) or base64 (`/9j/`).
+- **Wiring (WP11).**
+  - `cameras = create_cameras(settings)`; `await cameras.start()` before the runner, and
+    `await cameras.stop()` after it.
+  - Pass the same object to `CameraSceneProcessor` (after `bms.output()`) and `cameras_router`.
+  - Run `HttpServerWorker(app, settings.http_host, settings.http_port)` under the runner and
+    stop it from `on_pipeline_finished`, like the occupant worker. A port another program holds,
+    on any address, fails its `run()` at once; Windows needs a check of its own for that
+    (`SO_EXCLUSIVEADDRUSE` and a probe of the wildcard address).
+
 ## Key directories
 
 | Path | Contents |
 |---|---|
 | `src/spotcool_world/frames/` | Frame classes |
-| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `FramePublisher`, `BusPublisher`; future processors |
+| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `FramePublisher`, `BusPublisher`; future processors |
 | `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
-| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`; the VRF worker arrives with WP3 |
+| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port); the VRF worker arrives with WP3 |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
 | `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
-| `src/spotcool_world/services/` | `PlantService`, `CameraService`, `WorldSettings`, `create_plant`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
-| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (the calendar router; cameras with WP4), `websocket/` |
+| `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
+| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` |
 | `src/spotcool_world/devices/` | Equipment models (`vrf/`) |
 | `src/spotcool_world/scenarios/` | Scenario DSL, linter, compiler, library |
 | `src/spotcool_world/adapters/` | Unit conversion; Haystack and vendor maps later |
@@ -474,5 +541,29 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   Add Remote Bacnet/IP node: `1001 - 127.0.0.1:47809`. No Who-Is broadcast is needed.
 - A port already in use fails `BacnetBmsTransport.start()` with `[WinError 10048] Only one usage
   of each socket address`: another BACnet program (or YABE in exclusive-socket mode) holds it.
+- **The firewall blocks the HTTP server (cameras, calendar) from other PCs**, such as A's agent.
+  Allow TCP 8081 once, in an elevated PowerShell (add `Public` to `-Profile` if Windows calls the
+  network public, as it usually does a phone's hotspot; undo with
+  `Remove-NetFirewallRule -DisplayName "SpotCool HTTP"`). The phone needs no rule: the world
+  polls it.
+
+  ```powershell
+  New-NetFirewallRule -DisplayName "SpotCool HTTP" -Direction Inbound -Protocol TCP -LocalPort 8081 -Action Allow -Profile Domain,Private
+  ```
+
+- **The live phone camera (manual).**
+  1. On the Android phone, install "IP Webcam" (by Pavel Khlebovich) from Google Play. In its
+     settings, set Video preferences > Video resolution to 1280x720.
+  2. Put the phone and this PC on one network: turn the phone's hotspot on and join it from the
+     PC, or join both to the same Wi-Fi. A's PC joins that network too, to reach the world.
+  3. Plug the phone into a charger, then tap "Start server" at the bottom of the app's settings.
+     The screen shows the phone's address, such as `http://192.168.43.1:8080`. Newer Android
+     versions pick a new hotspot subnet each time, so read it every time.
+  4. On this PC, open `http://<address>/shot.jpg` in a browser: it shows one photo.
+  5. Try it with `07_camera_catalog.py --live-url http://<address>/shot.jpg`: the catalog lists
+     `cam-meeting-live` and its snapshot is the phone's view. For a world run, set
+     `SPOTCOOL_WORLD_LIVE_CAMERA_URL` (or `live_camera_url` in `world.yaml`) to the same URL.
+  6. Stop the app's server for 10 s, then start it again: meanwhile the snapshot keeps the last
+     frame and carries `X-Camera-Stale: 1` after 5 s, and the console warns once.
 - Git Bash and PowerShell set environment variables differently (`export X=...` vs
   `$env:X = "..."`).

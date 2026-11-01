@@ -21,10 +21,11 @@ cameras = [
     "uvicorn[standard]>=0.30,<1",
     "numpy>=1.26,<3",
     "opencv-python-headless>=4.10,<5",
+    "httpx>=0.27,<1",
 ]
 rc = ["numpy>=1.26,<3"]
 dashboard = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
-calendar = ["fastapi>=0.115,<1"]
+calendar = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
 occupants = ["httpx>=0.27,<1"]
 video = []
 

@@ -43,13 +43,19 @@ class WorldSettings(BaseSettings):
             ``None`` for the machine's primary IPv4 address.
         bms_port: UDP port of the virtual BMS (BACnet/IP).
         vrf_port: UDP port of the VRF gateway (BACnet/IP).
+        http_host: Address the HTTP server (cameras and calendar) binds; ``0.0.0.0`` takes every
+            interface, because A's agent may connect from another PC.
         http_port: HTTP port for the camera catalog and the room calendar.
         dashboard_port: Port of the dashboard event stream.
         agent_base_url: Base URL of Person A's agent (``/chat``, ``/voice``).
         run_dir: Directory for recorded runs.
         footage_dir: Filmed footage, outside the repo (usually ``C:/Users/hussa/dev/footage``):
-            camera clips in ``clips/``, voice complaints in ``audio/``. ``None`` when there is
-            none; voice cues then fall back to chat.
+            camera clips in ``clips/``, voice complaints in ``audio/``, and public dataset
+            footage with its index in ``datasets/<name>/index.yaml``. ``None`` when there is
+            none; the cameras then draw synthetic frames and voice cues fall back to chat.
+        live_camera_url: Snapshot URL of the phone behind the live camera ``cam-meeting-live``,
+            such as ``http://192.168.43.1:8080/shot.jpg`` from the "IP Webcam" app; ``None``
+            leaves that camera out of the catalog.
         vrf_profile: VRF gateway brand profile.
         log_level: Loguru level.
     """
@@ -75,11 +81,13 @@ class WorldSettings(BaseSettings):
     bms_address: str | None = None
     bms_port: Port = 47808
     vrf_port: Port = 47810
+    http_host: str = "0.0.0.0"
     http_port: Port = 8081
     dashboard_port: Port = 8090
     agent_base_url: str = "http://127.0.0.1:8002"
     run_dir: Path = Path("runs")
     footage_dir: Path | None = None
+    live_camera_url: str | None = None
     vrf_profile: Literal["mitsubishi", "daikin", "lg"] = "mitsubishi"
     log_level: str = "INFO"
 
