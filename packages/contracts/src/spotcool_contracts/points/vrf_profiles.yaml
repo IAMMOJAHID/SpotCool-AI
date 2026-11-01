@@ -1,0 +1,21 @@
+# Brand profiles for the simulated VRF gateway. Contract v0.1.
+# A profile states which louver controls the brand's BACnet gateway actually exposes.
+profiles:
+  - vendor: mitsubishi
+    label: Mitsubishi Electric City Multi (BACnet gateway, "Air Direction Setup")
+    vane_vertical: {positions: 5, swing: true, angles_deg: [0, -15, -30, -45, -60]}
+    vane_horizontal: {positions: 5, swing: true, angles_deg: [-40, -20, 0, 20, 40]}
+    fan_speeds: [Auto, Low, Mid, High]
+    source_url: https://s3.amazonaws.com/enter.mehvac.com/DAMRoot/Original/10007/M_Submittal_LIC-BACnet.pdf
+  - vendor: daikin
+    label: Daikin VRV via iTM BACnet server gateway ("Airflow Direction")
+    vane_vertical: {positions: 5, swing: true, angles_deg: [0, -15, -30, -45, -60]}
+    vane_horizontal: null
+    fan_speeds: [Auto, Low, Mid, High]
+    source_url: https://daikincomfort.com/docs/default-source/itm-bacnet-server-gateway-option/ag-bacnet-gateways-overview.pdf
+  - vendor: lg
+    label: LG MultiSITE BACnet gateway (swing on/off only)
+    vane_vertical: {positions: 0, swing: true, angles_deg: []}
+    vane_horizontal: null
+    fan_speeds: [Auto, Low, Mid, High]
+    source_url: https://media.us.lg.com/m/733978669e75ee18/original/SB_MultiSITE_CM_PBACNBTR0A-pdf.pdf

@@ -1,0 +1,60 @@
+[project]
+name = "spotcool-ai"
+version = "0.0.0"
+description = "SpotCool AI monorepo: uv workspace root (not a package)."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<2",
+    "ruff>=0.8,<1",
+    "pyright>=1.1.390,<2",
+    "towncrier>=24.8,<26",
+    "pre-commit>=4,<5",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["**/node_modules", "video"]
+
+[tool.ruff.lint]
+# Same families pipecat enforces: async pitfalls, bugbear, docstrings, pyflakes, imports, pyupgrade.
+select = ["ASYNC", "B", "D", "E", "F", "I", "UP", "RUF006"]
+ignore = [
+    "D105", # magic methods document themselves
+    "D107", # __init__ is documented on the class (Args: section)
+    "E501", # line length is enforced by the formatter
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["spotcool_contracts", "spotcool_world"]
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = ["D"]
+"**/examples/**" = ["D"]
+"**/evals/**" = ["D"]
+"**/scripts/**" = ["D"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "standard"
+include = ["packages"]
+exclude = ["**/node_modules", "**/.venv", "**/build"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages"]
+asyncio_default_fixture_loop_scope = "function"
+markers = ["live: needs a running BOPTEST service (hosted, local Docker or Codespaces)"]
+addopts = "-m 'not live'"

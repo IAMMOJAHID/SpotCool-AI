@@ -61,3 +61,19 @@ Thumbs.db
 *.log
 logs/
 
+# Media and datasets: footage, audio and dataset archives stay outside the repo (AGENTS.md Law 6)
+*.mp4
+*.webm
+*.mov
+*.avi
+*.mkv
+*.wav
+*.zip
+data/datasets/
+
+# World runs, video renders and generated contract schemas
+runs/
+video/raw/
+video/renders/
+schemas/
+
