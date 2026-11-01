@@ -55,7 +55,7 @@ Responses are wrapped as `{status, message, payload}`.
   - Accept `hvac_oveZonAct<Z>_yDam_u` overrides: flow is proportional to damper position, and 0 leaves only leakage (about 13–15 % of minimum flow).
   - Report the applied damper under `hvac_oveZonAct<Z>_yDam_u` and the flow under `hvac_reaZon<Z>_V_flow_y`.
   - Without this, the RC run can't bracket the occupied-standby savings.
-- **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 21 °C and 15.6 °C.
+- **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 20 °C occupied and 12 °C otherwise (BOPTEST's values, the Modelica Buildings G36 defaults).
 
   Document this in the module docstring. It is the RC stand-in for BOPTEST's controller, and the `_u` setpoint keys report it.
 - **Calibration note** (docstring): the RC plant is deliberately simple. It exists for speed and for the honesty bracket, where its "people heat" matches the cameras. It does not replace BOPTEST.

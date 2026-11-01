@@ -1,0 +1,129 @@
+"""Run records: the JSONL file a recorded world run is kept in.
+
+A run directory (``runs/<run_id>/``) holds ``events.jsonl``: one JSON object per line, in
+pipeline order. Two kinds of record share the file:
+
+- ``{"kind": "event", "envelope": {...}}``: a dashboard event, exactly as published.
+- ``{"kind": "raw", "run": "spotcool", "index": 3, "sim_time_s": ..., "raw": {...}}``: one
+  plant run's BOPTEST outputs after step ``index``, for the replay plant to feed back.
+
+The recorder writes the file with ``RunWriter``; the replay plant and reports read it back with
+``read_records``. Records hold JSON only: never image or audio bytes.
+"""
+
+from collections.abc import Iterator
+from pathlib import Path
+from types import TracebackType
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+
+from spotcool_contracts.events import EventEnvelope, Run
+
+EVENTS_FILE = "events.jsonl"
+"""Name of the record file inside a run directory."""
+
+
+class RawRecord(BaseModel):
+    """One plant run's raw measurements after a step.
+
+    Parameters:
+        kind: Record discriminator, always ``raw``.
+        run: Which run produced the measurements.
+        index: Step number since the start of the run (the tick's index).
+        sim_time_s: Simulation time of the tick.
+        raw: BOPTEST output name to value, in BOPTEST units.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["raw"] = "raw"
+    run: Run
+    index: int = Field(ge=0)
+    sim_time_s: float
+    raw: dict[str, float]
+
+
+class EventRecord(BaseModel):
+    """One dashboard event.
+
+    Parameters:
+        kind: Record discriminator, always ``event``.
+        envelope: The event as it was published.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["event"] = "event"
+    envelope: EventEnvelope
+
+
+Record = RawRecord | EventRecord
+"""Any line of a run file."""
+
+_RECORD: TypeAdapter[Record] = TypeAdapter(Annotated[Record, Field(discriminator="kind")])
+
+
+class RunWriter:
+    """Appends records to a run file, one JSON line each.
+
+    Writes are buffered; ``flush()`` hands them to the operating system, so a reader (or a
+    crash) sees every record written before it. The recorder flushes once per tick. Use it as a
+    context manager, or call ``close()``.
+
+    Args:
+        path: The file to append to. Its directory is created if it does not exist.
+    """
+
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._file = path.open("a", encoding="utf-8", newline="\n")
+
+    def write(self, record: Record) -> None:
+        """Append one record.
+
+        Args:
+            record: The record.
+        """
+        self._file.write(record.model_dump_json() + "\n")
+
+    def flush(self) -> None:
+        """Hand the records written so far to the operating system."""
+        self._file.flush()
+
+    def close(self) -> None:
+        """Flush and close the file. Safe to call twice."""
+        self._file.close()
+
+    def __enter__(self) -> "RunWriter":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
+
+
+def read_records(path: Path) -> Iterator[Record]:
+    """Read a run file record by record, in the order it was written.
+
+    Args:
+        path: The run file.
+
+    Yields:
+        Each record; blank lines are skipped.
+
+    Raises:
+        ValueError: If a line is not a valid record (the message names the line).
+    """
+    with path.open(encoding="utf-8") as file:
+        for number, line in enumerate(file, start=1):
+            if not line.strip():
+                continue
+            try:
+                yield _RECORD.validate_json(line)
+            except ValidationError as exc:
+                raise ValueError(f"{path}:{number}: not a run record: {exc}") from exc

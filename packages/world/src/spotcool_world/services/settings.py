@@ -28,7 +28,9 @@ class WorldSettings(BaseSettings):
     Parameters:
         plant: Plant provider.
         boptest_url: Hosted BOPTEST service (plain HTTP: its HTTPS certificate expired).
-        boptest_local_url: Local BOPTEST Docker stack.
+        boptest_local_url: Local BOPTEST Docker stack (compose publishes ``web`` on port 8000),
+            or a GitHub Codespace forwarded to the same port.
+        replay_run: Recorded run (a directory under ``run_dir``) the ``replay`` plant feeds back.
         testcase: BOPTEST test case.
         time_period: BOPTEST scenario time period.
         scenario: World scenario name.
@@ -55,7 +57,8 @@ class WorldSettings(BaseSettings):
 
     plant: Literal["boptest-hosted", "boptest-local", "rc", "replay"] = "rc"
     boptest_url: str = "http://api.boptest.net"
-    boptest_local_url: str = "http://127.0.0.1:80"
+    boptest_local_url: str = "http://127.0.0.1:8000"
+    replay_run: str | None = None
     testcase: str = "multizone_office_simple_air"
     time_period: str = "peak_cool_day"
     scenario: str = "hybrid_tuesday"
