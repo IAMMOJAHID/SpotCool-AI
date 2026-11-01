@@ -38,6 +38,9 @@ class WorldSettings(BaseSettings):
         speed: Simulation seconds per wall second, or ``None`` to run as fast as possible.
         start_clock: Simulated time of day the run starts, ``HH:MM``.
         end_clock: Simulated time of day the run ends, ``HH:MM``.
+        bms_address: IPv4 address the virtual BMS (BACnet/IP) binds, optionally with a prefix
+            length that sets its broadcast domain (``192.168.1.20/24``; /24 without one), or
+            ``None`` for the machine's primary IPv4 address.
         bms_port: UDP port of the virtual BMS (BACnet/IP).
         vrf_port: UDP port of the VRF gateway (BACnet/IP).
         http_port: HTTP port for the camera catalog and the room calendar.
@@ -66,6 +69,7 @@ class WorldSettings(BaseSettings):
     speed: float | None = Field(default=300.0, gt=0)
     start_clock: ClockText = "07:00"
     end_clock: ClockText = "19:00"
+    bms_address: str | None = None
     bms_port: Port = 47808
     vrf_port: Port = 47810
     http_port: Port = 8081

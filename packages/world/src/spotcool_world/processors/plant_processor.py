@@ -29,7 +29,9 @@ day. It costs about a minute on BOPTEST and well under a second on the RC plant.
 class PlantProcessor(FrameProcessor):
     """Owns one plant run and steps it in lockstep with the ticks.
 
-    - ``StartFrame``: starts the plant at the run's start time and step.
+    - ``StartFrame``: starts the plant at the run's start time and step, passes the frame on,
+      then pushes the plant's initial state as a ``PlantMeasurementsFrame`` stamped with the
+      start time, so every point downstream has a value before the first step ends.
     - ``SetpointCommandFrame`` for this run: merged into the overrides for the next steps
       (``None`` releases an input). Names the catalog does not know are rejected as a whole
       command with a non-fatal error.
@@ -73,8 +75,15 @@ class PlantProcessor(FrameProcessor):
         await super().process_frame(frame, direction)
         if direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, StartFrame):
-                await self._start(frame)
-            elif isinstance(frame, SetpointCommandFrame) and frame.run == self._run:
+                initial = await self._start(frame)
+                await self.push_frame(frame, direction)  # downstream needs the start first
+                if initial is not None:
+                    measured = PlantMeasurementsFrame(
+                        run=self._run, raw=initial, sim_time_s=frame.start_time_s
+                    )
+                    await self.push_frame(measured)
+                return
+            if isinstance(frame, SetpointCommandFrame) and frame.run == self._run:
                 await self._command(frame)
             elif isinstance(frame, TickFrame):
                 await self._step(frame)
@@ -87,7 +96,8 @@ class PlantProcessor(FrameProcessor):
         await super().cleanup()
         await self._stop()
 
-    async def _start(self, frame: StartFrame) -> None:
+    async def _start(self, frame: StartFrame) -> dict[str, float] | None:
+        """Start the plant; return its initial state, or ``None`` if it failed to start."""
         params = PlantStartParams(
             start_time_s=frame.start_time_s,
             step_s=frame.step_s,
@@ -95,11 +105,12 @@ class PlantProcessor(FrameProcessor):
             time_period=self._time_period,
         )
         try:
-            await self._service.start(params)
+            initial = await self._service.start(params)
         except Exception as exc:
             await self.push_error(f"{self._run} plant failed to start: {exc}", fatal=True)
-            return
+            return None
         self._started = True
+        return initial
 
     async def _command(self, frame: SetpointCommandFrame) -> None:
         try:

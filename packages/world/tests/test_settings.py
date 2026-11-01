@@ -23,6 +23,7 @@ def test_defaults() -> None:
     assert settings.speed == 300.0
     assert (settings.start_clock, settings.end_clock) == ("07:00", "19:00")
     assert (settings.bms_port, settings.vrf_port) == (47808, 47810)
+    assert settings.bms_address is None  # the BMS binds the primary IPv4 address
     assert settings.run_dir == Path("runs")
 
 
@@ -31,11 +32,12 @@ def test_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SPOTCOOL_WORLD_STEP_S", "300")
     monkeypatch.setenv("SPOTCOOL_WORLD_SPEED", "none")
     monkeypatch.setenv("SPOTCOOL_WORLD_BMS_PORT", "47900")
+    monkeypatch.setenv("SPOTCOOL_WORLD_BMS_ADDRESS", "127.0.0.1")
     settings = WorldSettings()
     assert settings.plant == "boptest-hosted"
     assert settings.step_s == 300.0
     assert settings.speed is None
-    assert settings.bms_port == 47900
+    assert (settings.bms_address, settings.bms_port) == ("127.0.0.1", 47900)
 
 
 def test_world_yaml_is_read_and_env_wins(monkeypatch: pytest.MonkeyPatch) -> None:

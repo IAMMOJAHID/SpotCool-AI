@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 boptest = ["httpx>=0.27,<1"]
-bacnet = ["bacpypes3>=0.0.100,<0.1"]
+bacnet = ["bacpypes3==0.0.110"]  # pinned: the BMS works around this version's bugs
 cameras = [
     "fastapi>=0.115,<1",
     "uvicorn[standard]>=0.30,<1",

@@ -1072,7 +1072,7 @@ rc = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bacpypes3", marker = "extra == 'bacnet'", specifier = ">=0.0.100,<0.1" },
+    { name = "bacpypes3", marker = "extra == 'bacnet'", specifier = "==0.0.110" },
     { name = "fastapi", marker = "extra == 'cameras'", specifier = ">=0.115,<1" },
     { name = "fastapi", marker = "extra == 'dashboard'", specifier = ">=0.115,<1" },
     { name = "httpx", marker = "extra == 'boptest'", specifier = ">=0.27,<1" },

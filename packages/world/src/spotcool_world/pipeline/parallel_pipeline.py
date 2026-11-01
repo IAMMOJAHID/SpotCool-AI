@@ -9,7 +9,7 @@ import functools
 from collections.abc import Sequence
 from contextvars import ContextVar
 
-from spotcool_world.frames import Frame
+from spotcool_world.frames import Frame, StartFrame
 from spotcool_world.pipeline.pipeline import PipelineSink, PipelineSource, link_all
 from spotcool_world.processors.frame_processor import (
     FrameDirection,
@@ -42,7 +42,9 @@ class ParallelPipeline(FrameProcessor):
     Downstream: a frame entering is handed to every branch at once (``asyncio.gather``). What
     the branches push out at their bottom is buffered per branch and, after all branches have
     finished, pushed on downstream in branch order. The incoming frame itself (matched by id)
-    leaves once, after the branch outputs, provided at least one branch passed it on.
+    leaves once, after the branch outputs, provided at least one branch passed it on; a
+    ``StartFrame`` leaves before them instead, so everything downstream has started before the
+    branches' first data (such as a plant's initial state) arrives.
 
     Upstream: a frame entering from below goes into every branch at its bottom. Frames leaving
     the branches at the top are passed on immediately, deduplicated by id.
@@ -99,13 +101,16 @@ class ParallelPipeline(FrameProcessor):
         finally:
             collection.closed = True
             _collections.reset(token)
+        start_first = collection.forwarded and isinstance(frame, StartFrame)
+        if start_first:
+            await self.push_frame(frame, direction)
         seen = {frame.id}
         for outputs in collection.outputs:
             for output in outputs:
                 if output.id not in seen:
                     seen.add(output.id)
                     await self.push_frame(output, direction)
-        if collection.forwarded:
+        if collection.forwarded and not start_first:
             await self.push_frame(frame, direction)
 
     async def _run_branches(self, frame: Frame, direction: FrameDirection) -> None:
