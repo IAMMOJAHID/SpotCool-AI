@@ -26,12 +26,12 @@ async def record(path: Path, steps: int) -> tuple[list[dict[str, float]], dict[s
     recorded: list[dict[str, float]] = []
     with RunWriter(path) as writer:
         for index in range(steps):
-            tick_s = START.start_time_s + index * START.step_s
+            end_s = START.start_time_s + (index + 1) * START.step_s  # the frame's stamp
             raw = await spotcool.step({DAMPER: 0.0})
             recorded.append(raw)
-            writer.write(RawRecord(run="spotcool", index=index, sim_time_s=tick_s, raw=raw))
+            writer.write(RawRecord(run="spotcool", index=index, sim_time_s=end_s, raw=raw))
             other = await baseline.step({})
-            writer.write(RawRecord(run="baseline", index=index, sim_time_s=tick_s, raw=other))
+            writer.write(RawRecord(run="baseline", index=index, sim_time_s=end_s, raw=other))
             writer.flush()
         kpis = await spotcool.kpis()
         writer.write(kpi_event(KpiData(run="spotcool", boptest={"ener_tot": 9.0})))  # provisional
@@ -65,6 +65,29 @@ async def test_replay_can_start_at_any_recorded_tick(tmp_path: Path) -> None:
     assert await plant.step({}) == recorded[1]
     with pytest.raises(ValueError, match="no spotcool step"):
         await plant.start(START.model_copy(update={"start_time_s": later + 1}))
+
+
+@pytest.mark.asyncio
+async def test_replay_refuses_two_runs_in_one_file(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    await record(path, steps=2)
+    await record(path, steps=2)  # RunWriter appends: a reused run directory
+    with pytest.raises(ValueError, match="repeats spotcool step indices"):
+        await ReplayPlant(path, "spotcool").start(START)
+
+
+@pytest.mark.asyncio
+async def test_replay_refuses_a_gap_or_another_step_length(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    raw = {"time": 0.0}
+    with RunWriter(path) as writer:
+        for index, end_s in enumerate([900.0, 1800.0, 3600.0]):  # the tick at 1800 s is missing
+            writer.write(RawRecord(run="spotcool", index=index, sim_time_s=end_s, raw=raw))
+    plant = ReplayPlant(path, "spotcool")
+    with pytest.raises(ValueError, match="step 2 is not 900.0 s after step 1"):
+        await plant.start(PlantStartParams(start_time_s=0.0, step_s=900.0))
+    with pytest.raises(ValueError, match="no spotcool step"):  # recorded at 900 s, not 600 s
+        await plant.start(PlantStartParams(start_time_s=0.0, step_s=600.0))
 
 
 @pytest.mark.asyncio

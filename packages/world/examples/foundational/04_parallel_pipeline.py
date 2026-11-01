@@ -35,9 +35,8 @@ class FakePlant(FrameProcessor):
         if isinstance(frame, TickFrame):
             await asyncio.sleep(self._delay_s)
             raw = {"res_PHvac_y": self._power_kw * 1000}  # BOPTEST reports watts
-            await self.push_frame(
-                PlantMeasurementsFrame(run=self._run, raw=raw, sim_time_s=frame.sim_time_s)
-            )
+            end_s = (frame.sim_time_s or 0) + frame.step_s  # measured at the end of the step
+            await self.push_frame(PlantMeasurementsFrame(run=self._run, raw=raw, sim_time_s=end_s))
         await self.push_frame(frame, direction)
 
 

@@ -91,6 +91,9 @@ async def test_every_point_map_read_is_measured(plant: PlantService) -> None:
     assert raw.keys() <= rest_names()  # BOPTEST's REST names only
     assert all(math.isfinite(value) for value in raw.values())
     assert plant.step_s == PARAMS.step_s
+    # The measurements describe the end of the step: PlantMeasurementsFrame's stamp.
+    assert first["time"] == pytest.approx(PARAMS.start_time_s, abs=1e-6)
+    assert raw["time"] == pytest.approx(PARAMS.start_time_s + PARAMS.step_s, abs=1e-6)
 
 
 @pytest.mark.asyncio

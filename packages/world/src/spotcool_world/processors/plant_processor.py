@@ -34,9 +34,9 @@ class PlantProcessor(FrameProcessor):
       (``None`` releases an input). Names the catalog does not know are rejected as a whole
       command with a non-fatal error.
     - ``TickFrame``: steps the plant (the baseline always with no overrides), then pushes a
-      ``PlantMeasurementsFrame`` stamped with the tick's time (values from the end of the
-      step) and a ``MetricsFrame`` (step latency, simulated seconds per wall second), then the
-      tick.
+      ``PlantMeasurementsFrame`` stamped with the end of the step (tick time plus ``step_s``,
+      the time the values describe), a ``MetricsFrame`` stamped with the tick's time (step
+      latency, simulated seconds per wall second), then the tick.
     - ``EndFrame`` or ``CancelFrame``: pushes the plant's final ``KpiFrame``, then stops it.
 
     A plant that fails to start or step is a fatal error: the run cannot go on without it.
@@ -121,9 +121,9 @@ class PlantProcessor(FrameProcessor):
             await self.push_error(f"{self._run} plant step failed: {exc}", fatal=True)
             return
         latency_s = time.perf_counter() - started
-        await self.push_frame(
-            PlantMeasurementsFrame(run=self._run, raw=raw, sim_time_s=frame.sim_time_s)
-        )
+        assert frame.sim_time_s is not None  # a TickFrame always has one
+        end_s = frame.sim_time_s + frame.step_s  # the raw values describe the end of the step
+        await self.push_frame(PlantMeasurementsFrame(run=self._run, raw=raw, sim_time_s=end_s))
         labels = {"run": self._run}
         samples = [MetricsData(name="plant_step_latency", value=latency_s, unit="s", labels=labels)]
         if latency_s > 0:

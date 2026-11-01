@@ -256,6 +256,14 @@ reader needs them to avoid a trap. When behaviour changes, update this file in t
 - `packages/contracts` is untouched unless the lead approved the change.
 - A reviewer agent that did not write the code has approved it.
 
+## Known limitations
+
+- **Ctrl+C during a plant start.** The first Ctrl+C queues a `CancelFrame`, which takes effect
+  only after the `StartFrame`, and so the plant's `start()`, returns. On BOPTEST that can be
+  minutes: the select and the warm-up. A second Ctrl+C cancels the start at once, and the start
+  path still stops its BOPTEST test (the stop request is shielded). Letting the first Ctrl+C
+  interrupt a start needs a change to the WP0 worker.
+
 ## Windows notes
 
 - Keep the venv outside OneDrive (`UV_PROJECT_ENVIRONMENT`); OneDrive sync locks files. uv's

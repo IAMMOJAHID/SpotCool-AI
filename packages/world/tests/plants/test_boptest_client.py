@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import pytest
+from loguru import logger
 
 from spotcool_contracts import Zone
 from spotcool_world.services import PlantStartParams
@@ -40,12 +41,19 @@ def answer(payload: Any, status: int = 200, message: str = "ok") -> httpx.Respon
     return httpx.Response(status, json={"status": status, "message": message, "payload": payload})
 
 
+def route_of(request: httpx.Request) -> str:
+    return request.url.path.strip("/").split("/")[0]
+
+
 class FakeBoptest:
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
-        self.select_failures = 0
         self.queued_polls = 0
         self.fail: dict[str, int] = {}  # route ("advance", "initialize", ...) -> status
+        self.once: dict[str, list[int | Exception]] = {}  # route -> one-shot answers, in order
+        self.delays: dict[str, float] = {}  # route -> seconds to answer
+        self.busy = 0  # requests being answered right now
+        self.pings_while_busy = 0
         self.period_over = False
         self.applied: dict[str, float] = {}
         self.time = 0.0
@@ -53,7 +61,7 @@ class FakeBoptest:
         self.stopped: list[str] = []
 
     def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self.handle)
+        return httpx.MockTransport(self.handle_slowly)
 
     def calls(self, path: str) -> list[httpx.Request]:
         return [r for r in self.requests if r.url.path == path]
@@ -61,23 +69,35 @@ class FakeBoptest:
     def bodies(self, path: str) -> list[dict[str, Any]]:
         return [json.loads(r.content) if r.content else {} for r in self.calls(path)]
 
+    async def handle_slowly(self, request: httpx.Request) -> httpx.Response:
+        if route_of(request) == "name" and self.busy:
+            self.pings_while_busy += 1
+        self.busy += 1
+        try:
+            await asyncio.sleep(self.delays.get(route_of(request), 0.0))
+            return self.handle(request)
+        finally:
+            self.busy -= 1
+
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         if request.headers.get("content-type") == "application/json" and not request.content:
             return httpx.Response(500, text="Unexpected end of JSON input")
         path = request.url.path
-        route = path.strip("/").split("/")[0]
+        route = route_of(request)
         body = json.loads(request.content) if request.content else {}
         if route in self.fail:
             return answer(None, self.fail[route], f"{route} failed")
+        if self.once.get(route):
+            failure = self.once[route].pop(0)
+            if isinstance(failure, Exception):
+                raise failure
+            return answer(None, failure, f"{route} failed once")
         if route == "version":
             return answer({"version": "0.9.0"})
         if route == "testcases":
             if path != SELECT:
                 return httpx.Response(404, text="Not Found")
-            if self.select_failures:
-                self.select_failures -= 1
-                return httpx.Response(503, text="Service Unavailable")
             return httpx.Response(200, json={"testid": TESTID})
         if TESTID in self.stopped:
             return httpx.Response(400, json={"errors": [{"msg": f"Invalid testid: {TESTID}"}]})
@@ -210,13 +230,29 @@ async def test_bad_inputs_never_reach_boptest() -> None:
 
 
 @pytest.mark.asyncio
-async def test_select_retries_transient_failures_and_waits_for_running() -> None:
+async def test_select_retries_only_what_created_nothing_and_waits_for_running() -> None:
     fake = FakeBoptest()
-    fake.select_failures, fake.queued_polls = 2, 2
+    fake.once["testcases"] = [httpx.ConnectError("connection refused"), 429]
+    fake.once["status"] = [503]  # a status poll is safe to retry on any transient failure
+    fake.queued_polls = 2
     client = BoptestClient(URL, poll_s=0.0, backoff_s=0.001, transport=fake.transport())
     assert await client.select(CATALOG.testcase) == TESTID
-    assert (len(fake.calls(SELECT)), len(fake.calls(f"/status/{TESTID}"))) == (3, 3)
+    assert (len(fake.calls(SELECT)), len(fake.calls(f"/status/{TESTID}"))) == (3, 4)
     await client.stop(TESTID)
+    await client.aclose()
+
+
+@pytest.mark.parametrize(
+    "failure", [503, httpx.ReadTimeout("no answer")], ids=["server-error", "no-answer"]
+)
+@pytest.mark.asyncio
+async def test_select_fails_fast_when_a_test_may_have_been_created(failure: Any) -> None:
+    fake = FakeBoptest()
+    fake.once["testcases"] = [failure]
+    client = BoptestClient(URL, backoff_s=0.001, transport=fake.transport())
+    with pytest.raises(BoptestError, match="may have been created .* 15 idle minutes"):
+        await client.select(CATALOG.testcase)
+    assert len(fake.calls(SELECT)) == 1  # a retry could start a second test
     await client.aclose()
 
 
@@ -260,10 +296,25 @@ async def test_a_failed_step_raises_and_the_test_is_stopped_once() -> None:
     fake.fail["advance"] = 500
     with pytest.raises(BoptestError, match="HTTP 500"):
         await plant.step({})
+    assert len(fake.calls(f"/advance/{TESTID}")) == 1  # never retried: it may have run
     await plant.stop()
     await plant.stop()
     assert fake.stopped == [TESTID]
     assert [name for name, _ in plant.client.calls][-1] == "PUT stop"
+
+
+@pytest.mark.asyncio
+async def test_an_advance_without_an_answer_is_not_retried() -> None:
+    fake = FakeBoptest()
+    plant = make_plant(fake)
+    await plant.start(START)
+    fake.once["advance"] = [httpx.ReadTimeout("no answer")]
+    with pytest.raises(BoptestError, match="ReadTimeout") as raised:
+        await plant.step({})
+    assert raised.value.status is None and not raised.value.unsent
+    assert len(fake.calls(f"/advance/{TESTID}")) == 1  # a retry would step the test twice
+    await plant.stop()
+    assert fake.stopped == [TESTID]
 
 
 @pytest.mark.asyncio
@@ -309,6 +360,62 @@ async def test_keep_alive_pings_an_idle_test_until_stopped() -> None:
     await asyncio.sleep(0.06)
     assert pings >= 1
     assert len(fake.calls(f"/name/{TESTID}")) == pings
+
+
+@pytest.mark.asyncio
+async def test_keep_alive_waits_for_a_long_call_in_flight() -> None:
+    fake = FakeBoptest()
+    fake.delays["initialize"] = 0.3  # a warm-up six keep-alive periods long
+    plant = make_plant(fake, keepalive_s=0.05)
+    await plant.start(START)
+    await plant.stop()
+    assert fake.pings_while_busy == 0
+
+
+@pytest.mark.asyncio
+async def test_keep_alive_stays_quiet_while_calls_flow() -> None:
+    fake = FakeBoptest()
+    plant = make_plant(fake, keepalive_s=0.05)
+    await plant.start(START)
+    for _ in range(15):
+        await plant.step({})
+        await asyncio.sleep(0.01)
+    await plant.stop()
+    assert not fake.calls(f"/name/{TESTID}")
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_stop_still_frees_the_worker() -> None:
+    fake = FakeBoptest()
+    fake.delays["stop"] = 0.1
+    plant = make_plant(fake)
+    await plant.start(START)
+    stopping = asyncio.ensure_future(plant.stop())
+    await asyncio.sleep(0.02)  # the stop request is in flight
+    stopping.cancel()  # a second Ctrl+C
+    with pytest.raises(asyncio.CancelledError):
+        await stopping
+    await asyncio.sleep(0.2)
+    assert fake.stopped == [TESTID]
+    await plant.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_start_logs_its_call_latencies_on_one_line() -> None:
+    fake = FakeBoptest()
+    plant = make_plant(fake)
+    records: list[Any] = []
+    sink = logger.add(lambda message: records.append(message.record), level="INFO")
+    try:
+        await plant.start(START)
+    finally:
+        logger.remove(sink)
+        await plant.stop()
+    lines = [r for r in records if r["message"].startswith("BOPTEST start:")]
+    assert len(lines) == 1
+    assert lines[0]["level"].name == "INFO"
+    assert lines[0]["message"].startswith(f"BOPTEST start: test={TESTID} select_s=")
+    assert {"select_s", "initialize_s", "put_step_s"} <= lines[0]["extra"].keys()
 
 
 @pytest.mark.asyncio

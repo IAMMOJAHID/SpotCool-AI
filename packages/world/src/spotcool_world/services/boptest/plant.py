@@ -14,6 +14,7 @@ the override when active); the point maps read those ``_u`` keys.
 """
 
 import asyncio
+import time
 from collections.abc import Mapping
 
 from loguru import logger
@@ -82,6 +83,9 @@ class BoptestPlant(PlantService):
     async def start(self, params: PlantStartParams) -> dict[str, float]:
         """Select a test (first call only) and initialize it; on failure, stop the test.
 
+        The latency of each call (select, scenario or initialize, step) goes to one INFO
+        line, also bound as structured fields.
+
         Args:
             params: Start time, step, warm-up and BOPTEST time period.
 
@@ -92,21 +96,33 @@ class BoptestPlant(PlantService):
         at_period_start = (
             period is not None and params.start_time_s == self._catalog.period_start_s(period)
         )
+        latencies: dict[str, float] = {}
         try:
             if self._testid is None:
+                started = time.perf_counter()
                 self._testid = await self._client.select(self._testcase)
+                latencies["select_s"] = time.perf_counter() - started
                 self._tasks.create_task(self._keep_alive(), "boptest-keep-alive")
+            started = time.perf_counter()
             if period is not None and at_period_start:
                 state = await self._client.set_scenario(self._testid, time_period=period)
+                latencies["scenario_s"] = time.perf_counter() - started
             else:
                 state = await self._client.initialize(
                     self._testid, params.start_time_s, params.warmup_s
                 )
+                latencies["initialize_s"] = time.perf_counter() - started
+            started = time.perf_counter()
             await self._client.set_step(self._testid, params.step_s)
+            latencies["put_step_s"] = time.perf_counter() - started
         except BaseException:
             await self.stop()
             raise
         self._step_s = params.step_s
+        fields = " ".join(f"{name}={seconds:.2f}" for name, seconds in latencies.items())
+        logger.bind(testid=self._testid, **latencies).info(
+            f"BOPTEST start: test={self._testid} {fields}"
+        )
         return state
 
     async def step(self, overrides: Mapping[str, float | None]) -> dict[str, float]:
@@ -142,12 +158,17 @@ class BoptestPlant(PlantService):
         return await self._client.kpis(self._require_testid())
 
     async def stop(self) -> None:
-        """Stop the test (freeing its worker) and close the client. Safe to call twice."""
+        """Stop the test (freeing its worker) and close the client. Safe to call twice.
+
+        The stop request is shielded, so cancelling this call (a second Ctrl+C) does not abort
+        it while the event loop keeps running.
+        """
         await self._tasks.cancel_all()
         self._step_s = None
         testid, self._testid = self._testid, None
         if testid is not None:
-            await self._client.stop(testid)
+            # Shielded: a second Ctrl+C must not abort freeing a worker of a shared service.
+            await asyncio.shield(self._client.stop(testid))
         await self._client.aclose()
 
     def _require_testid(self) -> str:

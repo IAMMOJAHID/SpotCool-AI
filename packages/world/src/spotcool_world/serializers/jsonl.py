@@ -8,7 +8,8 @@ pipeline order. Two kinds of record share the file:
   plant run's BOPTEST outputs after step ``index``, for the replay plant to feed back.
 
 The recorder writes the file with ``RunWriter``; the replay plant and reports read it back with
-``read_records``. Records hold JSON only: never image or audio bytes.
+``read_records``. Records hold JSON only: never image or audio bytes. A process killed while
+writing leaves a torn last line; ``read_records`` skips it with a warning.
 """
 
 from collections.abc import Iterator
@@ -16,6 +17,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Annotated, Literal
 
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from spotcool_contracts.events import EventEnvelope, Run
@@ -31,11 +33,13 @@ class RawRecord(BaseModel):
         kind: Record discriminator, always ``raw``.
         run: Which run produced the measurements.
         index: Step number since the start of the run (the tick's index).
-        sim_time_s: Simulation time of the tick.
-        raw: BOPTEST output name to value, in BOPTEST units.
+        sim_time_s: Simulation time the measurements describe: the end of step ``index``, as
+            on the ``PlantMeasurementsFrame``.
+        raw: BOPTEST output name to value, in BOPTEST units. Values must be finite: JSON has
+            no NaN, so one would come back as an unreadable null.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     kind: Literal["raw"] = "raw"
     run: Run
@@ -114,10 +118,11 @@ def read_records(path: Path) -> Iterator[Record]:
         path: The run file.
 
     Yields:
-        Each record; blank lines are skipped.
+        Each record; blank lines are skipped, and so, with a warning, is a torn last line
+        (no newline, not a record: the writer was killed mid-line).
 
     Raises:
-        ValueError: If a line is not a valid record (the message names the line).
+        ValueError: If any other line is not a valid record (the message names the line).
     """
     with path.open(encoding="utf-8") as file:
         for number, line in enumerate(file, start=1):
@@ -126,4 +131,7 @@ def read_records(path: Path) -> Iterator[Record]:
             try:
                 yield _RECORD.validate_json(line)
             except ValidationError as exc:
+                if not line.endswith("\n"):  # only the last line can lack its newline
+                    logger.warning(f"{path}:{number}: skipping a torn last record")
+                    return
                 raise ValueError(f"{path}:{number}: not a run record: {exc}") from exc

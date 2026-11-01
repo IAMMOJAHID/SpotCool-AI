@@ -1,6 +1,8 @@
+import math
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from spotcool_contracts.events import EventEnvelope, EventSource, EventType, KpiData
 from spotcool_world.serializers import EventRecord, RawRecord, RunWriter, read_records
@@ -47,3 +49,23 @@ def test_a_bad_line_is_reported_with_its_number(tmp_path: Path) -> None:
     path.write_text(RAW.model_dump_json() + "\n\n" + '{"kind": "raw"}\n', encoding="utf-8")
     with pytest.raises(ValueError, match=r"events\.jsonl:3: not a run record"):
         list(read_records(path))
+
+
+def test_a_torn_last_line_is_skipped_but_a_torn_middle_line_is_not(tmp_path: Path) -> None:
+    torn = RAW.model_dump_json()[:25]  # the writer was killed mid-line
+    path = tmp_path / "events.jsonl"
+    path.write_text(RAW.model_dump_json() + "\n" + torn, encoding="utf-8")
+    assert list(read_records(path)) == [RAW]
+    path.write_text(RAW.model_dump_json() + "\n" + torn + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"events\.jsonl:2"):
+        list(read_records(path))
+    path.write_text(RAW.model_dump_json(), encoding="utf-8")  # a whole record, no newline
+    assert list(read_records(path)) == [RAW]
+
+
+@pytest.mark.parametrize("value", [math.nan, math.inf])
+def test_non_finite_values_are_refused_before_writing(value: float) -> None:
+    with pytest.raises(ValidationError):
+        RawRecord(run="spotcool", index=0, sim_time_s=0.0, raw={"x_y": value})
+    with pytest.raises(ValidationError):
+        RawRecord(run="spotcool", index=0, sim_time_s=value, raw={})

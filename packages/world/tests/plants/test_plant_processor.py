@@ -15,11 +15,13 @@ from spotcool_world.frames import (
     SetpointCommandFrame,
     TickFrame,
 )
-from spotcool_world.pipeline import PipelineParams
-from spotcool_world.processors import PlantProcessor
+from spotcool_world.pipeline import Pipeline, PipelineParams
+from spotcool_world.processors import FrameDirection, FrameProcessor, PlantProcessor
+from spotcool_world.runner import WorkerRunner
 from spotcool_world.services import PlantService, PlantStartParams
 from spotcool_world.services.boptest.catalog import bms_signal
 from spotcool_world.testing import run_test
+from spotcool_world.workers import PipelineWorker
 
 CORE = bms_signal("ZN-COR-CLG-SP", write=True)
 START_S = 198 * 86_400 + 7 * 3600
@@ -111,10 +113,12 @@ async def test_ticks_step_the_plant_and_the_end_brings_kpis_then_stop() -> None:
     ]
     measured = down[1]
     assert isinstance(measured, PlantMeasurementsFrame)
-    assert (measured.run, measured.raw, measured.sim_time_s) == ("spotcool", {"time": 2.0}, START_S)
+    assert (measured.run, measured.raw) == ("spotcool", {"time": 2.0})
+    assert measured.sim_time_s == START_S + 900.0  # the end of the step the values describe
     metrics = down[2]
     assert isinstance(metrics, MetricsFrame)
     assert [s.name for s in metrics.samples] == ["plant_step_latency", "plant_time_ratio"]
+    assert metrics.sim_time_s == START_S  # the tick's time
     kpis = down[-1]
     assert isinstance(kpis, KpiFrame)
     assert (kpis.data.run, kpis.data.boptest, kpis.data.provisional) == (
@@ -175,3 +179,37 @@ async def test_a_failed_start_is_fatal_and_nothing_steps() -> None:
     )
     assert [f.fatal for f in up if isinstance(f, ErrorFrame)] == [True]
     assert [call for call, _ in plant.calls] == ["start", "stop"]
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_on_a_healthy_plant_brings_kpis_then_stop() -> None:
+    plant = FakePlant()
+    down, _ = await run_test(  # the cancel jumps the queued tick, as a Ctrl+C does
+        PlantProcessor(plant, "spotcool"),
+        frames_to_send=[tick(0), CancelFrame(reason="ctrl-c")],
+        send_end=False,
+        params=params(),
+    )
+    assert [call for call, _ in plant.calls] == ["start", "kpis", "stop"]
+    assert any(isinstance(f, KpiFrame) for f in down)
+
+
+class Crash(FrameProcessor):
+    """A later processor that raises on every tick."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TickFrame):
+            raise RuntimeError("a later processor crashed")
+        await self.push_frame(frame, direction)
+
+
+@pytest.mark.asyncio
+async def test_a_crash_elsewhere_still_stops_the_plant_in_cleanup() -> None:
+    plant = FakePlant()
+    pipeline = Pipeline([PlantProcessor(plant, "spotcool"), Crash()])
+    worker = PipelineWorker(pipeline, params=params())
+    await worker.queue_frames([tick(0)])
+    with pytest.raises(RuntimeError, match="crashed"):
+        await WorkerRunner(handle_sigint=False).run(worker)
+    assert [call for call, _ in plant.calls] == ["start", "step", "stop"]  # no End, no Cancel
