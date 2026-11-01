@@ -1,0 +1,51 @@
+name: World CI
+
+# Lint, type-check and test the Python workspace packages (contracts and world).
+on:
+  push:
+    paths:
+      - "packages/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/world-ci.yml"
+  pull_request:
+    paths:
+      - "packages/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/world-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: world-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.6.5" # the uv that wrote uv.lock; bump both together
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install workspace (no extras)
+        run: uv sync --all-packages --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check packages
+
+      - name: Ruff format
+        run: uv run ruff format --check packages
+
+      - name: Pyright
+        run: uv run pyright packages
+
+      - name: Pytest
+        run: uv run pytest packages

@@ -1,0 +1,81 @@
+[project]
+name = "spotcool-world"
+version = "0.1.0"
+description = "SpotCool's simulated building: plants, BMS and VRF devices, cameras, scenarios and telemetry, built as a pipecat-style frame pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "BSD-2-Clause" }
+dependencies = [
+    "spotcool-contracts",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.4,<3",
+    "loguru>=0.7,<1",
+    "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+boptest = ["httpx>=0.27,<1"]
+bacnet = ["bacpypes3>=0.0.100,<0.1"]
+cameras = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "numpy>=1.26,<3",
+    "opencv-python-headless>=4.10,<5",
+]
+rc = ["numpy>=1.26,<3"]
+dashboard = ["fastapi>=0.115,<1", "uvicorn[standard]>=0.30,<1"]
+video = []
+
+[project.scripts]
+spotcool-world = "spotcool_world.runner.cli:main"
+
+[tool.uv.sources]
+spotcool-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spotcool_world"]
+
+[tool.towncrier]
+name = "spotcool-world"
+package = "spotcool_world"
+package_dir = "src"
+directory = "changelog"
+filename = "CHANGELOG.md"
+start_string = "<!-- towncrier release notes start -->\n"
+title_format = "## [{version}] - {project_date}"
+issue_format = "#{issue}"
+orphan_prefix = "+"
+
+[[tool.towncrier.type]]
+directory = "added"
+name = "Added"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "changed"
+name = "Changed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "fixed"
+name = "Fixed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "removed"
+name = "Removed"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "security"
+name = "Security"
+showcontent = true
+
+[[tool.towncrier.type]]
+directory = "other"
+name = "Other"
+showcontent = true

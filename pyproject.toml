@@ -57,4 +57,5 @@ exclude = ["**/node_modules", "**/.venv", "**/build"]
 testpaths = ["packages"]
 asyncio_default_fixture_loop_scope = "function"
 markers = ["live: needs a running BOPTEST service (hosted, local Docker or Codespaces)"]
-addopts = "-m 'not live'"
+# importlib mode: test files with the same name in different packages must not collide.
+addopts = "-m 'not live' --import-mode=importlib"
