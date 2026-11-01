@@ -31,6 +31,10 @@ CATALOG = json.loads(
 INPUTS = {p["name"] for p in CATALOG["points"] if p["causality"] == "input"}
 OUTPUTS = {p["name"] for p in CATALOG["points"] if p["causality"] == "output"}
 UNITS = {p["name"]: p["unit"] for p in CATALOG["points"]}
+# BOPTEST's REST API drops each overwrite block's `_y` output and reports the value actually
+# applied (baseline when released, the override when active) under the input's `_u` name.
+OVERWRITTEN = {n for n in INPUTS if n.endswith("_u") and n[:-2] + "_y" in OUTPUTS}
+READABLE = (OUTPUTS - {n[:-2] + "_y" for n in OVERWRITTEN}) | OVERWRITTEN
 SOURCE_UNIT = {
     Conversion.KELVIN_TO_CELSIUS: "K",
     Conversion.WATT_TO_KILOWATT: "W",
@@ -69,9 +73,9 @@ def test_boptest_bindings_exist_in_the_catalog(bms: DevicePointMap) -> None:
         if point.boptest is None:
             continue
         if point.boptest.read:
-            assert point.boptest.read in OUTPUTS, point.name
+            assert point.boptest.read in READABLE, point.name
         if point.boptest.relinquish_from_baseline:
-            assert point.boptest.relinquish_from_baseline in OUTPUTS, point.name
+            assert point.boptest.relinquish_from_baseline in READABLE, point.name
         if point.boptest.write:
             assert point.boptest.write in INPUTS, point.name
 
