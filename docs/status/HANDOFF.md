@@ -1,6 +1,9 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-01, about 16:40 IST, by the lead Claude Code session (written before a context compression).
+**Last updated:** 2026-11-01, about 17:50 IST, by the lead Claude Code session. Since 16:40:
+- BOPTEST runs in the Codespace, and the live probes are done (§3);
+- the contracts fix and the standby decision are on `wp/wp0-contracts-rest-keys` (§2, §5);
+- WP1 is in progress.
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history.
 
 ---
@@ -17,7 +20,7 @@
 - **Working rules from the user** (also saved as Claude memory notes):
   1. **Claude Code for everything.** Flag anywhere Antigravity, a browser or a person is really needed.
   2. **One subagent at a time, sequentially**, because of usage limits. The user has several accounts and switches when a limit hits. If an agent dies with HTTP 429 "spend limit", resume it with `SendMessage` after the switch; its work is saved.
-  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`). Cut WP branches from `wp/wp0-core-contracts`.
+  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`). Cut WP branches from **`wp/wp0-contracts-rest-keys`**: it is `wp/wp0-core-contracts` plus the contracts fixes (§2). Go back to `wp/wp0-core-contracts` once the user OKs fast-forwarding it.
   4. **Pushing `wp/*` branches after their checks pass is allowed.** PRs and merges need the user's OK.
   5. **Zero spend** for B: free, open-source and free-tier tools only.
   6. Never store camera frames or audio. Always stop BOPTEST tests you start.
@@ -35,7 +38,7 @@
 | Node / npm | 24.4.1 / 11.6.2 |
 | Media | ffmpeg 8.0.1 (gyan full build), OBS Studio (`C:\Program Files\obs-studio`) |
 | Other CLIs | AWS CLI 2.36, gh 2.92 (accounts: `mhussam-ai`, active and with the **codespace** scope; `hussam-zeng`), winget |
-| Docker | Desktop 29.8.2 running, but **blocked by disk** (see §2) |
+| Docker | Desktop 29.8.2. C: now has about 41 GB free, so a local BOPTEST stack is possible, but it isn't built yet because the Codespace works (§3) |
 | Git remote | `origin = git@github.com-iammojahid:IAMMOJAHID/SpotCool-AI.git`, identity "Mojahid Hussain" (local config; don't change it) |
 | Folders outside the repo | `C:\Users\hussa\dev\boptest` (BOPTEST clone, 813 MB); `dev\footage\{raw,clips,audio,datasets}`; `dev\venvs\`; `dev\wt\` (worktrees) |
 
@@ -53,7 +56,8 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 |---|---|---|---|
 | **WP0** contracts + core | **Done, pushed** | `wp/wp0-core-contracts`, commits `bac5163`, `d670e67`, `e8cc7a8`, `e82e7c3` | Contracts v0.1 (19 tests). World core: 132 tests in total; ruff and pyright clean; examples 01–04 run. Reviewed by the lead. |
 | **WP8** footage | **Done, pushed** | `wp/wp8-footage` commit `28f2788` (worktree `C:\Users\hussa\dev\wt\wp8-footage`) | 45 tests; ruff clean. Shot list (`docs/footage/shot_list.md`, 13 clips) and consent form are print-ready for filming on Nov 2 morning. **Decisions adopted** (WP5 must use them): file names use zone ids (`sou_meeting.mp4`, not `south_meeting`); the extra clip `wes_empty`; people counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. **The shoot needs 4–5 people** (roles A–E); with fewer, film the real count and update WP5's numbers. Follow-ups: WP10 adds `scripts` to pytest `testpaths`. 4TU was unreachable, so WiseNET's CC0 and download URL are unconfirmed. MEVA indoor keys are listed in `scripts/footage/meva_fetch.py`. |
-| WP1 plants | Next | `wp/wp1-plants` | Needs BOPTEST running (Codespace, §3). |
+| **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). **Cut new WP branches from this branch.** It is `wp/wp0-core-contracts` plus these fixes. Fast-forwarding `wp/wp0-core-contracts` is a merge, so ask the user first. |
+| **WP1 plants** | **In progress** | `wp/wp1-plants` (worktree `C:\Users\hussa\dev\wt\wp1-plants`), agent `a9c7b0070a5e01157` | Sent two addenda: cherry-pick `d1a52f7 c0ca27e 5a4aa23`; REST `_u` keys; latching inputs; non-JSON stop reply; timings; ten managed inputs (5 setpoints + 5 dampers); RC VAV minimum airflow; no strict temperature-rise assertion on BOPTEST. |
 | WP2 BMS (BACnet) | Queued | `wp/wp2-bms-bacnet` | |
 | WP5 scenarios | Queued | `wp/wp5-scenarios` | Originally Antigravity; the user wants Claude Code |
 | WP4 cameras | Queued | `wp/wp4-cameras` | Same as WP5 |
@@ -66,11 +70,9 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 
 **Order (sequential):** ~~WP8~~ → **WP1** → WP2 → WP5 → WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
 
-**BOPTEST Codespace build failure (Nov 1, 16:52 IST).** The `worker` image failed at its Miniconda step (`service/worker/Dockerfile`: `conda update -n base -c defaults conda`, then `conda create …`, exit 1).
-- **The diagnosis disproved the terms-of-service hypothesis.** conda got past its `Proceed ([y]/n)?` prompt with no ToS error.
-- **Actual cause:** network flakiness inside the Codespace's Docker build. `pip install -r production.txt` hit repeated `ReadTimeoutError`s against `pypi.org` and `files.pythonhosted.org`, so the first build most likely failed once pip ran out of retries.
+**BOPTEST Codespace build: resolved (Nov 1, 17:09 IST).**
+- **History:** the first build of the `worker` image failed at its Miniconda/pip step. The cause was `ReadTimeoutError`s from PyPI inside the Codespace, not the conda terms of service. The second `docker compose up -d web worker provision` succeeded (worker image 5.02 GB).
 - **Fix if it recurs** (inside the Codespace only, not upstream): in `service/worker/Dockerfile`, make the pip step `python -m pip install --default-timeout=120 --retries 10 -r /boptest/production.txt`, then rebuild.
-- A second `docker compose up -d web worker provision` was started after the diagnostic rebuild.
 
 **How to start a WP:** follow the recipe in `docs/workpackages/README.md` ("Starting a WP"), then hand the agent its brief.
 
@@ -90,55 +92,74 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 - `POST /testcases/multizone_office_simple_air/select` **timed out at 300 s and again at 900 s** on Nov 1, because the service has no worker capacity.
 - **Bug to remember:** the service returns HTTP 500 "Unexpected end of JSON input" if `Content-Type: application/json` is sent with an empty body. Send the header only with a body.
 
-**GitHub Codespace: started at handover.**
-- Name **`spotcool-boptest-qxxjjj94x672rp`**: repo `ibpsa/project1-boptest`, branch `master`, 2-core `basicLinux32gb`, idle timeout 90 minutes, paid from `mhussam-ai`'s free quota (120 core-hours and 15 GB-month per month; blocked at the limit, never billed).
-- A background job was running `docker compose up -d web worker provision` inside it. Check with:
+**GitHub Codespace: running, with 2 workers (Nov 1, 17:10 IST).**
+- Name **`spotcool-boptest-qxxjjj94x672rp`**: repo `ibpsa/project1-boptest`, branch `master`, 2-core `basicLinux32gb` (7.8 GB RAM), idle timeout 90 minutes, paid from `mhussam-ai`'s free quota (120 core-hours and 15 GB-month per month; blocked at the limit, never billed).
+- **Images are built.** worker 5.02 GB, web 1.17 GB, provision 682 MB. All 12 test cases are provisioned, and `/version` is `1.0.0-dev`.
+- **Concurrency:** one worker runs one test. The second worker was added with `docker compose up -d --no-recreate --scale worker=2 worker`. Check with:
   - `gh codespace list`
   - `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose ps'`
-- **To use it from the laptop:** `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` (keep it running), then BOPTEST is at **`http://127.0.0.1:8000`**. In the world: `plant: boptest-local`, `boptest_local_url: http://127.0.0.1:8000`.
-- **Save quota:** `gh codespace stop -c <name>` when idle; delete it after the hackathon. Pulling or building BOPTEST's images takes several minutes on first start.
+- **After a Codespace stop and start**, bring the stack back with `docker compose up -d --scale worker=2 web worker provision`. It reuses the built images.
+- **To use it from the laptop:** `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` (keep it running; at handover it ran as background job `bcpdg0vce` of the lead session). BOPTEST is then at **`http://127.0.0.1:8000`**. In the world: `plant: boptest-local`, `boptest_local_url: http://127.0.0.1:8000`. For live tests: `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000`.
+- **Save quota:** `gh codespace stop -c <name>` when idle; delete it after the hackathon.
 
 **Local Docker:** the clone at `C:\Users\hussa\dev\boptest` is on master `a29024f` (2026-10-26). That commit fixes MinIO; release v0.9.0 pulls MinIO images that no longer exist.
 - Compose services: `web` (port 8000), `worker`, `redis`, `minio` (9000/9001), `mc`, `provision`.
-- Start with `docker compose up -d web worker provision`.
-- **Blocked until about 15 GB more is free on C:.**
+- Start with `docker compose up -d --scale worker=2 web worker provision`.
+- C: has about 41 GB free, so this is now possible. It isn't built yet, because the Codespace works. It's the planned primary plant for the recording runs (no tunnel latency).
+
+**Live probes (Nov 1, 17:15–17:40 IST).** Scripts and outputs are in the session scratchpad: `probe_local.py` and `probe_levers.py`, outputs in `boptest_probe_local/` and `boptest_probe_levers/`. They're temporary; their jobs move into `spotcool-world probe` (WP1) and WP10's evals. The measured facts are recorded permanently in `docs/workpackages/README.md` → "Facts" (on `wp/wp0-contracts-rest-keys`). The headlines:
+- **Speed:**
+  - select about 8 s;
+  - `PUT /scenario` warm-up 283 s;
+  - `/advance` p50 0.24 s, p95 1.0 s, max 5.6 s, about 1,900 times real time;
+  - the default step is 3600 s, so set 900 explicitly.
+- **Scenario period:** `peak_cool_day` starts at day index 192, 00:00 (`time` 16,588,800 s), 7 days before the peak day, and lasts 14 days.
+- **Baseline schedule:** cooling setpoint 24 °C from 06:00 to 19:00 and 30 °C otherwise. The first day uses about 195 kWh (`ener_tot` 0.1166 kWh/m²), with a peak of about 18 kW at 14:00.
+- **`_u` read keys:** the override blocks' `_y` outputs aren't in `/advance` or `/results`. The applied value comes back as the input's `_u` key. The contracts are fixed (`d1a52f7`).
+- **Inputs latch.** An empty `/advance` body keeps the last override active; send `_activate: 0` to release. (The earlier note "defaults to 0 on every advance" was wrong.)
+- **`PUT /stop`** returns 200 with a non-JSON body.
+- **Savings levers**, with every zone empty all day:
+  - setpoint 28 °C alone: **−29 %**. The VAV boxes sit at minimum airflow, and the zones float only to about 26 °C.
+  - plus the zone dampers closed (`hvac_oveZonAct<Z>_yDam_u = 0`) while below 27.5 °C: **−81 %**.
+  - The core zone alone barely responds to a setpoint (0.00 °C after a 1-hour override at 10:00).
+  - → Decision in §5.
 
 **Test-case facts**, verified from the clone's `wrapped.fmu` (`multizone_office_simple_air`). The full catalog snapshot is `packages/contracts/src/spotcool_contracts/data/boptest_multizone_office_simple_air.json`.
 - **Building:** 5 zones (`cor, nor, sou, eas, wes`), 1,662.66 m², Chicago weather. Default step 3600 s; warm-up 0.
-- **Scenario days:** `peak_cool_day` is 199, `typical_cool_day` 144, `peak_heat_day` 26, `typical_heat_day` 18, `mix_day` 84.
-- **29 inputs.** The ones SpotCool uses: `hvac_oveZonSup{Cor,Nor,Sou,Eas,Wes}_TZonCooSet_u` (K) plus `_activate`. The others (heating setpoints, AHU, dampers, reheat) are not used.
-- **Per-call override semantics:** `_activate` defaults to 0 (the building's own control) on **every** `/advance`. Resend each active override every step, and send `_activate: 0` explicitly to release. Unknown input names return 400.
+- **Scenario days:** the peak days are `peak_cool_day` 199, `typical_cool_day` 144, `peak_heat_day` 26, `typical_heat_day` 18 and `mix_day` 84. Each scenario's 14-day period starts 7 days earlier (measured for `peak_cool_day`: day index 192).
+- **29 inputs.** The world manages ten of them:
+  - the cooling setpoints `hvac_oveZonSup{Cor,Nor,Sou,Eas,Wes}_TZonCooSet_u` (K, written from the BMS priority arrays);
+  - the zone dampers `hvac_oveZonAct{Z}_yDam_u` (0–1, closed by the BMS's occupied-standby);
+  - each with `_activate`.
+
+  The others (heating setpoints, AHU, reheat) are not used.
+- **Override semantics:** inputs **latch**. Every step, send `_activate` (1 or 0) for every managed input, and `_u` for the active ones. Unknown input names return 400.
 - **Outputs used:**
   - zone temperature `hvac_reaZon{Z}_TZon_y` (K);
-  - effective setpoints `hvac_oveZonSup{Z}_TZon{Coo,Hea}Set_y` (K);
+  - applied setpoints under the `_u` keys `hvac_oveZonSup{Z}_TZon{Coo,Hea}Set_u` (K);
   - CO₂ `hvac_reaZon{Z}_CO2Zon_y` (ppm);
   - airflow `hvac_reaZon{Z}_V_flow_y` (m³/s);
   - weather `weaSta_reaWeaTDryBul_y` (K) and `weaSta_reaWeaRelHum_y` (fraction);
-  - AHU `hvac_reaAhu_TSup_y` and `hvac_oveAhu_yFan_y`.
+  - AHU `hvac_reaAhu_TSup_y` and `hvac_oveAhu_yFan_u` (the applied fan speed).
 - **BOPTEST's ElectricPower KPI** sums 7 meters (W): `chi_reaPChi_y`, `chi_reaPPumDis_y`, `heaPum_reaPHeaPum_y`, `heaPum_reaPPumDis_y`, `hvac_reaAhu_PFanSup_y`, `hvac_reaAhu_PPumCoo_y`, `hvac_reaAhu_PPumHea_y`.
 - **BOPTEST's own BACnet bridge** (`bacnet/BopTestProxy.py`, legacy bacpypes, needs Python 3.11 or older) is a raw mapping:
   - device 599;
   - analog-output 1 = `advance`;
   - inputs as analog outputs and outputs as analog inputs, in K.
   - It's a reference only. **Our** BMS (WP2) is the realistic one.
-- **Still to pin, from the first Codespace run:**
-  - the baseline's occupied cooling setpoint (read `hvac_oveZonSupCor_TZonCooSet_y` at 10:00 on day 199);
-  - the real step latency;
-  - whether two tests can run at once (SpotCool and baseline).
-
-  Put the results into `docs/workpackages/README.md` → "Facts", and into the WP1 brief.
+- **Pinned by the live probes** (see above): the baseline occupied cooling setpoint is 24 °C (06:00–19:00); the step latency is measured; two tests run at once with 2 workers. All of this is recorded in `docs/workpackages/README.md` → "Facts" and in the WP1 brief.
 
 ## 4. What the contracts say (v0.1, `packages/contracts`)
 
 - **`office_bms.yaml`:** device `SpotCool-Office-BMS`, instance **1001**, UDP **47808**, **51 objects**.
   - **Per zone** (i = 1–5 for cor, nor, sou, eas, wes):
     - AI 100+i `ZN-<Z>-T` (°C);
-    - AV 200+i `ZN-<Z>-CLG-SP` (**commandable**, 16–30 °C on a 0.5 grid; relinquish default comes from the baseline run's `_y`);
+    - AV 200+i `ZN-<Z>-CLG-SP` (**commandable**, 16–30 °C on a 0.5 grid; relinquish default comes from the baseline run's `hvac_oveZonSup<Z>_TZonCooSet_u`);
     - AV 250+i `ZN-<Z>-HTG-SP` (read-only);
     - AI 300+i `ZN-<Z>-CO2`;
     - AI 350+i `ZN-<Z>-SA-FLOW` (L/s);
     - MSV 400+i `ZN-<Z>-OCC-MODE` (Occupied / Standby / Unoccupied, set by the BMS);
-    - BV 450+i `ZN-<Z>-OCC-SENSOR` (commandable; relinquish default Occupied, i.e. fail to comfort; drives G36 standby, +0.5 °C after 5 minutes empty).
+    - BV 450+i `ZN-<Z>-OCC-SENSOR` (commandable; relinquish default Occupied, i.e. fail to comfort). It drives the BMS's occupied-standby (ASHRAE 90.1-2019 §6.5.3.8, G36): 5 minutes after the zone empties during scheduled occupancy, the cooling setpoint goes up 0.5 K and the heating setpoint back 0.5 K, and **the zone airflow is shut off** while the zone temperature is between them (`5a4aa23`).
   - **Building:**
     - AI 501–507: the 7 power meters (kW);
     - AI 510 `HVAC-TOTAL-PWR`, AI 511 `HVAC-ENERGY` (kWh);
@@ -170,6 +191,12 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
   - **Calendar, occupants, telemetry and recorder/replay.**
 - **Architecture:** pipecat patterns (frames, processors, pipelines, workers, bus, observers, services and transports with providers, extras). One deliberate deviation: **direct-await lockstep push** instead of processor queues, so runs are deterministic.
 - **Fairness:** SpotCool uses the baseline's own occupied setpoint where people are, so savings come only from empty zones.
+- **Occupied-standby with airflow shut-off is the main lever** (decided Nov 1, 17:45, from the lever probe in §3).
+  - **What the BMS does:** WP2's BMS implements ASHRAE 90.1-2019 §6.5.3.8. When SpotCool's camera counts mark a zone `OCC-SENSOR` = Unoccupied, the BMS closes that zone's damper (BOPTEST `hvac_oveZonAct<Z>_yDam_u = 0`) while the temperature is inside its setpoints, with hysteresis.
+  - **The baseline** is the same BMS without occupancy sensors, so it never enters standby.
+  - **The story:** code-compliant BMSs already support standby, but zone occupancy sensors are rarely installed because of cost (PNNL 2023). SpotCool turns existing CCTV into those sensors, with no new hardware and no direct actuator control by the agent.
+  - **For Person A:** writing `OCC-SENSOR` = Unoccupied for empty zones is now SpotCool's biggest lever. Raising their setpoints on top of that widens the band, which is the measured −81 % case. Pre-cooling from the calendar covers recovery before meetings.
+  - **No interface change for A.** `OCC-SENSOR` was already in contracts v0.1; only its description became exact.
 - **Honesty note** (README and video): BOPTEST's occupant heat follows its fixed schedule, so savings in zones the cameras show empty can be overstated. The answers:
   - the **comfort-where-people-were** metric;
   - the **all_hands_day** scenario (savings about 0);
@@ -230,33 +257,43 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 - **Why occupancy sensors are rare:** occupancy-based control often isn't cost-effective because sensors cost too much ([PNNL 2023](https://www.pnnl.gov/publications/adopting-occupancy-based-hvac-controls-commercial-building-energy-codes-analysis-cost)). That's SpotCool's case for reusing CCTV.
 - **Camera counting accuracy:** about 7% error per person ([BU, Konrad 2024](https://sites.bu.edu/mcl/files/2026/02/konrad2024-OA.pdf)).
 - **Vendor claims (label them as such):** BrainBox AI (Trane) up to 25% HVAC cost; Honeywell Forge 10%; JCI OpenBlue up to 30%.
-- **Standards:** ASHRAE G36 occupied-standby (+0.5 °C after 5 minutes empty) and ASHRAE 90.1 §6.5.3.8.
+- **Standards:** ASHRAE 90.1-2019 §6.5.3.8 occupied-standby (also in G36).
+  - **The airflow clause** is verified from an [ASHRAE addendum](https://www.ashrae.org/file%20library/technical%20resources/standards%20and%20guidelines/standards%20addenda/90_1_2019_bm_20220121.pdf): "all airflow supplied to the zone shall be shut off whenever the space temperature is between the active heating and cooling set points". It applies to zones whose rooms need occupancy-sensed lighting, where ASHRAE 62.1 allows zero ventilation in standby.
+  - **The 5-minute timing and the 1 °F (0.5 K) setback** come from a [secondary summary](https://www.lightnowblog.com/2026/06/lighting-systems-save-more-energy-through-hvac-integration/). The matching cooling set-up isn't verified, so check the standard text before quoting it.
+- **Our own simulation numbers** (BOPTEST `multizone_office_simple_air`, peak cooling day, every zone empty all day, so upper bounds): setpoint-only −29 %, with standby airflow shut-off −81 % of HVAC energy. Quote them as "in simulation", and quote the `hybrid_tuesday` result (WP6/WP10) as the realistic number.
 - **BACnet priority conventions:** 8 for operators, 14–16 for schedules ([Haystack](https://project-haystack.org/doc/lib-phIoT/writable-point)).
 - **Meta:** SAM 3.1 API $2.50 per 1,000 images; `muse-spark-1.3` $1.25/$4.25 per million tokens ([dev.meta.ai](https://dev.meta.ai/docs/models.md)). The hackathon themes are "Build for Your World" and "Push the Frontier", which names energy ([event page](https://dev.meta.ai/events/global-hackathon)).
 
 ## 8. Next actions, in order
 
-1. **BOPTEST Codespace.**
-   - When the background compose job finishes, check `docker compose ps` in the Codespace.
-   - Start `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` (keep it running).
-   - Probe `http://127.0.0.1:8000`: select the office, set `peak_cool_day`, step 900 s, read the `_y` setpoints, override the core zone to 28 °C, read KPIs, stop.
-   - Record the facts listed at the end of §3.
-   - The scratchpad probe script is temporary. Its job becomes `spotcool-world probe` in WP1.
-2. **WP8.** When the agent reports:
-   - run `uv run ruff check scripts`, `ruff format --check scripts` and `pytest scripts` in the worktree (with `UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/wp8-footage`);
-   - review `shot_list.md` and `consent.md`;
-   - commit on `wp/wp8-footage` and push;
-   - tell the user the shot list is ready to print for filming.
-3. **WP1, then the rest** of the queue in §2, one agent at a time, each in its own worktree and branch.
-4. **User actions pending:**
-   - free disk (target ≥ 20 GB), and decide whether to prune Docker (about 8 GB reclaimable, but other projects' data);
+1. **WP1.** When agent `a9c7b0070a5e01157` reports:
+   - check that it cherry-picked `d1a52f7 c0ca27e 5a4aa23`;
+   - run the four checks in `C:\Users\hussa\dev\wt\wp1-plants` with `UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/wp1-plants`, after `uv sync --all-packages --extra boptest --extra rc`;
+   - run the live suite with `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live` while the port forward is up;
+   - check that the RC plant models VAV minimum airflow and accepts damper overrides;
+   - review, commit on `wp/wp1-plants`, and push.
+2. **BOPTEST Codespace:** keep the port forward running while live work happens. Run `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp` when idle for a long time; after a restart, re-run compose with `--scale worker=2` (§3). Always stop tests you select.
+3. **WP2** (BMS) next, cut from `wp/wp0-contracts-rest-keys`. Its brief now includes the occupied-standby airflow shut-off. Then the rest of the queue in §2, one agent at a time, each in its own worktree and branch.
+4. **Optional:** build the local Docker BOPTEST stack (`C:\Users\hussa\dev\boptest`, ≈ 7.5 GB of images) for lower-latency recording runs. Do it in a quiet moment, as it uses the laptop's network and CPU for a while.
+5. **User actions pending:**
+   - **decide:** may `wp/wp0-core-contracts` be fast-forwarded to `wp/wp0-contracts-rest-keys`? (It's a merge, so it needs the user's OK.)
+   - **tell Person A:**
+     - (a) contracts v0.1 interface is unchanged; the fixes are B-internal BOPTEST bindings plus a clearer `OCC-SENSOR` description;
+     - (b) `OCC-SENSOR` = Unoccupied triggers the BMS's occupied-standby with airflow shut-off, the biggest lever (§5);
+     - (c) share `wp/wp0-contracts-rest-keys`, or `wp/wp0-core-contracts` once fast-forwarded;
    - reopen VS Code and Claude Code in `C:\Users\hussa\dev\SpotCool-AI`, then delete the OneDrive copy;
    - film per the shot list (Nov 2 morning);
    - confirm the submission form rules;
    - optionally claim B's own Meta credit;
-   - share `wp/wp0-core-contracts` (contracts v0.1) with Person A.
+   - Docker prune is no longer needed (41 GB free).
 
 ## 9. Things that are superseded
 
 - **Old architecture.** Root `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` and `README.md` still describe the **old single-AC louver twin** (10 Hz loop, Llama, Silero, η_spot). They are stale for B's world. `packages/world/AGENTS.md` is authoritative for `packages/world/`. Rewriting the root docs belongs to WP10, coordinated with Person A.
 - **Old review report.** `docs/designs/goldfish_review_report.md` reviewed an **earlier** plan and is obsolete.
+- **Wrong BOPTEST notes from before the live probes:**
+  - "`_activate` defaults to 0 on every advance" (inputs latch);
+  - "read the effective setpoints as `_y`" (use the `_u` keys);
+  - "G36 standby is just +0.5 °C" (90.1 standby also shuts the zone airflow off).
+
+  `wp/wp0-core-contracts` still has the old `_y` bindings until it's fast-forwarded.
