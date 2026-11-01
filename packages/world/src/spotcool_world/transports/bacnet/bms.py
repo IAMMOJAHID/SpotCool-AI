@@ -69,6 +69,7 @@ from spotcool_world.frames import (
 from spotcool_world.processors.frame_processor import FrameDirection, FrameProcessor
 from spotcool_world.services.boptest.catalog import MANAGED_INPUTS, load_catalog, zone_damper
 from spotcool_world.transports.bacnet.bms_logic import (
+    OCCUPIED_HOURS,
     HeartbeatWatchdog,
     OccupancyMode,
     ZoneStandby,
@@ -99,9 +100,9 @@ _READY_TIMEOUT_S = 5.0
 _CLIENT: ContextVar[str] = ContextVar("spotcool_bacnet_client", default="unknown")
 """``ip:port`` of the client whose request the current task serves."""
 
-WriteHandler = Callable[[int | str, Any, int | None], None]
-"""Applies one network write, ``(property, decoded value, priority)``, or raises the BACnet
-error that refuses it."""
+WriteHandler = Callable[[int | str, Any, int | None, int | None], None]
+"""Applies one network write, ``(property, decoded value, array index, priority)``, or raises
+the BACnet error that refuses it."""
 
 
 def primary_ipv4() -> str:
@@ -126,8 +127,8 @@ class _Guarded:
         index: int | None = None,
         priority: int | None = None,
     ) -> None:
-        """Hand the write to the BMS (the array index is ignored: present-value is no array)."""
-        self._on_write(attr, value, priority)
+        """Hand the write to the BMS, which applies it or raises the error that refuses it."""
+        self._on_write(attr, value, index, priority)
 
 
 class _AnalogInput(_Guarded, AnalogInputObject):
@@ -167,10 +168,17 @@ _OBJECT_CLASSES: dict[ObjectType, Callable[..., Any]] = {
 
 
 class _BmsApplication(NormalApplication):
-    """BACpypes3's IPv4 device application, telling the BMS which client sent each write."""
+    """BACpypes3's IPv4 device application, telling the BMS which client sent each write.
+
+    A write without a priority is a write at priority 16 (ASHRAE 135 clause 19.2.1). That is
+    set before BACpypes3 decodes the value, which only takes a NULL (a release) with a priority.
+    """
 
     async def do_WritePropertyRequest(self, apdu: WritePropertyRequest) -> None:
         """Serve a WriteProperty with the client's address in context."""
+        request: Any = apdu  # BACpypes3's element descriptors defeat the type checker
+        if request.priority is None:
+            request.priority = PRIORITY_LEVELS
         token = _CLIENT.set(_endpoint(apdu.pduSource))
         try:
             await super().do_WritePropertyRequest(apdu)
@@ -179,6 +187,11 @@ class _BmsApplication(NormalApplication):
 
     async def do_WritePropertyMultipleRequest(self, apdu: WritePropertyMultipleRequest) -> None:
         """Serve a WritePropertyMultiple with the client's address in context."""
+        request: Any = apdu
+        for spec in request.listOfWriteAccessSpecs:
+            for prop in spec.listOfProperties:
+                if prop.priority is None:
+                    prop.priority = PRIORITY_LEVELS
         token = _CLIENT.set(_endpoint(apdu.pduSource))
         try:
             await super().do_WritePropertyMultipleRequest(apdu)
@@ -241,6 +254,13 @@ class BacnetBmsTransport(BaseTransport):
     A value BACpypes3 cannot decode as the property's datatype is refused by the stack itself,
     before the BMS sees it.
 
+    A point with no value yet (before the run's first measurements, the schedule or the
+    scenario's door) shows a placeholder with reliability COMMUNICATION_FAILURE, so its status
+    flags read fault, as a real BMS shows a point it cannot read; its first value clears both.
+    Each ``StartFrame`` begins a new run: the measurements, the energy meter, the schedule and
+    the zones' standby state are forgotten, while the network's commands (the priority arrays)
+    and the heartbeat watchdog carry on.
+
     The BMS's logic (``bms_logic``) drives the SpotCool run only. The baseline run is the same
     building without occupancy sensors, so it never gets a command.
 
@@ -251,6 +271,8 @@ class BacnetBmsTransport(BaseTransport):
         port: UDP port. Defaults to the point map's, 47808.
         policy: The network command rules.
         clock: Wall clock in seconds for the heartbeat watchdog; inject a fake one in tests.
+        occupied_hours: Hours of the day, ``[start, end)``, the building schedule can be
+            occupied; BOPTEST's office by default.
         name: Display name.
     """
 
@@ -261,6 +283,7 @@ class BacnetBmsTransport(BaseTransport):
         port: int | None = None,
         policy: CommandPolicy | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        occupied_hours: tuple[float, float] = OCCUPIED_HOURS,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
@@ -269,6 +292,7 @@ class BacnetBmsTransport(BaseTransport):
         self._port = self._map.udp_port if port is None else port
         self._policy = policy or CommandPolicy()
         self._watchdog = HeartbeatWatchdog(clock=clock)
+        self._occupied_hours = occupied_hours
         self._points = {spec.name: _new_point(spec) for spec in self._map.points}
         self._zones = {zone: self._new_zone(zone) for zone in Zone}
         self._reads = [
@@ -291,9 +315,6 @@ class BacnetBmsTransport(BaseTransport):
         self._bound: str | None = None
         self._input = _BmsInput(self, name=f"{self.name}::input")
         self._output = _BmsOutput(self, name=f"{self.name}::output")
-        self._show(self._energy, 0.0)
-        for zone in self._zones:
-            self._show_zone(zone)
 
     @property
     def address(self) -> str | None:
@@ -372,7 +393,7 @@ class BacnetBmsTransport(BaseTransport):
         if binding is None or binding.write is None or binding.relinquish_from_baseline is None:
             raise KeyError(f"{cooling.spec.name} must write BOPTEST and follow the baseline")
         return _Zone(
-            standby=ZoneStandby(),
+            standby=ZoneStandby(self._occupied_hours),
             temp=self._points[f"{prefix}T"],
             cooling=cooling,
             heating=self._points[f"{prefix}HTG-SP"],
@@ -408,6 +429,7 @@ class BacnetBmsTransport(BaseTransport):
             "eventState": "normal",
             "outOfService": False,
             "presentValue": _encode(spec, point.value),
+            "reliability": _reliability(point.value),
         }
         if spec.object_type in ANALOG_TYPES:
             kwargs["units"] = EngineeringUnits(spec.units or "no-units")
@@ -431,7 +453,12 @@ class BacnetBmsTransport(BaseTransport):
         return obj
 
     def _network_write(
-        self, point: _Point | None, prop: int | str, value: Any, priority: int | None
+        self,
+        point: _Point | None,
+        prop: int | str,
+        value: Any,
+        index: int | None,
+        priority: int | None,
     ) -> None:
         """Apply one network write to a point (``None``: the device object), or refuse it."""
         client = _CLIENT.get()
@@ -444,6 +471,9 @@ class BacnetBmsTransport(BaseTransport):
             raise PropertyError("write-access-denied")
         spec = point.spec
         command = _decode(spec, value)
+        if index is not None:
+            self._record(spec, level, command, client, "present-value is not an array")
+            raise PropertyError("property-is-not-an-array")
         rejection = self._policy.check(spec, command, level)
         if rejection is not None:
             self._record(spec, level, command, client, rejection.reason)
@@ -482,11 +512,13 @@ class BacnetBmsTransport(BaseTransport):
             object_id, object_name = f"device,{self._map.device_instance}", self._map.device_name
         else:
             object_id, object_name = spec.object_id, spec.name
+        # BmsWriteData holds priorities 1-16 only. One outside them was refused with
+        # VALUE_OUT_OF_RANGE, so it is clamped here and the reason names the real one.
         data = BmsWriteData(
             device=self._map.device_name,
             object_id=object_id,
             object_name=object_name,
-            priority=min(max(priority, 1), PRIORITY_LEVELS),  # the reason names a bad one
+            priority=min(max(priority, 1), PRIORITY_LEVELS),
             value=value,
             client=client,
             accepted=accepted,
@@ -554,7 +586,7 @@ class BacnetBmsTransport(BaseTransport):
                 raw = frame.raw.get(z.schedule_key)
                 if raw is not None:
                     z.schedule_c = to_bms(float(raw), z.conversion)
-                    z.standby.schedule(z.schedule_c)
+                    z.standby.schedule(z.schedule_c, t_s)
                     self._show_zone(zone)
             return
         for read in self._reads:
@@ -579,11 +611,25 @@ class BacnetBmsTransport(BaseTransport):
                 self._show(self._door, states[1] if scene.door_open else states[0])
 
     def _started(self, frame: StartFrame) -> None:
+        """Begin a run: forget the last one's measurements, energy, schedule and zone states."""
         self._now_s = frame.start_time_s
+        self._energy_kwh = 0.0
+        self._last_power = None
+        unknown = (self._total, self._energy, self._sim_clock, self._door)
+        for point in (*(read.point for read in self._reads), *unknown):
+            self._show(point, None)
+        for zone, z in self._zones.items():
+            z.schedule_c = None
+            z.standby = ZoneStandby(self._occupied_hours)
+            z.standby.sensor(z.sensor.value == OccupancyMode.OCCUPIED, self._now_s)
+            z.cooling.relinquish_default = None
+            self._refresh(z.cooling)
+            self._show_zone(zone)
 
     def _show(self, point: _Point, value: PointValue | None) -> None:
         point.value = value
         if point.obj is not None:
+            point.obj.reliability = _reliability(value)
             point.obj.presentValue = _encode(point.spec, value)
 
     def _refresh(self, point: _Point) -> None:
@@ -597,9 +643,11 @@ class BacnetBmsTransport(BaseTransport):
     def _show_zone(self, zone: Zone) -> None:
         """Show a zone's occupancy mode and its cooling setpoint's relinquish default."""
         z = self._zones[zone]
-        if z.schedule_c is not None:
-            z.cooling.relinquish_default = z.standby.cooling_setpoint(z.schedule_c)
-            self._refresh(z.cooling)
+        if z.schedule_c is None:  # the mode is unknown until the schedule is
+            self._show(z.mode, None)
+            return
+        z.cooling.relinquish_default = z.standby.cooling_setpoint(z.schedule_c)
+        self._refresh(z.cooling)
         self._show(z.mode, z.standby.mode.value)
 
 
@@ -655,10 +703,14 @@ class _BmsOutput(FrameProcessor):
 
 def _new_point(spec: PointSpec) -> _Point:
     if not spec.is_commandable:
-        # Measured points have no value until measured; state points start in their first.
-        return _Point(spec, value=spec.states[0] if spec.states else None)
+        return _Point(spec)  # no value until the run measures, schedules or scripts it
     default = spec.relinquish_default
     return _Point(spec, value=default, array=PriorityArray(), relinquish_default=default)
+
+
+def _reliability(value: PointValue | None) -> str:
+    """BACnet's reliability for a point: a value the BMS has not got is a communication failure."""
+    return "communication-failure" if value is None else "no-fault-detected"
 
 
 def _endpoint(address: Any) -> str:

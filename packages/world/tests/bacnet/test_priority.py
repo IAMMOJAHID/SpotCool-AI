@@ -1,4 +1,5 @@
 import math
+import struct
 import subprocess
 import sys
 
@@ -133,6 +134,20 @@ def test_analog_values_off_range_or_off_grid_are_rejected_not_clamped(
 @pytest.mark.parametrize("value", [16.0, 16.5, 24.0, 26.5, 30.0])
 def test_analog_values_on_the_grid_and_in_range_are_accepted(value: float) -> None:
     assert POLICY.check(SETPOINT, value, AGENT_PRIORITY) is None
+
+
+def float32(value: float) -> float:
+    """``value`` as BACnet carries it: a 32-bit REAL."""
+    return struct.unpack("f", struct.pack("f", value))[0]
+
+
+def test_a_finer_grid_takes_its_multiples_even_after_float32_rounding() -> None:
+    tenths = SETPOINT.model_copy(update={"resolution": 0.1})
+    for value in (26.3, float32(26.3), 16.1, float32(29.9), 30.0):
+        assert POLICY.check(tenths, value, AGENT_PRIORITY) is None, value
+    for value in (26.35, 26.31, float32(26.25)):
+        rejection = POLICY.check(tenths, value, AGENT_PRIORITY)
+        assert rejection is not None and "not a multiple of 0.1" in rejection.reason, value
 
 
 def test_binary_values_must_be_one_of_the_state_texts() -> None:

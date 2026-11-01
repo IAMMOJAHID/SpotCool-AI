@@ -3,7 +3,7 @@ import asyncio
 import pytest
 
 from spotcool_world.frames import DataFrame, EndFrame, ErrorFrame, Frame, StartFrame, TickFrame
-from spotcool_world.pipeline import ParallelPipeline, Pipeline
+from spotcool_world.pipeline import ParallelPipeline, Pipeline, PipelineParams
 from spotcool_world.processors import FrameDirection, FrameProcessor
 from spotcool_world.testing import CaptureProcessor, run_test
 
@@ -86,6 +86,32 @@ async def test_lifecycle_frames_leave_exactly_once() -> None:
     assert sum(isinstance(f, StartFrame) for f in seen) == 1
     assert sum(isinstance(f, TickFrame) for f in seen) == 1
     assert sum(isinstance(f, EndFrame) for f in seen) == 1
+
+
+class Announcer(FrameProcessor):
+    """Passes the StartFrame on, then pushes a data frame, as a plant does its initial state."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, StartFrame):
+            await self.push_frame(DataFrame(metadata={"from": self.name}))
+
+
+@pytest.mark.asyncio
+async def test_a_start_frame_leaves_before_the_data_the_branches_push_after_it() -> None:
+    params = PipelineParams(run_id="t")
+    down, _ = await run_test(
+        ParallelPipeline([Announcer(name="a")], [Announcer(name="b")]),
+        frames_to_send=[params.start_frame()],  # our own StartFrame comes back with the rest
+        send_start=False,
+        params=params,
+    )
+    assert [(type(f).__name__, f.metadata.get("from")) for f in down] == [
+        ("StartFrame", None),
+        ("DataFrame", "a"),
+        ("DataFrame", "b"),
+    ]
 
 
 @pytest.mark.asyncio

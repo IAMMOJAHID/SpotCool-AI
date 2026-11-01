@@ -144,9 +144,11 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 - **Ask for a cancel from inside** by pushing a `CancelFrame` upstream.
 - **ParallelPipeline output is deterministic.** Each downstream frame goes to every branch at
   once; what the branches emit is pushed on in branch order after all branches finish, then the
-  original frame (by id) once, if any branch passed it on. Upstream frames entering from below
-  go into every branch and leave the top deduplicated by id. Frames a branch pushes from a
-  background task, outside any entry, pass straight through (unordered).
+  original frame (by id) once, if any branch passed it on. A `StartFrame` is the exception: it
+  goes first, before the branches' output (a plant's initial state), so nothing downstream gets
+  data before it has started. Upstream frames entering from below go into every branch and
+  leave the top deduplicated by id. Frames a branch pushes from a background task, outside any
+  entry, pass straight through (unordered).
 - **Sim time is the only clock inside processors.** Use `frame.sim_time_s` or `self.clock`,
   never `time.time()`, for anything simulated. Pass the same `SimClock` to `TickSource` and
   `PipelineParams(clock=...)` so every processor sees the time the ticks advance. Wall time is
@@ -187,24 +189,40 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   baseline's setpoints as the schedule (the cooling setpoints' relinquish defaults) and the
   West door contact from the scenario. The baseline run never gets a command.
 - **Commands** are network writes of a present value (WriteProperty or WritePropertyMultiple) at
-  priority 8 (operators) to 16; the agent writes at 10. Priorities 1-7, read-only points, other
-  properties, and analog values off range or off the 0.5 grid are refused (never clamped). Every
-  write, release and refusal, and every release the BMS makes itself, becomes a `BmsWriteFrame`
-  stamped with the BMS's sim time: the last measurement's.
+  priority 8 (operators) to 16; the agent writes at 10, and a write without a priority is at 16.
+  Priorities 1-7, read-only points, other properties, an array index, and analog values off
+  range or off the resolution grid are refused (never clamped). Every write, release and
+  refusal, and every release the BMS makes itself, becomes a `BmsWriteFrame` stamped with the
+  BMS's sim time: the last measurement's.
 - **Setpoint command.** A cooling setpoint goes to BOPTEST in K whenever a slot is active or
   standby raised the schedule; `None` only for the plain schedule, which BOPTEST applies itself.
   A damper is `0.0` (airflow shut off) or `None`.
-- **Occupied-standby** (ASHRAE 90.1-2019 section 6.5.3.8): during scheduled occupancy (schedule
-  cooling setpoint below 26 degC), a zone whose `OCC-SENSOR` has read Unoccupied for 300 sim-s
-  enters standby at the next tick. Its relinquish default rises 0.5 K, and its damper shuts once
-  the zone is 0.5 K inside both setpoints, reopens when it reaches either, and holds in between.
-  Any Occupied value ends standby at once. `OCC-MODE` shows Occupied, Standby or Unoccupied.
+- **Occupied-standby** (ASHRAE 90.1-2019 section 6.5.3.8). A step is in scheduled occupancy when
+  it starts within 06:00-19:00 (`OCCUPIED_HOURS`; BOPTEST reports a setpoint a step late, so the
+  baseline's 24 degC at the 19:00 stamp does not count) and the baseline's cooling setpoint is
+  below 26 degC. Then a zone whose `OCC-SENSOR` has read Unoccupied for 300 sim-s enters standby
+  at the next tick: its relinquish default rises 0.5 K, and its damper shuts while the zone is
+  within its active setpoints (the heating one set back 0.5 K), reopens 0.5 K beyond either, and
+  holds in between, so a zone the VAV box holds at the setpoint duty-cycles. Any Occupied value
+  ends standby at once and resets the vacancy timer; the end of the occupied hours ends standby
+  but keeps the timer. `OCC-MODE` shows Occupied, Standby or Unoccupied.
+- **No data, no value.** A point the BMS has no value for yet (the run's first measurements, the
+  schedule, the scenario's door) reads reliability COMMUNICATION_FAILURE, so its status flags
+  show fault, as on a real BMS; the first value clears both. Each `StartFrame` begins a new run:
+  measurements, energy meter, schedule and standby states start afresh, while the priority
+  arrays and the heartbeat watchdog carry on.
 - **Heartbeat watchdog** (wall time, injectable clock): once `SPOTCOOL-HEARTBEAT` has been
   written, 120 s without a change of its value releases every priority-10 slot, reason
   "heartbeat timeout". Slot 8 is never touched.
 - **Network.** By default the machine's primary IPv4 address (its default route's) with /24, UDP
-  47808; `address` (`192.168.1.20` or `192.168.1.20/24`) and `port` override it. Tests marked
-  `bacnet` use 127.0.0.1 and ports from 47900, and skip when a port is taken.
+  47808; `address` (`192.168.1.20` or `192.168.1.20/24`) and `port` override it, from
+  `WorldSettings.bms_address` and `bms_port`. Tests marked `bacnet` use 127.0.0.1 and ports from
+  47900, and skip when a port is taken. macOS cannot run them: BACpypes3 opens a broadcast
+  endpoint on 127.0.0.255, which macOS cannot bind.
+- **BACpypes3 is pinned to 0.0.110** (the `bacnet` extra). The BMS works around two of its bugs
+  (a multi-state value gets the analog COV criteria, so COV subscriptions to it crash; a refused
+  WritePropertyMultiple is raised instead of answered) and waits on its private
+  `server._transport_tasks` in `start()`. Re-check all three before unpinning.
 
 ### Checking the BMS with YABE (manual)
 

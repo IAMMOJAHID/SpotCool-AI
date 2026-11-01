@@ -5,7 +5,8 @@ pipeline order. Two kinds of record share the file:
 
 - ``{"kind": "event", "envelope": {...}}``: a dashboard event, exactly as published.
 - ``{"kind": "raw", "run": "spotcool", "index": 3, "sim_time_s": ..., "raw": {...}}``: one
-  plant run's BOPTEST outputs after step ``index``, for the replay plant to feed back.
+  plant run's BOPTEST outputs after ``index`` steps (0: its initial state), for the replay
+  plant to feed back.
 
 The recorder writes the file with ``RunWriter``; the replay plant and reports read it back with
 ``read_records``. Records hold JSON only: never image or audio bytes. A process killed while
@@ -27,13 +28,13 @@ EVENTS_FILE = "events.jsonl"
 
 
 class RawRecord(BaseModel):
-    """One plant run's raw measurements after a step.
+    """One plant run's raw measurements: its initial state, or its state after a step.
 
     Parameters:
         kind: Record discriminator, always ``raw``.
         run: Which run produced the measurements.
-        index: Step number since the start of the run (the tick's index).
-        sim_time_s: Simulation time the measurements describe: the end of step ``index``, as
+        index: Steps completed since the start of the run; 0 is the state at the start time.
+        sim_time_s: Simulation time the measurements describe, ``start + index * step_s``, as
             on the ``PlantMeasurementsFrame``.
         raw: BOPTEST output name to value, in BOPTEST units. Values must be finite: JSON has
             no NaN, so one would come back as an unreadable null.

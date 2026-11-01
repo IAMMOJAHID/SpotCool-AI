@@ -2,11 +2,16 @@
 
 import asyncio
 import socket
+import statistics
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar, cast
 
 import pytest
-from bacpypes3.apdu import ErrorRejectAbortNack, WritePropertyMultipleRequest
+from bacpypes3.apdu import (
+    ErrorRejectAbortNack,
+    WritePropertyMultipleRequest,
+    WritePropertyRequest,
+)
 from bacpypes3.basetypes import PropertyIdentifier, PropertyValue, WriteAccessSpecification
 from bacpypes3.constructeddata import Any as AnyValue
 from bacpypes3.ipv4.app import NormalApplication
@@ -112,6 +117,14 @@ async def write(
     client: NormalApplication, bms: BacnetBmsTransport, object_id: str, value: Any, priority: int
 ) -> None:
     await client.write_property(device(bms), object_id, "present-value", value, priority=priority)
+
+
+async def present_value(cov: Any) -> Any:
+    """The next present value a COV subscription hears (skipping its status flags)."""
+    while True:
+        prop, value = await asyncio.wait_for(cov.get_value(), 5)
+        if prop == PropertyIdentifier.presentValue:
+            return value
 
 
 async def refused(
@@ -320,13 +333,6 @@ async def test_a_cov_subscriber_hears_a_measured_change(
     bms: BacnetBmsTransport, client: NormalApplication
 ) -> None:
     core_t = cast(Any, ObjectIdentifier(MAP.by_name("ZN-COR-T").object_id))
-
-    async def present_value(cov: Any) -> Any:
-        while True:
-            prop, value = await asyncio.wait_for(cov.get_value(), 5)
-            if prop == PropertyIdentifier.presentValue:
-                return value
-
     async with client.change_of_value(device(bms), core_t, 7, False, 60) as cov:
         assert await present_value(cov) == 0.0  # the first notification: nothing measured yet
         await run(bms, [measured("spotcool", {"hvac_reaZonCor_TZon_y": 296.65})])
@@ -342,13 +348,16 @@ async def test_the_door_contact_follows_the_scenario(
         return ScenarioStateFrame(state=ScenarioStateData(zones=scenes))
 
     door_id = MAP.by_name("WES-ENTRANCE-DOOR").object_id
-    assert str(await read(client, bms, door_id)) == "inactive"  # Closed
-    await run(bms, [door(True)])
-    assert str(await read(client, bms, door_id)) == "active"  # Open
-    await run(bms, [door(None)])  # unknown: unchanged
-    assert str(await read(client, bms, door_id)) == "active"
-    await run(bms, [door(False)])
-    assert str(await read(client, bms, door_id)) == "inactive"
+    assert str(await read(client, bms, door_id, "reliability")) == "communication-failure"
+    shown: list[str] = []
+
+    async def look() -> None:
+        shown.append(str(await read(client, bms, door_id)))
+
+    frames = [door(True), tick(0), door(None), tick(1), door(False), tick(2)]
+    await run(bms, frames, dict.fromkeys(range(3), look))
+    assert shown == ["active", "active", "inactive"]  # Open, unknown leaves it, Closed
+    assert str(await read(client, bms, door_id, "reliability")) == "no-fault-detected"
 
 
 @pytest.mark.asyncio
@@ -408,8 +417,9 @@ async def test_start_fails_at_once_on_a_taken_port_and_stop_frees_it(
     taken = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     taken.bind((HOST, ports[0]))
     try:
-        with pytest.raises(OSError):
+        with pytest.raises(OSError) as refusal:
             await BacnetBmsTransport(address=HOST, port=ports[0]).start()
+        assert refusal.value.errno is not None  # the bind's own error, not the ready timeout
     finally:
         taken.close()
     bms = BacnetBmsTransport(address=f"{HOST}/32", port=ports[0])
@@ -440,54 +450,157 @@ async def test_the_bms_commands_the_spotcool_run_only_even_without_a_network() -
 
 
 @pytest.mark.asyncio
-async def test_standby_shuts_off_an_empty_zone_and_lets_it_warm_against_the_rc_plant(
+async def test_standby_duty_cycles_an_empty_zone_all_day_against_the_rc_plant(
     bms: BacnetBmsTransport, client: NormalApplication
 ) -> None:
     settings = WorldSettings(plant="rc")
     start_s = 198 * 86_400 + 7 * 3600  # 07:00, in scheduled occupancy
     clock = SimClock(start_s, STEP_S)
-    end_s = start_s + 3 * STEP_S
-    south_t, south_sp = bms_signal("ZN-SOU-T"), bms_signal("ZN-SOU-CLG-SP", write=True)
-    south_damper = zone_damper(Zone.SOU)
+    end_s = start_s + 49 * STEP_S  # ticks from 07:00 to 19:00
+    south_t, south_flow = bms_signal("ZN-SOU-T"), bms_signal("ZN-SOU-SA-FLOW")
+    south_sp, south_damper = bms_signal("ZN-SOU-CLG-SP", write=True), zone_damper(Zone.SOU)
+    relinquish: list[Any] = []
 
     async def south_empties() -> None:  # the agent, acting as South's occupancy sensor
         await write(client, bms, MAP.by_name("ZN-SOU-OCC-SENSOR").object_id, "inactive", 10)
+
+    async def look() -> None:
+        relinquish.append(await read(client, bms, "analog-value,203", "relinquish-default"))
 
     plants = ParallelPipeline(
         [PlantProcessor(create_plant(settings, "spotcool"), "spotcool")],
         [PlantProcessor(create_plant(settings, "baseline"), "baseline")],
     )
-    down, up = await run_test(
-        Pipeline(
-            [
-                TickSource(clock, WallPacer(None), end_s),
-                Actions({0: south_empties}),
-                bms.input(),
-                plants,
-                bms.output(),
-            ]
-        ),
-        frames_to_send=[],
-        send_end=False,  # the tick source ends the run
-        params=PipelineParams(clock=clock, end_time_s=end_s, run_id="standby"),
-    )
+    # A multi-state value answers COV only thanks to the BMS's criteria fix.
+    occupancy_mode = cast(Any, ObjectIdentifier(MAP.by_name("ZN-SOU-OCC-MODE").object_id))
+    async with client.change_of_value(device(bms), occupancy_mode, 11, False, 300) as cov:
+        down, up = await run_test(
+            Pipeline(
+                [
+                    TickSource(clock, WallPacer(None), end_s),
+                    Actions({0: south_empties, 4: look}),
+                    bms.input(),
+                    plants,
+                    bms.output(),
+                ]
+            ),
+            frames_to_send=[],
+            send_end=False,  # the tick source ends the run
+            params=PipelineParams(clock=clock, end_time_s=end_s, run_id="standby"),
+        )
+        modes = [await present_value(cov) for _ in range(3)]
     assert up == []
+    assert modes == [1, 2, 3]  # Occupied, Standby from 07:15, Unoccupied from 19:00
     commands = only(down, SetpointCommandFrame)
-    assert [c.run for c in commands] == ["spotcool"] * 3
-    # Shut within two ticks, and held shut while the zone warms inside the band.
-    assert [c.overrides[south_damper] for c in commands] == [None, 0.0, 0.0]
-    assert commands[1].overrides[south_sp] == pytest.approx(297.65)  # the schedule's 24 + 0.5
+    assert [c.run for c in commands] == ["spotcool"] * 49
     for command in commands:  # no other zone is touched
         assert {k for k, v in command.overrides.items() if v is not None} <= {
             south_sp,
             south_damper,
         }
+    dampers = [c.overrides[south_damper] for c in commands]
+    assert dampers[:3] == [None, 0.0, 0.0]  # shut within two ticks
+    assert commands[1].overrides[south_sp] == pytest.approx(297.65)  # the schedule's 24 + 0.5
+    assert relinquish == [24.5]
+    # All day long the damper duty-cycles: shut on most ticks (26 of 47 on the RC plant) ...
+    in_standby = dampers[1:48]  # 07:15 to 18:45
+    assert set(in_standby) == {0.0, None}
+    assert sum(d == 0.0 for d in in_standby) / len(in_standby) > 0.5
+    # ... and South gets well below the baseline's air (343 against 487 L/s on the RC plant).
     states = {(f.run, f.sim_time_s): f.raw for f in only(down, PlantMeasurementsFrame)}
+    stamps = [start_s + k * STEP_S for k in range(2, 49)]  # 07:30 to 19:00
+    spotcool_lps = statistics.mean(states["spotcool", t][south_flow] for t in stamps)
+    baseline_lps = statistics.mean(states["baseline", t][south_flow] for t in stamps)
+    assert spotcool_lps < 0.8 * baseline_lps
     shut_s = start_s + 2 * STEP_S  # the end of the first step with South's airflow off
     assert states["spotcool", shut_s][south_t] > states["baseline", shut_s][south_t] + 0.1
     assert states["baseline", shut_s][south_damper] > 0.1  # the baseline keeps its own control
-    assert int(await read(client, bms, "multi-state-value,403")) == 2  # ZN-SOU-OCC-MODE: Standby
-    assert await read(client, bms, "analog-value,203", "relinquish-default") == 24.5
+    # At 19:00 the occupied hours are over, though the baseline still reports 24 degC.
+    assert states["baseline", start_s + 48 * STEP_S][south_sp] == pytest.approx(297.15)
+    assert (commands[48].overrides[south_sp], commands[48].overrides[south_damper]) == (None, None)
     sensor_write = only(down, BmsWriteFrame)[0]
     assert (sensor_write.data.value, sensor_write.data.accepted) == ("Unoccupied", True)
     assert sensor_write.sim_time_s == start_s
+
+
+@pytest.mark.asyncio
+async def test_a_point_reads_as_faulted_until_its_first_value(
+    bms: BacnetBmsTransport, client: NormalApplication
+) -> None:
+    async def health(object_id: str) -> tuple[str, int]:
+        flags = await read(client, bms, object_id, "status-flags")
+        return str(await read(client, bms, object_id, "reliability")), flags[1]  # fault
+
+    core_t, north_t = "analog-input,101", "analog-input,102"
+    mode, setpoint, sensor = "multi-state-value,401", "analog-value,201", "binary-value,451"
+    for object_id in (core_t, north_t, mode, setpoint, "analog-input,511"):
+        assert await health(object_id) == ("communication-failure", 1)
+    assert await health(sensor) == ("no-fault-detected", 0)  # a relinquish default is a value
+    await run(bms, [measured("spotcool", {"hvac_reaZonCor_TZon_y": 296.65})])
+    assert await health(core_t) == ("no-fault-detected", 0)
+    assert await health(north_t) == ("communication-failure", 1)  # still not measured
+    assert await health(mode) == ("communication-failure", 1)  # no schedule yet
+    await run(bms, [measured("baseline", SCHEDULE_24C)])
+    assert await health(mode) == ("no-fault-detected", 0)
+    assert await health(setpoint) == ("no-fault-detected", 0)
+
+
+@pytest.mark.asyncio
+async def test_a_new_run_starts_the_meters_and_the_measurements_afresh(
+    bms: BacnetBmsTransport, client: NormalApplication
+) -> None:
+    power = {"chi_reaPChi_y": 4000.0}
+    await run(bms, [measured("spotcool", power), measured("spotcool", power, T0 + STEP_S)])
+    assert await read(client, bms, "analog-input,511") == pytest.approx(1.0)  # 4 kW, 15 min
+    await run(bms, [])  # a new run: nothing measured yet
+    for object_id in ("analog-input,504", "analog-input,511", "analog-value,950"):
+        assert str(await read(client, bms, object_id, "reliability")) == "communication-failure"
+    await run(bms, [measured("spotcool", power)])
+    assert await read(client, bms, "analog-input,511") == 0.0  # the new run's meter
+
+
+@pytest.mark.asyncio
+async def test_a_write_without_a_priority_is_at_16_and_a_bare_null_releases_it(
+    bms: BacnetBmsTransport, client: NormalApplication
+) -> None:
+    core = MAP.by_name("ZN-COR-CLG-SP").object_id
+    held: list[tuple[Any, Any]] = []
+
+    async def write_and_release() -> None:
+        await client.write_property(device(bms), core, "present-value", 26.0)  # no priority
+        ccp = await read(client, bms, core, "current-command-priority")
+        held.append((await read(client, bms, core), ccp.unsigned))
+        release = WritePropertyRequest(  # a NULL without a priority: built by hand
+            objectIdentifier=ObjectIdentifier(core),
+            propertyIdentifier=PropertyIdentifier.presentValue,
+            propertyValue=AnyValue(Null(())),
+            destination=device(bms),
+        )
+        await client.request(cast(Any, release))
+
+    down = await run(bms, [measured("baseline", SCHEDULE_24C), tick(0)], {0: write_and_release})
+    assert held == [(26.0, 16)]
+    writes = [(w.data.priority, w.data.value, w.data.accepted) for w in only(down, BmsWriteFrame)]
+    assert writes == [(16, 26.0, True), (16, None, True)]
+    assert only(down, SetpointCommandFrame)[0].overrides[CORE_SP] is None  # back to the schedule
+
+
+@pytest.mark.asyncio
+async def test_a_present_value_write_with_an_array_index_is_refused(
+    bms: BacnetBmsTransport, client: NormalApplication
+) -> None:
+    core = MAP.by_name("ZN-COR-CLG-SP").object_id
+    errors: list[str] = []
+
+    async def write_indexed() -> None:
+        with pytest.raises(ErrorRejectAbortNack) as refusal:
+            await client.write_property(
+                device(bms), core, "present-value", 26.0, array_index=3, priority=10
+            )
+        errors.append(str(refusal.value))
+
+    down = await run(bms, [measured("baseline", SCHEDULE_24C), tick(0)], {0: write_indexed})
+    assert len(errors) == 1 and "property: property-is-not-an-array" in errors[0]
+    [record] = [w.data for w in only(down, BmsWriteFrame)]
+    assert (record.accepted, record.reason) == (False, "present-value is not an array")
+    assert only(down, SetpointCommandFrame)[0].overrides[CORE_SP] is None

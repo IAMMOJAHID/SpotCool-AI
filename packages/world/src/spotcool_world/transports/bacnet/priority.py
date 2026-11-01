@@ -21,9 +21,6 @@ PRIORITY_LEVELS = 16
 ANALOG_TYPES = (ObjectType.ANALOG_INPUT, ObjectType.ANALOG_VALUE)
 """Object types whose values are numbers; every other type holds a state text."""
 
-_GRID_TOLERANCE = 1e-6
-"""How far, in grid steps, a value may sit off the resolution grid: float32 rounding only."""
-
 
 class PriorityArray:
     """The 16 command slots of one commandable point.
@@ -122,6 +119,8 @@ class CommandPolicy:
             ``None`` if the command is accepted, otherwise why it is rejected.
         """
         if not 1 <= priority <= PRIORITY_LEVELS:
+            # BACnet's WriteProperty priority is any integer. The BMS answers VALUE_OUT_OF_RANGE;
+            # its BmsWriteFrame clamps the priority to 1-16, and this reason names the real one.
             return Rejection(f"priority {priority} is not 1-16", "value-out-of-range")
         if priority < OPERATOR_PRIORITY:
             return Rejection(
@@ -151,7 +150,8 @@ def _check_analog(point: PointSpec, value: PointValue) -> Rejection | None:
             f"{value:g} is outside {point.name}'s range {low}..{high}", "value-out-of-range"
         )
     step = point.resolution
-    if step and abs(value / step - round(value / step)) > _GRID_TOLERANCE:
+    # The tolerance absorbs float32 rounding only: BACnet sends analog values as REAL.
+    if step and not math.isclose(value, round(value / step) * step, rel_tol=1e-6, abs_tol=1e-9):
         return Rejection(f"{value:g} is not a multiple of {step:g}", "value-out-of-range")
     return None
 

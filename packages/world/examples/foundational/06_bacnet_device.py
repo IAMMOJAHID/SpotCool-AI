@@ -4,8 +4,10 @@ The world's BMS is a real BACnet/IP device, SpotCool-Office-BMS (instance 1001),
 the office_bms point map. This example serves it against the RC plant and, after every
 15-minute step, reads a few points with a BACnet client, as Person A's agent would. After the
 first step the client marks the South zone empty: it writes ZN-SOU-OCC-SENSOR = Unoccupied at
-priority 10. Five minutes later, at the next tick, the BMS puts South in occupied-standby on
-its own: it raises South's cooling setpoint by 0.5 K and shuts the zone's airflow off.
+priority 10, and the BMS stamps the write 07:15. The 07:15 tick comes too soon after it, so at
+the 07:30 tick, 15 minutes on, the BMS puts South in occupied-standby on its own: it raises
+South's cooling setpoint by 0.5 K and shuts the zone's airflow off while it sits within its
+setpoints, letting it back on 0.5 K beyond them.
 
 By default it runs the whole occupied day (07:00 to 19:00, a step every 3 s), so you can
 browse the device with YABE meanwhile (packages/world/AGENTS.md has the steps); Ctrl+C stops

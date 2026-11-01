@@ -5,15 +5,22 @@ from spotcool_world.transports.bacnet.bms_logic import (
     ZoneStandby,
 )
 
-T0 = 198 * 86_400 + 10 * 3600  # 18 July, 10:00
+DAY_S = 198 * 86_400  # 18 July, 00:00
 OCCUPIED_SP, UNOCCUPIED_SP = 24.0, 30.0  # the schedule's cooling setpoints, degC
 HEATING_SP = 20.0
+
+
+def at(hour: int, minute: int = 0, *, day: int = 0) -> float:
+    return DAY_S + day * 86_400 + hour * 3600 + minute * 60
+
+
+T0 = at(10)
 
 
 def vacant_zone(at_s: float | None = T0) -> ZoneStandby:
     """A zone in scheduled occupancy whose sensor reads Unoccupied from ``at_s``."""
     zone = ZoneStandby()
-    zone.schedule(OCCUPIED_SP)
+    zone.schedule(OCCUPIED_SP, T0 if at_s is None else at_s)
     zone.sensor(False, at_s)
     return zone
 
@@ -33,20 +40,47 @@ def test_standby_starts_after_5_minutes_not_after_4() -> None:
     assert (zone.standby, zone.mode) == (True, OccupancyMode.STANDBY)
 
 
-def test_standby_needs_scheduled_occupancy() -> None:
+def test_standby_starts_at_06_15_at_the_earliest() -> None:
     zone = ZoneStandby()
     assert zone.mode is OccupancyMode.UNOCCUPIED  # no schedule yet
-    zone.schedule(UNOCCUPIED_SP)  # night
-    zone.sensor(False, T0)
-    zone.tick(T0 + 900)
-    assert (zone.standby, zone.mode) == (False, OccupancyMode.UNOCCUPIED)
-    zone.schedule(OCCUPIED_SP)  # the schedule starts; the zone has been empty all along
+    zone.sensor(False, at(5))  # empty since before dawn
+    zone.schedule(UNOCCUPIED_SP, at(5, 45))
+    zone.tick(at(5, 45))
+    assert zone.mode is OccupancyMode.UNOCCUPIED
+    zone.schedule(UNOCCUPIED_SP, at(6))  # the 06:00 stamp still reports the night's setpoint
+    zone.tick(at(6))
+    assert zone.mode is OccupancyMode.UNOCCUPIED
+    zone.schedule(OCCUPIED_SP, at(6, 15))
     assert zone.mode is OccupancyMode.OCCUPIED
-    zone.tick(T0 + 1800)
+    zone.tick(at(6, 15))
     assert zone.mode is OccupancyMode.STANDBY
-    zone.schedule(UNOCCUPIED_SP)  # the schedule ends: so does standby
+
+
+def test_standby_ends_at_19_00_though_the_baseline_still_reads_the_day_setpoint() -> None:
+    zone = vacant_zone(at(18))
+    zone.tick(at(18, 15))
+    assert zone.standby
+    zone.schedule(OCCUPIED_SP, at(19))  # the 19:00 stamp reports 18:45-19:00's setpoint
+    zone.tick(at(19))
     assert (zone.standby, zone.mode) == (False, OccupancyMode.UNOCCUPIED)
-    assert zone.damper(22.0, HEATING_SP, UNOCCUPIED_SP) is None
+    assert zone.cooling_setpoint(OCCUPIED_SP) == OCCUPIED_SP  # no standby raise
+    assert zone.damper(24.0, HEATING_SP, OCCUPIED_SP) is None
+    # Still empty the next morning: the vacancy timer ran on, so standby starts at once.
+    zone.schedule(OCCUPIED_SP, at(6, 15, day=1))
+    zone.tick(at(6, 15, day=1))
+    assert zone.standby
+
+
+def test_the_occupied_hours_can_be_changed() -> None:
+    zone = ZoneStandby(occupied_hours=(8.0, 17.0))
+    zone.sensor(False, at(7))
+    zone.schedule(OCCUPIED_SP, at(7, 30))
+    zone.tick(at(7, 30))
+    assert zone.mode is OccupancyMode.UNOCCUPIED
+    zone.tick(at(8))
+    assert zone.mode is OccupancyMode.STANDBY
+    zone.tick(at(17))
+    assert zone.mode is OccupancyMode.UNOCCUPIED
 
 
 def test_an_occupied_reading_ends_standby_at_once_and_resets_the_timer() -> None:
@@ -84,33 +118,50 @@ def test_standby_raises_the_cooling_setpoint_half_a_kelvin_above_the_schedule() 
     assert zone.cooling_setpoint(OCCUPIED_SP) == OCCUPIED_SP + 0.5
 
 
-def test_the_damper_shuts_inside_the_band_reopens_at_a_setpoint_and_holds_between() -> None:
+def test_the_damper_shuts_within_the_setpoints_and_reopens_half_a_kelvin_beyond() -> None:
     zone = standby_zone()
     cooling = 24.5  # the standby cooling setpoint; heating 20.0 is set back to 19.5
-    assert zone.damper(24.2, HEATING_SP, cooling) is None  # only 0.3 K inside: stays released
-    assert zone.damper(24.0, HEATING_SP, cooling) == 0.0  # 0.5 K inside both: shut off
-    assert zone.damper(24.3, HEATING_SP, cooling) == 0.0  # between: the hysteresis holds
-    assert zone.damper(24.5, HEATING_SP, cooling) is None  # reached the cooling setpoint
-    assert zone.damper(24.3, HEATING_SP, cooling) is None  # between: stays released
-    assert zone.damper(22.0, HEATING_SP, cooling) == 0.0
-    assert zone.damper(19.8, HEATING_SP, cooling) == 0.0  # 0.3 K above 19.5: holds
-    assert zone.damper(19.5, HEATING_SP, cooling) is None  # reached the set-back heating setpoint
-    assert zone.damper(19.9, HEATING_SP, cooling) is None  # 0.4 K inside: stays released
-    assert zone.damper(20.0, HEATING_SP, cooling) == 0.0  # 0.5 K inside again
+    assert zone.damper(24.5, HEATING_SP, cooling) == 0.0  # at the setpoint: shut
+    assert zone.damper(24.9, HEATING_SP, cooling) == 0.0  # warming: the hysteresis holds
+    assert zone.damper(25.0, HEATING_SP, cooling) is None  # 0.5 K above: airflow back
+    assert zone.damper(24.7, HEATING_SP, cooling) is None  # cooling down: stays released
+    assert zone.damper(24.5, HEATING_SP, cooling) == 0.0  # back at the setpoint: shut again
+    assert zone.damper(19.5, HEATING_SP, cooling) == 0.0  # at the set-back heating setpoint
+    assert zone.damper(19.1, HEATING_SP, cooling) == 0.0  # holds
+    assert zone.damper(19.0, HEATING_SP, cooling) is None  # 0.5 K below it: released
+    assert zone.damper(19.4, HEATING_SP, cooling) is None  # still outside: stays released
+    assert zone.damper(19.5, HEATING_SP, cooling) == 0.0
 
 
-def test_a_zone_held_at_the_schedule_setpoint_shuts_off_when_standby_raises_it() -> None:
+def test_a_zone_the_vav_holds_at_the_raised_setpoint_duty_cycles() -> None:
     zone = standby_zone()
-    held_c = (OCCUPIED_SP + 273.15 + 1e-12) - 273.15  # 24 degC, as a K -> degC float
-    assert held_c != OCCUPIED_SP
-    assert zone.damper(held_c, HEATING_SP, zone.cooling_setpoint(OCCUPIED_SP)) == 0.0
+    cooling = zone.cooling_setpoint(OCCUPIED_SP)
+    held_c = (cooling + 273.15 + 1e-12) - 273.15  # held at 24.5 degC, up to float rounding
+    temps = [held_c, 24.8, 25.0, held_c, held_c, 24.8, 25.0, held_c]
+    assert [zone.damper(t, HEATING_SP, cooling) for t in temps] == [
+        0.0,
+        0.0,
+        None,  # 0.5 K above: the VAV box takes the zone back to its setpoint ...
+        0.0,  # ... where the damper shuts again
+        0.0,
+        0.0,
+        None,
+        0.0,
+    ]
+
+
+def test_a_zone_a_little_above_the_plain_schedule_shuts_at_standby_entry() -> None:
+    zone = standby_zone()
+    cooling = zone.cooling_setpoint(OCCUPIED_SP)
+    assert zone.damper(OCCUPIED_SP + 0.02, HEATING_SP, cooling) == 0.0
 
 
 def test_an_agent_setpoint_widens_the_band() -> None:
     zone = standby_zone()
     assert zone.damper(27.0, HEATING_SP, 28.0) == 0.0  # the agent commanded 28 degC
-    assert zone.damper(27.9, HEATING_SP, 28.0) == 0.0
-    assert zone.damper(28.0, HEATING_SP, 28.0) is None
+    assert zone.damper(28.4, HEATING_SP, 28.0) == 0.0
+    assert zone.damper(28.5, HEATING_SP, 28.0) is None
+    assert zone.damper(28.0, HEATING_SP, 28.0) == 0.0
 
 
 def test_out_of_standby_the_damper_is_always_released() -> None:
