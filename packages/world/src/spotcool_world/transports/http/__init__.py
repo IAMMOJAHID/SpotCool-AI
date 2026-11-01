@@ -1,1 +1,4 @@
-"""HTTP transports for the camera catalog and the room calendar; arrives with WP4 and WP5."""
+"""HTTP transports.
+
+The room calendar's router is here, in ``calendar.py``. The camera server arrives with WP4.
+"""

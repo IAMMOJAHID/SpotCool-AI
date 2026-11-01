@@ -137,15 +137,18 @@ def test_clothing_holds_until_the_next_change_and_is_none_in_an_empty_zone() -> 
     assert scenario.state_at(at("13:00")).zones[1].clothing is None  # North had no change
 
 
-def test_the_south_jacket_goes_on_at_14_30(tuesday: CompiledScenario) -> None:
-    def south(clock: str) -> str | None:
-        return tuesday.state_at(at(clock)).zones[2].clothing
+def test_the_south_jacket_goes_on_at_14_30_and_stays_in_view(tuesday: CompiledScenario) -> None:
+    def south(clock: str) -> tuple[str, str | None]:
+        scene = tuesday.state_at(at(clock)).zones[2]
+        return scene.scene, scene.clothing
 
-    assert [south(c) for c in ("14:15", "14:30", "14:45", "15:00")] == [
-        None,
-        "heavy",
-        "heavy",
-        None,
+    # The complaint clip runs to 15:00: the meeting clip shows A in a T-shirt, not the jacket.
+    assert [south(c) for c in ("14:00", "14:15", "14:30", "14:45", "15:00")] == [
+        ("meeting", None),
+        ("complaint", None),
+        ("complaint", "heavy"),
+        ("complaint", "heavy"),
+        ("empty", None),
     ]
 
 

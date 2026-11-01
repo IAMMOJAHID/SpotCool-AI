@@ -13,7 +13,8 @@ Each request has a 10 s timeout and is retried twice after a connection error or
 Every delivery's result goes to the dashboard as a ``complaint_cue`` event on the ``events``
 topic, with ``delivered`` and ``detail``. A failed delivery is logged and reported, never fatal.
 
-Audio bytes are read, sent and dropped: never copied, cached or logged (AGENTS.md Law 6).
+Audio bytes are read, sent and dropped: never copied, cached or logged (AGENTS.md Law 6). So the
+worker never logs a traceback: loguru's tracebacks show local variables, the bytes among them.
 """
 
 import asyncio
@@ -32,7 +33,7 @@ from spotcool_contracts.occupants import (
     VOICE_FORMAT,
     ComplaintText,
 )
-from spotcool_world.bus import Subscription
+from spotcool_world.bus import Bus, Subscription
 from spotcool_world.frames import ComplaintCueFrame
 from spotcool_world.processors.frame_publisher import WORLD_FRAMES_TOPIC
 from spotcool_world.services.settings import WorldSettings
@@ -44,6 +45,8 @@ RETRIES = 2
 """Retries of a request after a connection error or a 5xx answer."""
 MAX_AUDIO_BYTES = 10_000_000
 """Largest recording sent, about 5 minutes in ``VOICE_FORMAT``; a larger one falls back to chat."""
+NOT_SENT = "not sent: the world stopped"
+"""The ``detail`` of a cue still waiting when the worker stopped."""
 _SAMPLE_WIDTH = 2  # bytes per sample of VOICE_FORMAT's s16le
 
 
@@ -51,7 +54,9 @@ class OccupantWorker(BaseWorker):
     """Delivers every ``ComplaintCueFrame`` on the bus to the agent, by chat or by voice.
 
     ``run()`` subscribes at once, so start it with the pipeline under one ``WorkerRunner``. It
-    needs the runner's bus and runs until ``stop()``.
+    needs the runner's bus. It runs until ``stop()`` and never ends on its own: WP11 stops it
+    from the pipeline worker's ``on_pipeline_finished`` event, which fires after the run's
+    ``EndFrame`` or ``CancelFrame``.
 
     Args:
         settings: Where the agent is (``agent_base_url``) and the recordings are
@@ -61,6 +66,9 @@ class OccupantWorker(BaseWorker):
         backoff_s: Wait before the first retry; it doubles with each retry.
         transport: httpx transport; tests pass an ``httpx.MockTransport``.
         name: Unique worker name.
+
+    Raises:
+        ValueError: If ``agent_base_url`` is not an http or https URL with a host.
     """
 
     def __init__(
@@ -74,7 +82,7 @@ class OccupantWorker(BaseWorker):
         name: str | None = None,
     ) -> None:
         super().__init__(name=name)
-        self._base_url = settings.agent_base_url
+        self._base_url = _agent_url(settings.agent_base_url)
         self._audio_dir = settings.footage_dir / "audio" if settings.footage_dir else None
         self._topic = topic
         self._events_topic = events_topic
@@ -104,11 +112,11 @@ class OccupantWorker(BaseWorker):
             ) as http:
                 async for message in subscription:
                     if isinstance(message, ComplaintCueFrame):
-                        data = await self._deliver(http, message)
-                        envelope = EventEnvelope.build(
-                            EventType.COMPLAINT_CUE, EventSource.WORLD, data, message.sim_time_s
-                        )
-                        await bus.publish(self._events_topic, envelope)
+                        if self._stopping:  # taken just as stop() closed the subscription
+                            data = self._not_sent(message)
+                        else:
+                            data = await self._deliver(http, message)
+                        await self._publish(bus, message, data)
             self._state = WorkerState.FINISHED
         except asyncio.CancelledError:
             self._state = WorkerState.CANCELLED
@@ -123,29 +131,48 @@ class OccupantWorker(BaseWorker):
     async def stop(self, reason: str = "") -> None:
         """Stop taking complaints. ``run()`` returns once a delivery in progress has ended.
 
-        Cues still waiting on the subscription are dropped.
+        Cues already waiting on the subscription are not sent: each gets a ``complaint_cue``
+        result with ``delivered=False`` and the detail ``NOT_SENT``. Cues published after
+        ``stop()`` are not received.
 
         Args:
             reason: Why it is being stopped (logged).
         """
         logger.info(f"{self.name}: stopping{f' ({reason})' if reason else ''}")
         self._stopping = True
-        if self._subscription is not None:
-            self._subscription.close()
+        subscription, bus = self._subscription, self.bus
+        if subscription is None or bus is None:
+            return  # run() has not subscribed yet; it sees _stopping and ends at once
+        for message in await _waiting(subscription):
+            if isinstance(message, ComplaintCueFrame):
+                await self._publish(bus, message, self._not_sent(message))
+        subscription.close()
 
     async def _deliver(self, http: httpx.AsyncClient, cue: ComplaintCueFrame) -> ComplaintCueData:
         """Deliver one complaint and return its result; never raises."""
         data = cue.data
         try:
             delivered, detail = await self._send(http, cue)
-        except Exception as exc:
-            logger.exception(f"{self.name}: complaint from {data.zone} failed")
+        except Exception as exc:  # a surprise; reported without a traceback (Law 6)
             delivered, detail = False, f"{type(exc).__name__}: {exc}"
-        if delivered:
-            logger.info(f"{self.name}: {data.channel} complaint from {data.zone} delivered")
+            logger.error(f"{self.name}: complaint from {data.zone} failed: {detail}")
         else:
-            logger.warning(f"{self.name}: complaint from {data.zone} not delivered: {detail}")
+            if delivered:
+                logger.info(f"{self.name}: {data.channel} complaint from {data.zone} delivered")
+            else:
+                logger.warning(f"{self.name}: complaint from {data.zone} not delivered: {detail}")
         return data.model_copy(update={"delivered": delivered, "detail": detail})
+
+    def _not_sent(self, cue: ComplaintCueFrame) -> ComplaintCueData:
+        logger.warning(f"{self.name}: complaint from {cue.data.zone} {NOT_SENT}")
+        return cue.data.model_copy(update={"delivered": False, "detail": NOT_SENT})
+
+    async def _publish(self, bus: Bus, cue: ComplaintCueFrame, data: ComplaintCueData) -> None:
+        """Put a cue's result on the dashboard topic as a ``complaint_cue`` event."""
+        event = EventEnvelope.build(
+            EventType.COMPLAINT_CUE, EventSource.WORLD, data, cue.sim_time_s
+        )
+        await bus.publish(self._events_topic, event)
 
     async def _send(
         self, http: httpx.AsyncClient, cue: ComplaintCueFrame
@@ -226,3 +253,29 @@ class OccupantWorker(BaseWorker):
             if response.status_code < 500:
                 return f"{failure}: {response.text[:200]}"
         return f"{failure} (after {RETRIES + 1} attempts)"
+
+
+def _agent_url(text: str) -> httpx.URL:
+    """The agent's base URL, checked: an http or https scheme and a host.
+
+    Raises:
+        ValueError: If it is not such a URL.
+    """
+    try:
+        url = httpx.URL(text)
+    except httpx.InvalidURL as exc:
+        raise ValueError(f"agent_base_url {text!r} is not a URL: {exc}") from None
+    if url.scheme not in ("http", "https") or not url.host:
+        raise ValueError(f"agent_base_url {text!r} needs an http:// or https:// scheme and a host")
+    return url
+
+
+async def _waiting(subscription: Subscription) -> list[Any]:
+    """The messages already waiting on a subscription, taken without waiting for more."""
+    messages: list[Any] = []
+    while True:
+        try:
+            async with asyncio.timeout(0):  # a waiting message returns before the timeout fires
+                messages.append(await anext(subscription))
+        except (TimeoutError, StopAsyncIteration):
+            return messages

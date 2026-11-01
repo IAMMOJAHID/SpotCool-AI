@@ -81,8 +81,39 @@ def test_the_base_scenario_is_clean(write_scenario: WriteScenario, base_yaml: st
             '{at: "08:30", scene: many',
             '{at: "19:15", scene: many',
             "19:15",
+            "19:15 is not before the end, 19:00: the world ticks while the time is before the "
+            "end, so the last tick is 18:45 and nothing at 19:15 happens",
+            id="after the end",
+        ),
+        pytest.param(
+            '{at: "08:30", scene: many',
+            '{at: "19:00", scene: many',
+            '"19:00", scene: many',
+            "19:00 is not before the end, 19:00: the world ticks while the time is before the "
+            "end, so the last tick is 18:45 and nothing at 19:00 happens",
+            id="an entry at the end",
+        ),
+        pytest.param(
+            'at: "14:15", channel: chat',
+            'at: "19:00", channel: chat',
+            "type: complaint",
+            "19:00 is not before the end, 19:00: the world ticks while the time is before the "
+            "end, so the last tick is 18:45 and nothing at 19:00 happens",
+            id="a cue at the end",
+        ),
+        pytest.param(
+            'booked_at: "13:45"',
+            'booked_at: "06:45"',
+            "booked_at",
+            "06:45 is before the start, 07:00",
+            id="before the start",
+        ),
+        pytest.param(
+            'to: "15:00"',
+            'to: "19:15"',
+            "type: booking",
             "19:15 is outside the scenario's 07:00-19:00",
-            id="outside start-end",
+            id="a to after the end",
         ),
         pytest.param(
             '{at: "08:30", scene: many',
@@ -102,7 +133,7 @@ def test_the_base_scenario_is_clean(write_scenario: WriteScenario, base_yaml: st
             "  - {type: booking",
             '  - {type: door_open, zone: wes, from: "10:30", to: "11:00"}\n  - {type: booking',
             '"10:30"',
-            "door_open 10:30-11:00 overlaps 10:00-10:45 in wes",
+            "door_open in wes 10:30-11:00 overlaps 10:00-10:45",
             id="overlapping doors",
         ),
         pytest.param(
@@ -231,6 +262,51 @@ def test_people_that_do_not_fit_the_scene_are_a_warning(
 def test_a_door_open_scene_takes_any_count(write_scenario: WriteScenario, base_yaml: str) -> None:
     text = edit(base_yaml, "scene: few, people: 1", "scene: door_open, people: 0")
     assert lint_text(write_scenario, text) == []
+
+
+def test_only_a_to_may_be_the_end(write_scenario: WriteScenario, base_yaml: str) -> None:
+    text = edit(base_yaml, 'from: "10:00", to: "10:45"', 'from: "18:45", to: "19:00"')
+    assert lint_text(write_scenario, text) == []
+
+
+def test_overlapping_bookings_of_a_room_are_a_warning(
+    write_scenario: WriteScenario, base_yaml: str
+) -> None:
+    second = '  - {type: booking, room: meeting-south, from: "14:30", to: "15:30"}\n'
+    text = edit(base_yaml, "  - {type: complaint", f"{second}  - {{type: complaint")
+    findings = lint_text(write_scenario, text)
+    message = "booking of meeting-south 14:30-15:30 overlaps 14:00-15:00"
+    assert [(f.line, f.level, f.message) for f in findings] == [
+        (line_of(text, '"14:30", to: "15:30"'), "warning", message)
+    ]
+    back_to_back = edit(text, 'from: "14:30", to: "15:30"', 'from: "15:00", to: "15:30"')
+    assert lint_text(write_scenario, back_to_back) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "lines"),
+    [
+        pytest.param("name: &loop [*loop]\n", [1], id="self-referencing"),
+        pytest.param(
+            "a: &a [x, x]\nb: &b [*a, *a]\nc: &c [*b, *b]\nd: [*c, *c]\n",
+            [2, 2, 3, 3, 4, 4],
+            id="nested",
+        ),
+        pytest.param("base: &base {at: '07:00'}\nzones:\n  <<: *base\n", [3], id="merge key"),
+    ],
+)
+def test_aliases_are_findings_not_followed(
+    write_scenario: WriteScenario, text: str, lines: list[int]
+) -> None:
+    findings = lint_text(write_scenario, text)
+    alias_lines = [f.line for f in findings if f.message == "aliases are not supported"]
+    assert alias_lines == lines
+    assert all(f.level == "error" for f in findings)
+
+
+def test_yaml_nested_too_deeply_is_a_finding(write_scenario: WriteScenario) -> None:
+    findings = lint_text(write_scenario, f"name: {'[' * 5000}{']' * 5000}\n")
+    assert [(f.line, f.message) for f in findings] == [(1, "invalid YAML: nested too deeply")]
 
 
 def test_voice_cues_that_fall_back_to_chat_are_warnings(

@@ -2,7 +2,8 @@
 
 The loader builds the data itself from PyYAML's node tree, so it knows the line of every key and
 list item, and it reads a plain ``HH:MM`` as text: YAML 1.1 would read an unquoted ``10:00`` as
-the number 600 (base 60).
+the number 600 (base 60). Aliases (``*name``) are not supported: each one is reported at its
+line and never followed, so a self-referencing or nested-alias file cannot recurse or blow up.
 """
 
 import re
@@ -22,6 +23,17 @@ Loc = tuple[str | int, ...]
 """Where a value sits in a scenario file, as keys and list indexes (``("events", 2, "to")``)."""
 
 _CLOCK = re.compile(r"\d{1,2}:\d{2}")
+_ALIAS = "!spotcool/alias"  # tag of the marker node composed in place of an alias
+
+
+class _Loader(yaml.SafeLoader):
+    """A SafeLoader that composes each alias as a marker node at the alias's own position."""
+
+    def compose_node(self, parent: Any, index: Any) -> Any:
+        if self.check_event(yaml.AliasEvent):
+            event = self.get_event()
+            return yaml.ScalarNode(_ALIAS, "", event.start_mark, event.end_mark)
+        return super().compose_node(parent, index)
 
 
 class ScenarioFileError(ValueError):
@@ -103,6 +115,8 @@ def load_scenario(source: str | Path) -> LoadedScenario:
         mark = getattr(exc, "problem_mark", None)
         line = mark.line + 1 if mark is not None else 1
         raise ScenarioFileError(path, [(line, f"invalid YAML: {_problem(exc)}")]) from None
+    except RecursionError:
+        raise ScenarioFileError(path, [(1, "invalid YAML: nested too deeply")]) from None
     try:
         scenario = Scenario.model_validate(data)
     except ValidationError as exc:
@@ -119,8 +133,8 @@ def load_scenario(source: str | Path) -> LoadedScenario:
 
 
 def _parse(text: str) -> tuple[Any, dict[Loc, int], list[tuple[int, str]]]:
-    """YAML text to plain data, the line of every key and list item, and duplicate keys."""
-    loader = yaml.SafeLoader(text)
+    """YAML text to plain data, the line of every key and list item, and the problems found."""
+    loader = _Loader(text)
     try:
         root = loader.get_single_node()
         lines: dict[Loc, int] = {(): 1}
@@ -138,10 +152,16 @@ def _build(
     lines: dict[Loc, int],
     problems: list[tuple[int, str]],
 ) -> Any:
+    if node.tag == _ALIAS:
+        problems.append((node.start_mark.line + 1, "aliases are not supported"))
+        return None
     if isinstance(node, yaml.MappingNode):
         mapping: dict[str, Any] = {}
         for key_node, value_node in node.value:
             line = key_node.start_mark.line + 1
+            if key_node.tag == _ALIAS:
+                problems.append((line, "aliases are not supported"))
+                continue
             if not isinstance(key_node, yaml.ScalarNode):
                 problems.append((line, "a key must be a plain name"))
                 continue

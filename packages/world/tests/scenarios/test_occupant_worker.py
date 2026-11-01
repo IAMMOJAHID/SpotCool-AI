@@ -24,7 +24,7 @@ from spotcool_world.processors import WORLD_FRAMES_TOPIC
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.services import WorldSettings
 from spotcool_world.workers import WorkerState, occupant_worker
-from spotcool_world.workers.occupant_worker import OccupantWorker
+from spotcool_world.workers.occupant_worker import NOT_SENT, OccupantWorker
 
 T_S = 199 * 86_400 + 14 * 3600 + 15 * 60
 LINE = "It's freezing in this meeting room."
@@ -50,8 +50,9 @@ def cue(
     *,
     zone: Zone = Zone.SOU,
     audio: str | None = WAV_NAME,
+    text: str = LINE,
 ) -> ComplaintCueFrame:
-    data = ComplaintCueData(zone=zone, text=LINE, channel=channel, delivered=False)
+    data = ComplaintCueData(zone=zone, text=text, channel=channel, delivered=False)
     return ComplaintCueFrame(data=data, audio=audio if channel == "voice" else None, sim_time_s=T_S)
 
 
@@ -347,6 +348,93 @@ async def test_audio_is_never_logged_published_or_copied(
     assert files(tmp_path) == files_before
     assert logs and not any("RIFF" in line for line in logs)  # the WAV header never shows
     assert "RIFF" not in envelope.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_a_crash_while_sending_audio_logs_no_audio(
+    settings: WorldSettings, footage: Path
+) -> None:
+    write_wav(footage / "audio" / WAV_NAME)
+    logs: list[str] = []
+    # diagnose prints the local variables of a traceback, as loguru's default sink does
+    sink = logger.add(logs.append, level="DEBUG", format="{message}", diagnose=True)
+    try:
+        [envelope] = await deliver(settings, Agent(RuntimeError("agent exploded")), cue("voice"))
+    finally:
+        logger.remove(sink)
+    data = result(envelope)
+    assert (data.delivered, data.detail) == (False, "RuntimeError: agent exploded")
+    assert any("agent exploded" in line for line in logs)
+    assert not any("RIFF" in line or "Traceback" in line for line in logs)
+
+
+@pytest.mark.asyncio
+async def test_cues_still_waiting_at_stop_are_reported_as_not_sent(settings: WorldSettings) -> None:
+    bus = InProcessBus()
+    events = bus.subscribe("events")
+    busy, release = asyncio.Event(), asyncio.Event()
+
+    async def slow_agent(request: httpx.Request) -> httpx.Response:
+        busy.set()
+        await release.wait()
+        return httpx.Response(200)
+
+    worker = OccupantWorker(settings, transport=httpx.MockTransport(slow_agent))
+    worker.bus = bus
+
+    async def drive() -> None:
+        for text in ("first", "second", "third"):
+            await bus.publish(WORLD_FRAMES_TOPIC, cue("chat", text=text))
+        await busy.wait()  # the first is with the agent; the other two wait on the subscription
+        await worker.stop("end of run")
+        release.set()
+
+    await asyncio.wait_for(asyncio.gather(worker.run(), drive()), timeout=5.0)
+    assert worker.state is WorkerState.FINISHED
+    results = [result(await anext(events)) for _ in range(3)]
+    assert [(r.text, r.delivered, r.detail) for r in results] == [
+        ("second", False, NOT_SENT),
+        ("third", False, NOT_SENT),
+        ("first", True, None),
+    ]
+    assert NOT_SENT == "not sent: the world stopped"
+
+
+@pytest.mark.asyncio
+async def test_a_cue_taken_as_the_worker_stops_is_not_sent(
+    settings: WorldSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def nothing_waiting(subscription: object) -> list[object]:
+        return []  # as if the cue was published just after stop() looked
+
+    monkeypatch.setattr(occupant_worker, "_waiting", nothing_waiting)
+    bus = InProcessBus()
+    events = bus.subscribe("events")
+    agent = Agent()
+    worker = OccupantWorker(settings, transport=httpx.MockTransport(agent))
+    worker.bus = bus
+
+    async def drive() -> None:
+        await bus.publish(WORLD_FRAMES_TOPIC, cue("chat"))  # wakes the idle worker, which
+        await worker.stop()  # only takes the cue after stop() has closed the subscription
+
+    await asyncio.wait_for(asyncio.gather(worker.run(), drive()), timeout=5.0)
+    data = result(await anext(events))
+    assert (data.delivered, data.detail) == (False, NOT_SENT)
+    assert agent.requests == []
+
+
+@pytest.mark.parametrize(
+    "url", ["ftp://agent", "localhost:8002", "127.0.0.1:8002", "http://", "http://host:port", ""]
+)
+def test_a_bad_agent_url_fails_when_the_worker_is_made(url: str) -> None:
+    with pytest.raises(ValueError, match="agent_base_url"):
+        OccupantWorker(WorldSettings(agent_base_url=url))
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1:8002", "https://agent.example/api"])
+def test_http_and_https_agent_urls_are_accepted(url: str) -> None:
+    assert OccupantWorker(WorldSettings(agent_base_url=url)).state is WorkerState.IDLE
 
 
 @pytest.mark.asyncio

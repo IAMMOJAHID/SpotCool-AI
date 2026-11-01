@@ -156,20 +156,71 @@ async def test_the_ics_feed_of_an_empty_calendar_has_no_events() -> None:
     assert "BEGIN:VCALENDAR" in lines and "BEGIN:VEVENT" not in lines
 
 
+def booking(subject: str, start: str = "09:00", end: str = "10:00") -> ScheduleItem:
+    return ScheduleItem(
+        status="busy",
+        subject=subject,
+        start=DateTimeTimeZone(dateTime=f"2026-07-19T{start}:00"),
+        end=DateTimeTimeZone(dateTime=f"2026-07-19T{end}:00"),
+    )
+
+
+async def ics_bytes(*items: ScheduleItem) -> bytes:
+    store = CalendarStore()
+    store.update(CalendarFrame(data=CalendarData(room="meeting-south", items=list(items))))
+    return (await get(store, ICS)).content
+
+
+async def ics_of(*items: ScheduleItem) -> str:
+    return (await ics_bytes(*items)).decode()
+
+
 @pytest.mark.asyncio
 async def test_ics_text_is_escaped() -> None:
-    item = ScheduleItem(
-        status="busy",
-        subject="Review; Q3, all\\hands\nday two",
-        start=DateTimeTimeZone(dateTime="2026-07-19T09:00:00"),
-        end=DateTimeTimeZone(dateTime="2026-07-19T10:00:00"),
-    )
-    store = CalendarStore()
-    store.update(CalendarFrame(data=CalendarData(room="meeting-south", items=[item])))
-    lines = (await get(store, ICS)).text.split("\r\n")
+    lines = (await ics_of(booking("Review; Q3, all\\hands\nday two"))).split("\r\n")
     assert "SUMMARY:Review\\; Q3\\, all\\\\hands\\nday two" in lines
     assert "LOCATION:meeting-south" in lines  # no location given: the room
-    assert "DTSTAMP:20260101T000000Z" in lines  # no simulation time yet
+    assert "DTSTAMP:20260101T000000Z" in lines  # no calendar update time yet
+
+
+@pytest.mark.parametrize(
+    ("subject", "summary"),
+    [
+        ("one\rtwo", "SUMMARY:one\\ntwo"),  # a lone CR is a newline too
+        ("one\r\ntwo\nthree", "SUMMARY:one\\ntwo\\nthree"),  # CRLF is one newline, not two
+        ("bell\x07 null\x00 esc\x1b tab\tdel\x7f", "SUMMARY:bell null esc tab\tdel"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_ics_newlines_become_one_escape_and_other_controls_go(
+    subject: str, summary: str
+) -> None:
+    lines = (await ics_of(booking(subject))).split("\r\n")
+    assert summary in lines
+
+
+@pytest.mark.asyncio
+async def test_each_booking_gets_its_own_uid() -> None:
+    text = await ics_of(booking("Stand-up"), booking("Stand-up again"))
+    uids = [line for line in text.split("\r\n") if line.startswith("UID:")]
+    assert uids == [
+        "UID:meeting-south-0-20260719T090000Z@spotcool-world",
+        "UID:meeting-south-1-20260719T090000Z@spotcool-world",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_long_ics_lines_are_folded_at_75_octets() -> None:
+    subject = "Quarterly review " * 6 + "-> café €→ " * 8  # multi-byte UTF-8 too
+    content = await ics_bytes(booking(subject))
+    physical = content.split(b"\r\n")[:-1]
+    assert max(len(line) for line in physical) == 75  # long lines fold, at 75 octets at most
+    for line in physical:
+        line.decode("utf-8")  # each line decodes alone: no fold splits a character
+    unfolded = content.decode().replace("\r\n ", "").split("\r\n")
+    assert f"SUMMARY:{subject}" in unfolded
+    first = next(n for n, line in enumerate(physical) if line.startswith(b"SUMMARY:"))
+    assert physical[first + 1].startswith(b" ")  # a continuation line starts with one space
 
 
 @pytest.mark.asyncio

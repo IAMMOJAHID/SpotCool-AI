@@ -1,6 +1,8 @@
-# The demo day, matching docs/footage/shot_list.md. `people` is the number of occupants visible
-# in the zone's clip (<zone>_<scene>.mp4), the ground truth camera counting is scored against.
-# Every time is on the world's 15-minute step grid.
+# The demo day, from docs/footage/shot_list.md. `people` is the number of occupants visible in
+# the zone's clip (<zone>_<scene>.mp4), the ground truth camera counting is scored against.
+# Every time is on the world's 15-minute step grid. One change from the shot list: South stays
+# on the complaint clip until 15:00, because the meeting clip shows A in a T-shirt, and A wears
+# the jacket from 14:30.
 name: hybrid_tuesday
 description: Half the staff work from home; the East team is fully remote today.
 day: 199                 # BOPTEST's peak_cool_day (2026-07-19 on the simulation calendar)
@@ -23,8 +25,7 @@ zones:
   sou:
     - {at: "07:00", scene: empty, people: 0}
     - {at: "14:00", scene: meeting, people: 5}
-    - {at: "14:15", scene: complaint, people: 5}
-    - {at: "14:45", scene: meeting, people: 5}
+    - {at: "14:15", scene: complaint, people: 5}  # to 15:00: the jacket stays on
     - {at: "15:00", scene: empty, people: 0}
   eas:
     - {at: "07:00", scene: empty, people: 0}

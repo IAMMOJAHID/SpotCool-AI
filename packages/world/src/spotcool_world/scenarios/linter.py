@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal
 
 from spotcool_contracts import Zone
+from spotcool_world.clocks import SimClock
 from spotcool_world.scenarios.loader import Loc, ScenarioFileError, load_scenario
 from spotcool_world.scenarios.schema import (
     BookingEvent,
@@ -108,11 +109,13 @@ def check(
     """Check the rules that need the whole scenario.
 
     Errors: a missing zone or one without an entry at the start; times not increasing within a
-    zone, outside start-end, or off the step grid; ``from`` not before ``to``; overlapping door
-    events in a zone, or a door event in a zone without a door contact; ``booked_at`` after the
-    booking's ``from``. Warnings: ``people`` that does not fit the scene, a voice cue that
-    will fall back to chat (no audio file, ``footage_dir`` unset, or the file missing), and with
-    ``clips_dir``, a missing ``<zone>_<scene>.mp4``.
+    zone, off the step grid, or outside the run (a point in time must be at or after the start
+    and before the end; only a ``to`` may equal the end); ``from`` not before ``to``;
+    overlapping door events in a zone, or a door event in a zone without a door contact;
+    ``booked_at`` after the booking's ``from``. Warnings: ``people`` that does not fit the
+    scene, overlapping bookings of a room, a voice cue that will fall back to chat (no audio
+    file, ``footage_dir`` unset, or the file missing), and with ``clips_dir``, a missing
+    ``<zone>_<scene>.mp4``.
 
     Args:
         scenario: The scenario.
@@ -125,6 +128,7 @@ def check(
     """
     issues: list[Issue] = []
     start, end = clock_s(scenario.start), clock_s(scenario.end)
+    last_tick = SimClock.clock_text(end - step_s)
 
     def on_grid(loc: Loc, text: str) -> int:
         seconds = clock_s(text)
@@ -133,7 +137,21 @@ def check(
             issues.append(Issue(loc, "error", f"{text} is not on the {grid}"))
         return seconds
 
-    def timed(loc: Loc, text: str) -> int:
+    def instant(loc: Loc, text: str) -> int:
+        """A time something happens at: from the start up to, but not including, the end."""
+        seconds = on_grid(loc, text)
+        if seconds < start:
+            issues.append(Issue(loc, "error", f"{text} is before the start, {scenario.start}"))
+        elif seconds >= end:
+            message = (
+                f"{text} is not before the end, {scenario.end}: the world ticks while the time "
+                f"is before the end, so the last tick is {last_tick} and nothing at {text} happens"
+            )
+            issues.append(Issue(loc, "error", message))
+        return seconds
+
+    def until(loc: Loc, text: str) -> int:
+        """The end of an interval (``to``), which may be the scenario's end."""
         seconds = on_grid(loc, text)
         if not start <= seconds <= end:
             span = f"{scenario.start}-{scenario.end}"
@@ -141,11 +159,25 @@ def check(
         return seconds
 
     def interval(loc: Loc, event: DoorOpenEvent | BookingEvent) -> tuple[int, int]:
-        opens, closes = timed((*loc, "from"), event.from_), timed((*loc, "to"), event.to)
+        opens, closes = instant((*loc, "from"), event.from_), until((*loc, "to"), event.to)
         if opens >= closes:
             message = f"from {event.from_} is not before to {event.to}"
             issues.append(Issue((*loc, "to"), "error", message))
         return opens, closes
+
+    def overlaps(
+        seen: list[tuple[int, int, str]],
+        loc: Loc,
+        level: Level,
+        what: str,
+        event: DoorOpenEvent | BookingEvent,
+    ) -> None:
+        """Report an event's interval if it overlaps one seen before, then remember it."""
+        opens, closes, span = clock_s(event.from_), clock_s(event.to), f"{event.from_}-{event.to}"
+        for other_opens, other_closes, other in seen:
+            if opens < other_closes and other_opens < closes:
+                issues.append(Issue(loc, level, f"{what} {span} overlaps {other}"))
+        seen.append((opens, closes, span))
 
     on_grid(("start",), scenario.start)
     on_grid(("end",), scenario.end)
@@ -166,7 +198,7 @@ def check(
         previous: int | None = None
         for index, entry in enumerate(entries):
             loc = ("zones", zone.value, index)
-            at = timed((*loc, "at"), entry.at)
+            at = instant((*loc, "at"), entry.at)
             if previous is not None and at <= previous:
                 message = f"{entry.at} is not after the zone's previous entry"
                 issues.append(Issue((*loc, "at"), "error", message))
@@ -184,25 +216,26 @@ def check(
                     issues.append(Issue((*loc, "scene"), "warning", message))
 
     doors: dict[Zone, list[tuple[int, int, str]]] = defaultdict(list)
+    bookings: dict[str, list[tuple[int, int, str]]] = defaultdict(list)
     for index, event in enumerate(scenario.events):
         loc = ("events", index)
         if isinstance(event, DoorOpenEvent):
-            opens, closes = interval(loc, event)
+            interval(loc, event)
             if event.zone not in door_zones():
                 message = f"zone {event.zone} has no door contact in the office_bms point map"
                 issues.append(Issue((*loc, "zone"), "error", message))
-            for other_opens, other_closes, other in doors[event.zone]:
-                if opens < other_closes and other_opens < closes:
-                    message = f"door_open {event.from_}-{event.to} overlaps {other} in {event.zone}"
-                    issues.append(Issue(loc, "error", message))
-            doors[event.zone].append((opens, closes, f"{event.from_}-{event.to}"))
+            overlaps(doors[event.zone], loc, "error", f"door_open in {event.zone}", event)
         elif isinstance(event, BookingEvent):
             opens, _ = interval(loc, event)
-            if event.booked_at is not None and timed((*loc, "booked_at"), event.booked_at) > opens:
+            overlaps(bookings[event.room], loc, "warning", f"booking of {event.room}", event)
+            if (
+                event.booked_at is not None
+                and instant((*loc, "booked_at"), event.booked_at) > opens
+            ):
                 message = f"booked_at {event.booked_at} is after the booking's from {event.from_}"
                 issues.append(Issue((*loc, "booked_at"), "error", message))
         else:
-            timed((*loc, "at"), event.at)
+            instant((*loc, "at"), event.at)
             if isinstance(event, ComplaintEvent) and event.channel == "voice":
                 issues.extend(_voice_issues(loc, event, footage_dir))
     return issues

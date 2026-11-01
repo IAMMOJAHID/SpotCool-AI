@@ -47,6 +47,21 @@ def test_an_unknown_scenario_or_file_is_an_error(
     assert out[2] == "2 scenario(s): 2 error(s), 0 warning(s)"
 
 
+def test_alias_files_are_findings_and_the_next_scenario_is_still_linted(
+    capsys: pytest.CaptureFixture[str], write_scenario: WriteScenario
+) -> None:
+    loop = write_scenario("name: &loop [*loop]\n", "loop.yaml")
+    # 2**39 nodes if the aliases were followed
+    chain = "".join(f"a{i}: &a{i} [*a{i - 1}, *a{i - 1}]\n" for i in range(1, 40))
+    nested = write_scenario(f"a0: &a0 [x, x]\n{chain}", "nested.yaml")
+    assert main(["lint", str(loop), str(nested), "empty_friday"]) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert f"{loop}:1: error: aliases are not supported" in out
+    assert f"{nested}:2: error: aliases are not supported" in out
+    assert not any("empty_friday.yaml" in line for line in out)  # linted, and clean
+    assert out[-1].startswith("3 scenario(s): ") and out[-1].endswith(", 0 warning(s)")
+
+
 def test_clips_are_checked_when_a_clip_directory_is_given(
     capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

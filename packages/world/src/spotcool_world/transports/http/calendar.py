@@ -5,14 +5,15 @@
 
 - ``GET /calendar/rooms/{room}/schedule?start=&end=``: ``ScheduleInformation`` with the
   bookings that overlap the window. ``start`` and ``end`` are ISO date-times on the simulation
-  calendar (``spotcool_world.scenarios.sim_datetime``); without them the window is the current
-  simulation day.
-- ``GET /calendar/rooms/{room}.ics``: the room's bookings as iCalendar text, in UTC (the label of
-  the simulation's clock).
+  calendar (``spotcool_world.scenarios.sim_datetime``); without them the window is the
+  simulation day of the latest calendar update, which is the scenario's day.
+- ``GET /calendar/rooms/{room}.ics``: the room's bookings as iCalendar (RFC 5545) text, in UTC
+  (the label of the simulation's clock).
 
 An unknown room answers 404.
 """
 
+import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Response
@@ -32,7 +33,7 @@ from spotcool_world.scenarios.compiler import sim_datetime
 
 
 class CalendarStore:
-    """The latest bookings per room and the latest simulation time, from ``CalendarFrame``s.
+    """The latest bookings per room, and when they last changed, from ``CalendarFrame``s.
 
     Feed it frame by frame with ``update``, or with ``follow`` from a subscription to
     ``WORLD_FRAMES_TOPIC``, where a ``FramePublisher`` puts the pipeline's ``CalendarFrame``s.
@@ -44,7 +45,11 @@ class CalendarStore:
 
     @property
     def now_s(self) -> float | None:
-        """Simulation time of the latest frame, or ``None`` before the first."""
+        """The simulation time of the latest calendar update (the latest ``CalendarFrame``).
+
+        Not the current simulation time: frames come only on a run's first tick and when
+        bookings change. ``None`` before the first update.
+        """
         return self._now_s
 
     def items(self, room: str) -> list[ScheduleItem]:
@@ -67,10 +72,11 @@ class CalendarStore:
             self._now_s = frame.sim_time_s
 
     async def follow(self, subscription: Subscription) -> None:
-        """Take every ``CalendarFrame`` from a subscription until it is closed.
+        """Take every ``CalendarFrame`` from a subscription; return when it is closed.
 
         Subscribe before the run starts (``bus.subscribe(WORLD_FRAMES_TOPIC)``) so the first
-        tick's frames are not missed. Other messages are ignored.
+        tick's frames are not missed, and close the subscription to end this. Other messages
+        are ignored.
 
         Args:
             subscription: The subscription.
@@ -92,7 +98,7 @@ def calendar_router(store: CalendarStore) -> APIRouter:
     async def schedule(
         room: str, start: datetime | None = None, end: datetime | None = None
     ) -> ScheduleInformation:
-        """The room's bookings that overlap ``[start, end)``, by default the current day."""
+        """The room's bookings that overlap ``[start, end)``, by default the scenario's day."""
         _check_room(room)
         items = store.items(room)
         window = _window(store.now_s, start, end)
@@ -121,7 +127,7 @@ def _window(
     """The requested window on the simulation calendar, or ``None`` to take every booking."""
     if start is None and end is None:
         if now_s is None:
-            return None  # no frame yet, so no bookings and no current day either
+            return None  # no update yet, so no bookings and no day either
         day = sim_datetime(now_s // SECONDS_PER_DAY * SECONDS_PER_DAY)
         return day, day + timedelta(days=1)
     if start is None or end is None:
@@ -144,15 +150,15 @@ def _overlaps(item: ScheduleItem, start: datetime, end: datetime) -> bool:
 
 
 def _ics(room: str, items: list[ScheduleItem], now_s: float) -> str:
-    """The bookings as iCalendar (RFC 5545) text; DTSTAMP is the latest simulation time."""
+    """The bookings as iCalendar (RFC 5545) text; DTSTAMP is the latest update's time."""
     stamp = _ics_time(sim_datetime(now_s).isoformat())
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//SpotCool//SpotCool World//EN"]
     lines.append(f"X-WR-CALNAME:{_ics_text(room)}")
-    for item in items:
+    for index, item in enumerate(items):
         start, end = _ics_time(item.start.dateTime), _ics_time(item.end.dateTime)
         lines += [
             "BEGIN:VEVENT",
-            f"UID:{room}-{start}-{end}@spotcool-world",
+            f"UID:{_ics_text(room)}-{index}-{start}@spotcool-world",
             f"DTSTAMP:{stamp}",
             f"DTSTART:{start}",
             f"DTEND:{end}",
@@ -161,7 +167,7 @@ def _ics(room: str, items: list[ScheduleItem], now_s: float) -> str:
             "END:VEVENT",
         ]
     lines.append("END:VCALENDAR")
-    return "".join(f"{line}\r\n" for line in lines)
+    return "".join(f"{_ics_fold(line)}\r\n" for line in lines)
 
 
 def _ics_time(date_time: str) -> str:
@@ -169,7 +175,23 @@ def _ics_time(date_time: str) -> str:
     return datetime.fromisoformat(date_time).strftime("%Y%m%dT%H%M%SZ")
 
 
+_NEWLINE = re.compile(r"\r\n|\r|\n")
+_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")  # every control character but tab
+
+
 def _ics_text(text: str) -> str:
-    """Escape an iCalendar TEXT value."""
+    r"""Escape an iCalendar TEXT value: CR, LF and CRLF become ``\n``; other controls go."""
     text = text.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
-    return text.replace("\r\n", "\\n").replace("\n", "\\n")
+    return _CONTROL.sub("", _NEWLINE.sub(r"\\n", text))
+
+
+def _ics_fold(line: str) -> str:
+    """Fold a content line into lines of at most 75 octets, never inside a UTF-8 character."""
+    folded, size = "", 0
+    for char in line:
+        octets = len(char.encode())
+        if size + octets > 75:
+            folded, size = f"{folded}\r\n ", 1  # a continuation line starts with one space
+        folded += char
+        size += octets
+    return folded

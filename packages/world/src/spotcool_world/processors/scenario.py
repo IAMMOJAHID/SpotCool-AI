@@ -1,7 +1,10 @@
 """ScenarioProcessor: what the scenario says happens in each step, pushed ahead of the tick."""
 
+from loguru import logger
+
 from spotcool_contracts.calendar import ScheduleItem
 from spotcool_contracts.events import CalendarData, ComplaintCueData
+from spotcool_world.clocks import SimClock
 from spotcool_world.frames import (
     CalendarFrame,
     ComplaintCueFrame,
@@ -31,6 +34,10 @@ class ScenarioProcessor(FrameProcessor):
     Every other frame passes through unchanged. A ``StartFrame`` begins a new run, so the next
     tick is a first tick again. Deterministic: the same ticks always give the same frames.
 
+    The scenario has no state before its start. A run that starts earlier is a fatal error, and
+    a tick before the start passes on with a fatal error and no scenario frames. A run that
+    starts later only logs a warning: complaints before its first tick never fire.
+
     Args:
         compiled: The scenario.
         name: Display name.
@@ -39,6 +46,7 @@ class ScenarioProcessor(FrameProcessor):
     def __init__(self, compiled: CompiledScenario, *, name: str | None = None) -> None:
         super().__init__(name=name or f"ScenarioProcessor({compiled.name})")
         self._compiled = compiled
+        self._start_text = SimClock.clock_text(compiled.start_s)
         self._previous_s: float | None = None
         self._calendars: dict[str, list[ScheduleItem]] = {}
 
@@ -47,16 +55,36 @@ class ScenarioProcessor(FrameProcessor):
         await super().process_frame(frame, direction)
         if direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, StartFrame):
-                self._previous_s = None
-                self._calendars = {}
+                await self._start(frame)
             elif isinstance(frame, TickFrame):
-                for derived in self._frames_for(frame):
-                    await self.push_frame(derived)
+                await self._tick(frame)
         await self.push_frame(frame, direction)
 
-    def _frames_for(self, tick: TickFrame) -> list[Frame]:
+    async def _start(self, frame: StartFrame) -> None:
+        self._previous_s = None
+        self._calendars = {}
+        run = SimClock.clock_text(frame.start_time_s)
+        scenario = f"scenario {self._compiled.name} starts at {self._start_text}"
+        if frame.start_time_s < self._compiled.start_s:
+            await self.push_error(f"the run starts at {run}, before {scenario}", fatal=True)
+        elif frame.start_time_s > self._compiled.start_s:
+            logger.warning(
+                f"{self.name}: the run starts at {run}, after {scenario}; "
+                f"complaints before {run} will not fire"
+            )
+
+    async def _tick(self, tick: TickFrame) -> None:
         t_s = tick.sim_time_s
         assert t_s is not None  # a TickFrame always has one
+        if t_s < self._compiled.start_s:
+            at = SimClock.clock_text(t_s)
+            message = f"tick at {at} is before scenario {self._compiled.name} starts at {self._start_text}"
+            await self.push_error(message, fatal=True)
+            return
+        for derived in self._frames_for(t_s):
+            await self.push_frame(derived)
+
+    def _frames_for(self, t_s: float) -> list[Frame]:
         frames: list[Frame] = [
             ScenarioStateFrame(state=self._compiled.state_at(t_s), sim_time_s=t_s)
         ]
