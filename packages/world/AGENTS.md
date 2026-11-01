@@ -54,6 +54,8 @@ uv run python packages/world/examples/foundational/06_bacnet_device.py --ticks 4
 uv run spotcool-world version
 uv run spotcool-world run --dry-run       # print resolved settings
 uv run spotcool-world probe --plant rc    # go/no-go check of a plant (boptest-local, boptest-hosted)
+uv run spotcool-world lint                # lint the scenario library (or: lint hybrid_tuesday --clips DIR)
+uv run python packages/world/examples/foundational/08_scenario_lint.py   # the compiled hybrid Tuesday
 cd packages/world && uv run towncrier build --draft   # preview the changelog
 ```
 
@@ -70,12 +72,12 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras WP4 |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); VRF WP3, HTTP WP4-5, WebSocket WP6 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router done (WP5); cameras WP4, VRF WP3, WebSocket WP6 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records done (WP1); dashboard JSON WP6 |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
 | **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | WP10 |
-| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `cameras`, `rc`, `dashboard`, `video` |
+| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `video` |
 
 ### One tick of the world (target pipeline)
 
@@ -92,8 +94,9 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-Only `TickSource`, `ParallelPipeline`, `PlantProcessor`, `BusPublisher` and the BMS's `input()` and
-`output()` exist so far; the other processors are the later work packages.
+`TickSource`, `ScenarioProcessor`, `ParallelPipeline`, `PlantProcessor`, `FramePublisher`,
+`BusPublisher` and the BMS's `input()` and `output()` exist so far; the other processors are later
+work packages.
 
 ### Lifecycle
 
@@ -166,10 +169,19 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   handler is logged, never raised. A `sync=True` handler runs inline, so keep it fast.
 - **Bus.** `InProcessBus` gives each subscriber a bounded queue that drops the oldest message
   when full (`subscription.dropped` counts). Publish immutable values; messages are shared.
-  `BusPublisher(bus, topic)` publishes every `EventFrame.envelope`.
+  There are two topics:
+  - `BusPublisher(bus, "events")` publishes every `EventFrame.envelope`, for the dashboard.
+  - `FramePublisher(bus, frame_types)` publishes chosen internal frames (the frame objects
+    themselves) on `WORLD_FRAMES_TOPIC` (`"world"`), for workers outside the pipeline. This is
+    pipecat's bus-bridge idea.
+
+  Subscribe before the run starts, so the first tick's frames aren't missed.
 - **Never store camera frames**: memory only, never disk or logs (WP4 adds a test that asserts
   it). **Always stop BOPTEST tests** in `PlantService.stop()`: the hosted service is shared and
   free.
+- **No tracebacks where audio or frames are in scope.** loguru's default `diagnose=True` prints a
+  traceback's local variables, so `logger.exception` (or `opt(exception=...)`) can leak audio or
+  camera bytes into the log. Log `type(exc).__name__` and the message instead.
 - **Contracts are the boundary.** Reuse `spotcool_contracts` models and point maps; never copy
   or redefine them here. Units on the wire to A are BMS units; convert with `adapters.units`.
 - **Plants speak BOPTEST's REST names.** `create_plant(settings, run)` picks the provider. Every
@@ -267,21 +279,69 @@ Windows. Menu names are those of current YABE; older builds say "Add device" and
 5. COV: drag `ZN-COR-T` from the Objects tree into the Subscriptions panel; it updates every
    step.
 
+## Scenarios, calendar and occupants
+
+A scenario (`scenarios/library/*.yaml`) is the film script of a day. Per zone, it says who is
+there and which scene the cameras show. It also covers the West door, room bookings, complaint
+cues and clothing. `load_scenario`, `lint` and `compile_scenario` turn it into a
+`CompiledScenario`.
+
+- **Time.**
+  - `day` is BOPTEST's 0-based day index (`peak_cool_day` = 199), so a scenario time is
+    `day * 86400` plus the seconds since midnight.
+  - Every time sits on the step grid, 15 minutes by default.
+  - Points in time satisfy `start <= t < end`. The world ticks while the time is before `end`,
+    so nothing at `end` would happen. Only a `to` may equal `end`.
+- **State.** `state_at(t)` is the state of the step that starts at `t`; an entry applies from its
+  `at`.
+  - It lists all five zones in `Zone` order.
+  - `door_open` is a bool only for a zone with a door contact in the point map (West).
+  - `clothing` holds until the next clothing event, and is `None` when nobody is there.
+  - People counts are the occupants visible in that zone's clip.
+- **Ticks.** For each tick, `ScenarioProcessor` pushes these frames, each stamped with the tick's
+  time:
+  - the `ScenarioStateFrame`;
+  - a `CalendarFrame` per room, on the first tick and whenever that room's visible bookings
+    change;
+  - a `ComplaintCueFrame` per cue in `(previous tick, this tick]` (the first tick's window is
+    `[start, start]`);
+  - then the tick itself.
+
+  A run that starts before the scenario is a fatal error.
+- **Calendar** (`transports/http/calendar.py`, extra `calendar`).
+  - `CalendarStore.follow(sub)` keeps the latest `CalendarData` per room from a
+    `WORLD_FRAMES_TOPIC` subscription.
+  - `calendar_router(store)` serves `/calendar/rooms/{room}/schedule` (Graph `getSchedule` shape)
+    and `.ics`. WP4's HTTP server mounts it.
+  - A calendar date is 2026-01-01 00:00 plus the simulation seconds (day 199 is 2026-07-19),
+    labelled `timeZone: "UTC"`. This matches the BMS's `SIM-CLOCK`.
+- **Occupants** (`workers/occupant_worker.py`, extra `occupants`).
+  - `OccupantWorker` posts each cue to the agent's `/chat` or `/voice`. Voice audio is a WAV from
+    `footage_dir/audio/`, checked against `VOICE_FORMAT`; if anything is wrong, it falls back to
+    chat.
+  - It publishes each result as a `complaint_cue` envelope on `"events"`. A failure is never
+    fatal: it's reported as `delivered: false`, with the reason.
+  - It retries only connection errors and 5xx, twice, so a complaint is never sent twice.
+  - It runs until `stop()`. Stop it from the pipeline worker's `on_pipeline_finished`; it reports
+    any cue still queued as not sent.
+- **Lint.** `spotcool-world lint [SCENARIO ...] [--clips DIR] [--step-s S]` prints
+  `file:line: level: message` and exits 1 on any error. YAML anchors and aliases are refused.
+
 ## Key directories
 
 | Path | Contents |
 |---|---|
 | `src/spotcool_world/frames/` | Frame classes |
-| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `BusPublisher`, `PlantProcessor`; future processors |
+| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `FramePublisher`, `BusPublisher`; future processors |
 | `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
-| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`; future device and occupant workers |
+| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`; the VRF worker arrives with WP3 |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
 | `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `WorldSettings`, `create_plant`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
-| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/`, `http/`, `websocket/` |
+| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (the calendar router; cameras with WP4), `websocket/` |
 | `src/spotcool_world/devices/` | Equipment models (`vrf/`) |
 | `src/spotcool_world/scenarios/` | Scenario DSL, linter, compiler, library |
 | `src/spotcool_world/adapters/` | Unit conversion; Haystack and vendor maps later |

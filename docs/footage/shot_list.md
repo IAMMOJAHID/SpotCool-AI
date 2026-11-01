@@ -69,8 +69,7 @@ Row 10 (`wes_empty`) is missing from the scenario's scene list, but the timeline
 | 12:30-13:30 (lunch) | `cor_few` | `nor_empty` | `sou_empty` | `eas_empty` | `wes_few` |
 | 13:30 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 14:00 | `cor_many` | `nor_few` | `sou_meeting` | `eas_empty` | `wes_few` |
-| 14:15 (cue) | `cor_many` | `nor_few` | `sou_complaint`, plus the voice cue `south_complaint.wav` | `eas_empty` | `wes_few` |
-| 14:45 | `cor_many` | `nor_few` | `sou_meeting` | `eas_empty` | `wes_few` |
+| 14:15-15:00 (cue at 14:15) | `cor_many` | `nor_few` | `sou_complaint`, plus the voice cue `south_complaint.wav` | `eas_empty` | `wes_few` |
 | 15:00 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 17:30 | `cor_few` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 18:00 | `cor_empty` | `nor_empty` | `sou_empty` | `eas_empty` | `wes_empty` |

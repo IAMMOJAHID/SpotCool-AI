@@ -32,6 +32,7 @@ The film script of the demo day: who is in which zone and when, the entrance doo
 2. **Every time in a scenario is on the step grid:** a multiple of `step_s` after midnight (`WorldSettings.step_s`, default 900 s). With the default, minutes are 00, 15, 30 or 45.
    - The world ticks every 15 simulated minutes, so a change written as 10:40 would really happen at 10:45.
    - The linter therefore reports an off-grid time as an error.
+   - Points in time (`at`, `from`, `booked_at`) satisfy `start <= t < end`; only a `to` may equal `end`. The world ticks while the time is before `end`, so its last tick is `end − step`.
 3. **A tick at `t` starts the step `[t, t + step)`.** `TickFrame.sim_time_s` is the step's start. `state_at(t)` is the state in force from `t`, and an entry applies from its `at` (inclusive).
 4. **Cues fire on the tick whose window `(previous tick, this tick]` contains them.** The first tick's window is `[start, start]`. With on-grid times, a cue fires exactly once, on the tick at its own time.
 
@@ -117,7 +118,7 @@ events:
    Every other frame passes through unchanged.
 3. **`transports/http/calendar.py`:**
    - **A small store** holds the latest `CalendarData` per room and the latest simulation time.
-     - It's fed with `CalendarFrame`s, either directly or from a bus subscription (`bus.subscribe(topic)`; `BusPublisher` publishes pipeline frames).
+     - It's fed with `CalendarFrame`s, either directly or from a subscription to `WORLD_FRAMES_TOPIC`, where `FramePublisher` publishes them. (`BusPublisher` carries only dashboard envelopes.)
      - WP11 does the wiring.
    - **`calendar_router(store) -> fastapi.APIRouter`:**
      - `GET /calendar/rooms/{room}/schedule?start=&end=` returns `ScheduleInformation` for the items that overlap the window. `start` and `end` are ISO date-times on the simulation calendar (decision 5). Without them, the window is the current simulation day.
@@ -132,7 +133,7 @@ events:
      - Before sending, check the WAV header against `VOICE_FORMAT` with stdlib `wave`.
      - If the file is missing, unreadable or in another format, fall back to chat and say why in `detail`.
    - **Transport:** httpx with a 10 s timeout and 2 retries on connection errors and 5xx.
-   - **Result:** after each delivery, it publishes a `ComplaintCueFrame` with `delivered` and `detail` on the bus.
+   - **Input and result:** it reads its cues from `WORLD_FRAMES_TOPIC`. After each delivery, it publishes a `complaint_cue` dashboard envelope with `delivered` and `detail` on the `"events"` topic.
    - **Privacy:** audio bytes are read, sent and dropped. They're never copied, cached or logged (AGENTS.md Law 6).
 5. **Library** (`scenarios/library/`). All three run on day 199, 07:00–19:00.
    - **`hybrid_tuesday.yaml`**, matching `docs/footage/shot_list.md`:
@@ -141,7 +142,7 @@ events:
      |---|---|
      | cor | 07:00 empty 0; 08:30 many 4; 12:30 few 1; 13:30 many 4; 17:30 few 1; 18:00 empty 0 |
      | nor | 07:00 empty 0; 08:30 few 2; 12:30 empty 0; 13:30 few 2; 18:00 empty 0 |
-     | sou | 07:00 empty 0; 14:00 meeting 5; 14:15 complaint 5; 14:45 meeting 5; 15:00 empty 0 |
+     | sou | 07:00 empty 0; 14:00 meeting 5; 14:15 complaint 5 (to the meeting's end: the clip ends with the jacket on); 15:00 empty 0 |
      | eas | 07:00 empty 0 |
      | wes | 07:00 empty 0; 08:30 few 1; 10:00 door_open 1; 10:45 few 1; 18:00 empty 0 |
 

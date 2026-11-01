@@ -39,8 +39,8 @@ B builds everything your agent connects to, because there is no real building:
 | **BMS** | Device `SpotCool-Office-BMS` on BACnet/IP | **Built and reviewed** (WP2). The review fixes are done, and it merges into `world/main` tonight once Linux CI is green |
 | **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | Planned (WP3) |
 | **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | Planned (WP4). Footage is being filmed on Nov 2 |
-| **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | Planned (WP5) |
-| **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | Planned (WP5) |
+| **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | Built (WP5); served once the world runs end to end (WP11) |
+| **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | Built (WP5); sent once the world runs end to end (WP11) |
 | **Telemetry and dashboard** | An event stream, the KPIs, and the judges' dashboard | Planned (WP6, WP7) |
 | **Assembly** | `spotcool-world run hybrid_tuesday --plant rc\|boptest-local` | Planned (WP11) |
 
@@ -84,7 +84,7 @@ B builds everything your agent connects to, because there is no real building:
 | VRF gateway, BACnet/IP | device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810** | you read and write | planned (§6) |
 | Camera catalog | `GET http://<world>:8081/cameras` | you read | planned (§7) |
 | Snapshot | `GET http://<world>:8081/cameras/{id}/snapshot.jpg` | you read | planned (§7) |
-| Room calendar | `GET http://<world>:8081/calendar/rooms/meeting-south/schedule` (also `.ics`) | you read | planned (§8) |
+| Room calendar | `GET http://<world>:8081/calendar/rooms/meeting-south/schedule` (also `.ics`) | you read | built (§8) |
 | Complaints, text | `POST http://<agent>:8002/chat` | world calls you | planned (§9) |
 | Complaints, voice | `POST http://<agent>:8002/voice` | world calls you | planned (§9) |
 | Dashboard events | WebSocket on port **8090** | you publish | planned (§9) |
@@ -210,7 +210,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **Snapshots:** `GET /cameras/{id}/snapshot.jpg` works like ONVIF GetSnapshotUri. The **scene follows simulated time**, and the frames inside a clip advance in wall time, so the feed looks live. Poll snapshots and count people (SAM 3.1).
 - **Privacy rule (both of us):** frames are processed in memory and never stored; only counts leave. The catalog carries this notice.
 
-## 8. Room calendar (planned, WP5)
+## 8. Room calendar (built, WP5)
 
 - **Endpoint:** `GET /calendar/rooms/meeting-south/schedule` returns `ScheduleInformation` (`scheduleId`, `scheduleItems`), shaped like Microsoft Graph `getSchedule`.
 - **Items:** each `ScheduleItem` has `status` (`free`, `tentative`, `busy`, `oof`, `workingElsewhere` or `unknown`), `subject`, `location`, and `start`/`end` (Graph `dateTimeTimeZone`).
@@ -219,10 +219,11 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **Rooms:** `meeting-south` is the South zone.
 - **Use:** pre-cool before a booking (§11).
 
-## 9. Complaints and dashboard events (planned, WP5–WP7)
+## 9. Complaints (built, WP5) and dashboard events (planned, WP6–WP7)
 
 - **`POST /chat`:** a `ComplaintText` JSON body: `text` (1–280 characters), `source` (`occupant-sim` or `occupant`), an optional `room_hint`, and an optional `sim_time_s`.
 - **`POST /voice`:** `multipart/form-data` with an `audio` file in `VOICE_FORMAT` (WAV, 16 kHz, mono, s16le) and an optional `meta` field holding a `ComplaintText` JSON string. Its `text` is the script line, for logging only. **Transcribe the audio yourself.**
+- **Reply within 10 s** to `/chat` and `/voice`: accept the complaint and answer, then process it (transcription included) in the background. The world waits 10 s and doesn't retry a request that timed out, because you may already have it. It retries only connection failures and 5xx responses, twice.
 - **Dashboard WebSocket (port 8090):** every message is an `EventEnvelope` `{v: 1, type, source, t_ms, sim_time_s, data}`.
   - **World types:** `tick`, `run_status`, `scenario_state`, `plant_measurements`, `bms_write`, `kpi`, `vrf_state`, `camera_scene`, `calendar`, `complaint_cue`, `error`, `metrics`.
   - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them.
