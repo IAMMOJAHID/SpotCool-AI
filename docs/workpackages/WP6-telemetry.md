@@ -28,7 +28,7 @@ Turn simulation frames into the numbers the video quotes and the stream the dash
 4. **Recorder** (`serializers/jsonl.py` + `processors/recorder.py`). **The format is a contract with WP1's ReplayPlant**; share the reader code.
    - `runs/<run_id>/events.jsonl` holds one record per line, in pipeline order:
      - `{"kind": "event", "envelope": {...}}`
-     - `{"kind": "raw", "run": "...", "index": n, "sim_time_s": t, "raw": {...}}`
+     - `{"kind": "raw", "run": "...", "index": n, "sim_time_s": t, "raw": {...}}`, where `sim_time_s` is copied from the `PlantMeasurementsFrame`, i.e. the end of the step. WP1's `RawRecord` and `ReplayPlant` already use this (first record at start + step).
    - `runs/<run_id>/manifest.json` holds:
      - `run_id`, `created_utc`, `settings` (secrets redacted);
      - `git_sha`, `world_version`, `contracts_version`;
