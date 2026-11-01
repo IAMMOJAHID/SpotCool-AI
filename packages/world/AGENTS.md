@@ -342,12 +342,15 @@ dataset indexes and `CameraSceneProcessor` need only the core.
     `ScenarioStateFrame`. It pushes a `CameraSceneFrame` per camera whose scene changed, and for
     every camera on a run's first state.
   - `create_http_app([cameras_router(cameras), calendar_router(store)])` is the world's one HTTP
-    app; `HttpServerWorker` (`workers/http_server.py`) serves it on `http_host:http_port`.
+    app. `HttpServerWorker(app, host, port)` (`workers/http_server.py`) serves any FastAPI app
+    with uvicorn, WebSocket routes and lifespan handlers included: this one on
+    `http_host:http_port`, and WP6's dashboard on `http_host:dashboard_port`.
 - **Where a zone camera's frames come from**, per scene; the first source that opens wins:
   1. our clip `footage_dir/clips/<zone>_<scene>.mp4`;
   2. the camera and scene's segment in a dataset index, `footage_dir/datasets/<name>/index.yaml`
      (format in `scripts/footage/wisenet_index.py`). Indexes are tried in folder-name order, and
-     segments whose file is missing are left out;
+     segments whose file is missing are left out. An index with a time that is not finite, or a
+     file that leads outside its folder (links followed), is refused;
   3. synthetic frames: one coloured silhouette per person, with the camera and scene as caption.
 
   The catalog's `source` is `dataset` for a dataset segment, else `scenario`. The choice is
@@ -373,16 +376,23 @@ dataset indexes and `CameraSceneProcessor` need only the core.
 - **The live phone.** `PhoneCamera` polls `live_camera_url` at 2 fps with a 2 s timeout. It serves
   only an HTTP 200 JPEG under 5 MB that decodes, as it came, and reports its size in the
   catalog. It keeps the last good frame. It has no zone: it films the real room of the VRF
-  demo. A failing phone is logged when it starts and stops failing, and is never fatal.
+  demo. A failing phone is logged when it starts and stops failing, and is never fatal. Logs
+  show the URL without its user name and password.
 - **Privacy (Law 6).** Frames stay in memory; nothing writes them, and camera code logs
-  `type(exc).__name__` and the message, never a traceback. `tests/cameras/test_privacy.py` serves
-  snapshots and MJPEG with every file write refused, and checks the logs for JPEG bytes.
+  `type(exc).__name__` and the message, never a traceback. `tests/cameras/test_privacy.py`
+  serves 50 snapshots and three MJPEG parts while `open` and `io.open` in write modes, `os.open`
+  with `O_WRONLY`, `O_RDWR` or `O_CREAT`, `cv2.imwrite` and `cv2.VideoWriter` all fail. It then
+  checks that none was called, and that the loguru records, the stdlib log records and the
+  process's stdout and stderr hold no JPEG bytes: raw, escaped (`\xff\xd8\xff`), hex
+  (`ffd8ff`) or base64 (`/9j/`).
 - **Wiring (WP11).**
   - `cameras = create_cameras(settings)`; `await cameras.start()` before the runner, and
     `await cameras.stop()` after it.
   - Pass the same object to `CameraSceneProcessor` (after `bms.output()`) and `cameras_router`.
-  - Run `HttpServerWorker` under the runner and stop it from `on_pipeline_finished`, like the
-    occupant worker. A taken port fails its `run()` at once.
+  - Run `HttpServerWorker(app, settings.http_host, settings.http_port)` under the runner and
+    stop it from `on_pipeline_finished`, like the occupant worker. A port another program holds,
+    on any address, fails its `run()` at once; Windows needs a check of its own for that
+    (`SO_EXCLUSIVEADDRUSE` and a probe of the wildcard address).
 
 ## Key directories
 

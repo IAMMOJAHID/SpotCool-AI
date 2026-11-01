@@ -10,7 +10,8 @@ import pytest
 from spotcool_contracts.cameras import CameraSource
 from spotcool_contracts.zones import Zone
 from spotcool_world.services.camera_service import CameraService, CameraSystem
-from spotcool_world.services.clips import ZoneCamera
+from spotcool_world.services.clips import VideoLoop, ZoneCamera
+from spotcool_world.services.clips import camera as camera_module
 from spotcool_world.services.datasets import DatasetIndex, Segment
 
 BLUE, GREEN = (255, 0, 0), (0, 255, 0)
@@ -241,3 +242,39 @@ async def test_stop_leaves_no_task_and_a_restart_plays_again(
 def test_snapshot_fps_must_be_positive() -> None:
     with pytest.raises(ValueError, match="snapshot_fps"):
         ZoneCamera(Zone.COR, snapshot_fps=0)
+
+
+@pytest.mark.asyncio
+async def test_a_render_that_ends_after_stop_opens_no_video(
+    tmp_path: Path,
+    write_video: Callable[..., Path],
+    wait_for: WaitFor,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    write_video(tmp_path / "clips" / "cor_many.mp4", BLUE)
+    opened: list[VideoLoop] = []
+    closed: list[VideoLoop] = []
+
+    class TrackedLoop(VideoLoop):
+        def __init__(self, path: Path, start_s: float = 0.0, end_s: float | None = None) -> None:
+            super().__init__(path, start_s, end_s)
+            opened.append(self)
+
+        def close(self) -> None:
+            closed.append(self)
+            super().close()
+
+    class LateCamera(ZoneCamera):
+        def _render(self, scene: str, people: int, began_s: float, now_s: float) -> bytes:
+            time.sleep(0.3)  # the render thread reaches the lock after stop() closed the video
+            return super()._render(scene, people, began_s, now_s)
+
+    monkeypatch.setattr(camera_module, "VideoLoop", TrackedLoop)
+    camera = LateCamera(Zone.COR, clips_dir=tmp_path / "clips")
+    system = CameraSystem([camera])
+    await system.start()
+    camera.set_scene("many", 4)
+    await wait_for(lambda: camera.latest() is not None)  # the next render is already sleeping
+    await system.stop()
+    await asyncio.sleep(0.6)  # that render ends now
+    assert opened and all(loop in closed for loop in opened)

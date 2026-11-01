@@ -9,8 +9,8 @@ writes WiseNET's and documents the format (version 1); a MEVA index is written b
       cam-cor:
         empty: {file: "video5_4.mp4", start_s: 0.0, end_s: 12.0, people: 0}
 
-``file`` is relative to the index and must stay inside its folder. Segments whose file is
-missing are left out.
+``file`` is relative to the index and must stay inside its folder, links followed. Times are
+finite. Segments whose file is missing are left out.
 """
 
 from dataclasses import dataclass
@@ -29,7 +29,7 @@ INDEX_FILE = "index.yaml"
 
 
 class _Entry(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     file: str = Field(min_length=1)
     start_s: float = Field(ge=0)
@@ -107,7 +107,8 @@ class DatasetIndex:
             path: The ``index.yaml``.
 
         Raises:
-            ValueError: If it is not a version 1 dataset index; the message says why.
+            ValueError: If it is not a version 1 dataset index, or a file leads outside the
+                index's folder; the message says why.
             OSError: If it cannot be read.
         """
         try:
@@ -122,9 +123,16 @@ class DatasetIndex:
             raise ValueError(f"{path} is not a version 1 dataset index: {problems}") from None
         segments: dict[tuple[str, str], Segment] = {}
         missing: set[str] = set()
+        folder = path.parent.resolve()
         for camera_id, scenes in index.cameras.items():
             for scene, entry in scenes.items():
                 file = path.parent / entry.file
+                try:
+                    inside = file.resolve().is_relative_to(folder)  # links followed
+                except (OSError, RuntimeError) as exc:  # RuntimeError: a link loop (3.11)
+                    raise ValueError(f"{path}: cannot resolve {entry.file}: {exc}") from None
+                if not inside:
+                    raise ValueError(f"{path}: {entry.file} leads outside {path.parent}")
                 if file.is_file():
                     segments[camera_id, scene] = Segment(file, entry.start_s, entry.end_s)
                 else:

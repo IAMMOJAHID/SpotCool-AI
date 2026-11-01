@@ -84,6 +84,16 @@ def test_the_index_wisenet_index_py_writes_is_read(
             "{file: a.mp4, start_s: -1, end_s: 1, people: 0}}}\n",
             "start_s: Input should be greater than or equal to 0",
         ),
+        (
+            "version: 1\ndataset: wisenet\ncameras: {cam-cor: {empty: "
+            "{file: a.mp4, start_s: 0, end_s: .inf, people: 0}}}\n",
+            "end_s: Input should be a finite number",
+        ),
+        (
+            "version: 1\ndataset: wisenet\ncameras: {cam-cor: {empty: "
+            "{file: a.mp4, start_s: .nan, end_s: 1, people: 0}}}\n",
+            "start_s: Input should be a finite number",
+        ),
         ("", "index: Input should be a valid dictionary"),
         ("version: [1\n", "is not YAML"),
     ],
@@ -107,3 +117,35 @@ def test_load_indexes_takes_every_dataset_in_name_order_and_skips_broken_ones(
     assert [index.name for index in load_indexes(tmp_path)] == ["meva", "wisenet"]
     assert any("broken" in line and "left out" in line for line in logs)
     assert load_indexes(tmp_path / "missing") == []
+
+
+def link_folder(link: Path, target: Path) -> None:
+    """A folder link: a symlink, or a junction on Windows without the symlink privilege."""
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if sys.platform != "win32":
+            raise
+        import _winapi
+
+        _winapi.CreateJunction(str(target), str(link))
+
+
+def test_a_link_inside_a_dataset_folder_cannot_lead_outside_it(tmp_path: Path) -> None:
+    entry = (
+        '  cam-cor:\n    empty: {file: "linked/video.mp4", start_s: 0.0, end_s: 1.0, people: 0}\n'
+    )
+    outside = tmp_path / "elsewhere"
+    outside.mkdir()
+    (outside / "video.mp4").write_bytes(b"x")
+    escaping = write_index(tmp_path / "wisenet", entry)
+    link_folder(tmp_path / "wisenet" / "linked", outside)
+    with pytest.raises(ValueError, match="linked/video.mp4 leads outside"):
+        DatasetIndex.load(escaping)
+
+    staying = write_index(tmp_path / "meva", entry, header="version: 1\ndataset: meva\n")
+    (tmp_path / "meva" / "real").mkdir()
+    (tmp_path / "meva" / "real" / "video.mp4").write_bytes(b"x")
+    link_folder(tmp_path / "meva" / "linked", tmp_path / "meva" / "real")
+    segment = DatasetIndex.load(staying).segment("cam-cor", "empty")
+    assert segment is not None and segment.path == tmp_path / "meva" / "linked" / "video.mp4"

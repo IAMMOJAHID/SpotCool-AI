@@ -95,6 +95,7 @@ class ZoneCamera(CameraService):
         self._footage: dict[str, _Footage] = {}
         self._showing: str | None = None
         self._video: VideoLoop | None = None
+        self._closed = False  # set by _close: a render that ends late opens no video
 
     @property
     def spec(self) -> CameraSpec:
@@ -125,6 +126,7 @@ class ZoneCamera(CameraService):
         """Make frames until cancelled, then release the video."""
         period = 1.0 / self._fps
         failing = False
+        self._closed = False
         try:
             while True:
                 now = time.perf_counter()
@@ -147,7 +149,7 @@ class ZoneCamera(CameraService):
     def _render(self, scene: str, people: int, began_s: float, now_s: float) -> bytes:
         """The frame for wall time ``now_s``, as JPEG bytes. Runs in a worker thread."""
         with self._lock:
-            if scene != self._showing:
+            if scene != self._showing and not self._closed:
                 self._show(scene)
             image = self._frame(scene, people, now_s - began_s)
         if image.shape[:2] != (HEIGHT, WIDTH):
@@ -218,6 +220,7 @@ class ZoneCamera(CameraService):
         with self._lock:
             self._close_video()
             self._showing = None
+            self._closed = True
 
     def _close_video(self) -> None:
         if self._video is not None:

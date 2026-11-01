@@ -82,7 +82,8 @@ async def main(args: argparse.Namespace) -> int:
     )
     params = PipelineParams(clock=clock, scenario=compiled.name, plant="none", end_time_s=end_s)
     day = PipelineWorker(pipeline, params=params, name="hybrid-tuesday")
-    http = HttpServerWorker(create_http_app([cameras_router(cameras)]), settings, name="http")
+    app = create_http_app([cameras_router(cameras)])
+    http = HttpServerWorker(app, settings.http_host, settings.http_port, name="http")
 
     @day.event_handler("on_pipeline_finished")
     async def stop_serving(worker: PipelineWorker, frame: Frame) -> None:

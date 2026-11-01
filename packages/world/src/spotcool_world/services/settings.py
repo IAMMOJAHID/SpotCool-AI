@@ -50,8 +50,9 @@ class WorldSettings(BaseSettings):
         agent_base_url: Base URL of Person A's agent (``/chat``, ``/voice``).
         run_dir: Directory for recorded runs.
         footage_dir: Filmed footage, outside the repo (usually ``C:/Users/hussa/dev/footage``):
-            camera clips in ``clips/``, voice complaints in ``audio/``. ``None`` when there is
-            none; voice cues then fall back to chat.
+            camera clips in ``clips/``, voice complaints in ``audio/``, and public dataset
+            footage with its index in ``datasets/<name>/index.yaml``. ``None`` when there is
+            none; the cameras then draw synthetic frames and voice cues fall back to chat.
         live_camera_url: Snapshot URL of the phone behind the live camera ``cam-meeting-live``,
             such as ``http://192.168.43.1:8080/shot.jpg`` from the "IP Webcam" app; ``None``
             leaves that camera out of the catalog.

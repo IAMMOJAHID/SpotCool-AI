@@ -56,6 +56,7 @@ class PhoneCamera(CameraService):
         if not 0 < poll_fps <= MAX_POLL_FPS:
             raise ValueError(f"poll_fps must be in (0, {MAX_POLL_FPS:g}], got {poll_fps}")
         self._url = _phone_url(url)
+        self._shown_url = self._url.copy_with(userinfo=b"")  # for logs: never the credentials
         self._fps = poll_fps
         self._transport = transport
         self._latest: Snapshot | None = None
@@ -84,13 +85,13 @@ class PhoneCamera(CameraService):
                 except Exception as exc:  # any failure of the phone; no traceback (Law 6)
                     if not failing:
                         logger.warning(
-                            f"camera {LIVE_CAMERA_ID}: no frame from {self._url}: "
+                            f"camera {LIVE_CAMERA_ID}: no frame from {self._shown_url}: "
                             f"{type(exc).__name__}: {exc}"
                         )
                     failing = True
                 else:
                     if failing:
-                        logger.info(f"camera {LIVE_CAMERA_ID}: frames from {self._url} again")
+                        logger.info(f"camera {LIVE_CAMERA_ID}: frames from {self._shown_url} again")
                     failing = False
                     self._latest, self._size = Snapshot(jpeg, time.perf_counter()), size
                 await asyncio.sleep(max(0.0, period - (time.perf_counter() - started)))
@@ -129,13 +130,18 @@ def _decoded_size(jpeg: bytes) -> tuple[int, int] | None:
 def _phone_url(text: str) -> httpx.URL:
     """The phone's snapshot URL, checked: an http or https scheme and a host.
 
+    The messages never repeat the URL's user name and password.
+
     Raises:
         ValueError: If it is not such a URL.
     """
     try:
         url = httpx.URL(text)
     except httpx.InvalidURL as exc:
-        raise ValueError(f"live_camera_url {text!r} is not a URL: {exc}") from None
+        raise ValueError(f"live_camera_url is not a URL: {exc}") from None
     if url.scheme not in ("http", "https") or not url.host:
-        raise ValueError(f"live_camera_url {text!r} needs an http:// or https:// scheme and a host")
+        shown = str(url.copy_with(userinfo=b""))
+        raise ValueError(
+            f"live_camera_url {shown!r} needs an http:// or https:// scheme and a host"
+        )
     return url

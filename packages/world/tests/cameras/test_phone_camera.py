@@ -152,3 +152,31 @@ def test_polls_are_at_most_two_a_second(poll_fps: float) -> None:
 def test_the_phone_shows_no_scenes() -> None:
     with pytest.raises(TypeError, match="cam-meeting-live shows no scenario scenes"):
         PhoneCamera(URL).set_scene("empty", 0)
+
+
+@pytest.mark.asyncio
+async def test_the_urls_user_name_and_password_never_reach_the_log(
+    wait_for: WaitFor, logs: list[str]
+) -> None:
+    authorizations: list[str] = []
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        authorizations.append(request.headers.get("authorization", ""))
+        return httpx.Response(503) if len(authorizations) == 1 else ok(jpeg())
+
+    camera = PhoneCamera(
+        "http://admin:pw@192.168.43.1:8080/shot.jpg", transport=httpx.MockTransport(answer)
+    )
+    system = CameraSystem([camera])
+    await system.start()
+    try:
+        await wait_for(lambda: camera.latest() is not None)
+    finally:
+        await system.stop()
+    text = "\n".join(logs)
+    assert f"no frame from {URL}" in text and f"frames from {URL} again" in text
+    assert "admin" not in text and "pw@" not in text
+    assert authorizations[0].startswith("Basic ")  # the phone still gets the credentials
+    with pytest.raises(ValueError, match="live_camera_url") as caught:
+        PhoneCamera("ftp://admin:pw@192.168.43.1:8080/shot.jpg")
+    assert "admin" not in str(caught.value) and "pw" not in str(caught.value)

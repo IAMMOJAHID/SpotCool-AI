@@ -1,7 +1,7 @@
 """The world's HTTP app: cameras and calendar in one FastAPI app (``fastapi`` is in both extras).
 
 ``create_http_app(routers)`` builds it; ``HttpServerWorker`` (``workers/http_server.py``) serves
-it on ``WorldSettings.http_host:http_port``.
+it, on ``WorldSettings.http_host:http_port`` in a world run.
 """
 
 import asyncio
