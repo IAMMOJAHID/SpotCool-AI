@@ -1,9 +1,21 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-02, about 01:40 IST, by the lead Claude Code session. **WP5 is merged; WP4 is being built; WP6's kickoff is staged.** State:
-- **`world/main` (`2a65685`) holds WP0, WP8, WP1, WP2 and WP5**, plus `AGENTS.md` aligned with pipecat (`ac49bf5`) and the `eas_few` footage fix (`2a65685`). Every merge had green World CI (§2).
-- **WP4 (cameras) is in progress.** Its branch `wp/wp4-cameras` (kickoff `e821ad1`, pushed) is in worktree `C:\Users\hussa\dev\wt\wp4-cameras`, and one build agent is working there. If this session is lost, check that worktree's `git log` and status before restarting anything.
+**Last updated:** 2026-11-02, about 02:30 IST, by the lead Claude Code session. **PAUSED by the user** ("pause sub agent and all work, we will resume it later"). No agent is running, and every worktree is committed and pushed. State:
+- **`world/main` (`e4d7579`) holds WP0, WP8, WP1, WP2 and WP5**, plus `AGENTS.md` aligned with pipecat (`ac49bf5`) and the `eas_few` footage fix (`2a65685`). Every merge had green World CI (§2).
+- **WP4 (cameras) is built but not merged.**
+  - **Where:** `wp/wp4-cameras`, commit `b248dff` (pushed; branch World CI run `41347235448` is green on Linux), in worktree `C:\Users\hussa\dev\wt\wp4-cameras`.
+  - **Checks:** the lead re-ran them: 658 tests, ruff, format, pyright and the lock all pass.
+  - **Measured:** five clip cameras use 0.50 cores, with a 9.6 ms p50 snapshot.
+  - **To resume:**
+    1. Run an independent review. The first reviewer was stopped by the pause before it reported, so start a fresh one.
+    2. Send the builder one fix commit holding the review findings plus:
+       - `workers/http_server.py` sets `ws="none"` and `lifespan="off"`; turn WebSockets on, so WP6's dashboard app can run on `HttpServerWorker`;
+       - the `footage_dir` docstring in `services/settings.py` should mention `datasets/`.
+    3. Sync `world/main` into the branch.
+    4. Lead docs commit: the stale `AGENTS.md` cells (concept map "cameras WP4", the key-directory rows for `CameraSceneProcessor` and `HttpServerWorker`, and the "exist so far" line); the WP11 and WP6 notes from the WP4 report.
+    5. Push, wait for green CI, merge, and confirm the trunk's CI.
 - **WP6 is staged.** `wp/wp6-telemetry` (kickoff `1959cd7`, pushed) holds the brief's binding decisions. Sync `world/main` into it after WP4 merges, then start its agent.
+- **Queue (lead's decision, Nov 2):** WP4 → WP6 → WP11 → **WP7 → WP3** → WP10 → WP9. WP7 moved ahead of WP3, because the Nov 2 18:00 checkpoint needs the dashboard live, while the VRF louvers are part 2. WP7's chat box calls Person A's `/chat` and `/voice` from the browser, so A must allow CORS from the dashboard; put that in WP7's kickoff.
 - **Tomorrow's shoot has 14 rows:** `eas_few` was added for the `all_hands_day` honesty check (`docs/footage/shot_list.md`, row 14).
 - **The BOPTEST Codespace is stopped** and stays off until a WP needs it (WP5 doesn't). Restart it with the steps in §8.
 - **Person A's integration handoff** is at `docs/integration/PERSON_A_HANDOFF.md`, and the user is sending it to A.
@@ -79,7 +91,7 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 | WP10 evals + release | Queued | `wp/wp10-evals-release` | |
 | WP9 video | Queued | `wp/wp9-video` | HyperFrames, OBS websocket and Shotcut. People: narration, review |
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → **WP4** → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → **WP4** (built, in review) → WP6 → WP11 → WP7 → WP3 → WP10 → WP9.
 
 **BOPTEST Codespace build: resolved (Nov 1, 17:09 IST).**
 - **History:** the first build of the `worker` image failed at its Miniconda/pip step. The cause was `ReadTimeoutError`s from PyPI inside the Codespace, not the conda terms of service. The second `docker compose up -d web worker provision` succeeded (worker image 5.02 GB).
