@@ -60,7 +60,8 @@ A camera system that looks like a real recorder or VMS to Person A's agent:
    - CORS allows `http://127.0.0.1:*` and `http://localhost:*`, for the dashboard.
    - `GET /healthz` returns 200.
 8. **Server worker** (`workers/http_server.py`): `HttpServerWorker`, a `BaseWorker`.
-   - It runs `uvicorn.Server` on `WorldSettings.http_host:http_port`. Add `http_host: str = "0.0.0.0"` (env `SPOTCOOL_WORLD_HTTP_HOST`), because A's agent may connect from another PC.
+   - `HttpServerWorker(app, host, port)` runs `uvicorn.Server` for any FastAPI app, with WebSockets and lifespan on. WP11 passes `settings.http_host` with `http_port` for the cameras and calendar app, and with `dashboard_port` for WP6's dashboard app.
+   - Add `http_host: str = "0.0.0.0"` (env `SPOTCOOL_WORLD_HTTP_HOST`), because A's agent may connect from another PC.
    - `stop()` asks uvicorn to exit and waits for it.
    - A taken port fails `run()` at once with a clear error.
    - The catalog builds each camera's absolute URLs from the incoming request (`request.url_for`), so they're right for whoever asked.
