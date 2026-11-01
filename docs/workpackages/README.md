@@ -18,7 +18,9 @@ Person B's half of SpotCool is the **world**: the simulated building that the ag
 **The flow for each WP:**
 1. **Cut** `wp/<id>-<slug>` from the current `world/main`, so the WP builds on every WP finished before it. That is the sequential stack.
 2. **The agent builds it.** The lead re-runs the checks (the four in the definition of done, plus the live suite where it applies), and a separate reviewer agent reviews it. Fixes go in as their own commit.
-3. **The lead pushes the WP branch.** Then `git merge --no-ff` it into `world/main`, so the WP stays one revertible unit (`git revert -m 1 <merge>`). The lead re-runs the checks on the merged trunk and pushes `world/main`.
+3. **The lead pushes the WP branch and waits for its World CI run to be green** (`gh run list -R IAMMOJAHID/SpotCool-AI --branch wp/<id>-<slug>`). GitHub's Ubuntu runner is the second platform: the Windows laptop never takes POSIX-only paths. For example, a Linux-only SIGINT bug made CI fail from WP0 to WP2 unnoticed.
+   - **Merge only on green**, with `git merge --no-ff` into `world/main`, so the WP stays one revertible unit (`git revert -m 1 <merge>`).
+   - Then re-run the checks on the merged trunk, push `world/main`, and confirm its CI run is green too.
 4. **The handoff** branch is merged into `world/main` at the same milestone.
 
 **No pull requests between B's own branches.** Merges are local. A PR triggers the Claude review workflows, which spend `ANTHROPIC_API_KEY` credits. Every push still runs the free world CI. The PR from `world/main` into `dev` is the integration point, scheduled with Person A.
