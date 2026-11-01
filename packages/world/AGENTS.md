@@ -40,14 +40,17 @@ uv sync --all-packages                    # install workspace packages (no extra
 uv sync --all-packages --extra boptest    # add an extra your WP needs (disk is tight); a later
                                           # sync without --extra removes it again (sync is exact)
 
-uv run pytest packages/world              # all world tests (plant tests need --extra boptest --extra rc)
+uv run pytest packages/world              # all world tests (plant tests need --extra boptest --extra rc,
+                                          # BACnet tests --extra bacnet)
 uv run pytest packages/world/tests/test_parallel_pipeline.py -k branch_order
+uv run pytest packages -m bacnet          # only the loopback BACnet tests (they run by default too)
 SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live   # live BOPTEST
 uv run ruff check packages
 uv run ruff format --check packages       # `uv run ruff format packages` to fix
 uv run pyright packages
 
 uv run python packages/world/examples/foundational/03_pipeline.py
+uv run python packages/world/examples/foundational/06_bacnet_device.py --ticks 4   # the BMS
 uv run spotcool-world version
 uv run spotcool-world run --dry-run       # print resolved settings
 uv run spotcool-world probe --plant rc    # go/no-go check of a plant (boptest-local, boptest-hosted)
@@ -67,7 +70,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras WP4 |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet WP2-3, HTTP WP4-5, WebSocket WP6 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); VRF WP3, HTTP WP4-5, WebSocket WP6 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
 | **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `cameras`, `rc`, `dashboard`, `video` |
@@ -87,8 +90,8 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-Only `TickSource`, `ParallelPipeline`, `PlantProcessor` and `BusPublisher` exist so far; the other
-processors are the later work packages.
+Only `TickSource`, `ParallelPipeline`, `PlantProcessor`, `BusPublisher` and the BMS's `input()` and
+`output()` exist so far; the other processors are the later work packages.
 
 ### Lifecycle
 
@@ -166,6 +169,79 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   latch, so the BOPTEST plant sends `_activate` for all ten managed inputs (each zone's cooling
   setpoint and damper) on every step.
 
+## The BMS on BACnet/IP
+
+`transports/bacnet/bms.py`'s `BacnetBmsTransport` is SpotCool-Office-BMS (device 1001), built
+only from `load_point_map("office_bms")`: 51 objects with the map's names, units and state texts.
+Commandable points carry a real priority array, relinquish default and current command priority;
+every object answers COV. The rules are pure, unit-tested modules: `priority.py`
+(`PriorityArray`, `CommandPolicy`) and `bms_logic.py` (`ZoneStandby`, `HeartbeatWatchdog`).
+
+- **Lifecycle.** `await bms.start()` before the run binds the socket and serves the device in a
+  background task, which also checks the heartbeat every second; `await bms.stop()` closes it.
+  `start()` raises `OSError` at once if the port is taken (BACpypes3 alone retries forever).
+- **In the tick.** `bms.input()` goes ahead of the plants. On each tick it runs the BMS logic,
+  pushes a `BmsWriteFrame` for every command since the last tick, then the SpotCool run's
+  `SetpointCommandFrame` with all ten managed inputs, then the tick. `bms.output()` goes after
+  the plants: it shows the SpotCool run's measurements on the points (BMS units), takes the
+  baseline's setpoints as the schedule (the cooling setpoints' relinquish defaults) and the
+  West door contact from the scenario. The baseline run never gets a command.
+- **Commands** are network writes of a present value (WriteProperty or WritePropertyMultiple) at
+  priority 8 (operators) to 16; the agent writes at 10. Priorities 1-7, read-only points, other
+  properties, and analog values off range or off the 0.5 grid are refused (never clamped). Every
+  write, release and refusal, and every release the BMS makes itself, becomes a `BmsWriteFrame`
+  stamped with the BMS's sim time: the last measurement's.
+- **Setpoint command.** A cooling setpoint goes to BOPTEST in K whenever a slot is active or
+  standby raised the schedule; `None` only for the plain schedule, which BOPTEST applies itself.
+  A damper is `0.0` (airflow shut off) or `None`.
+- **Occupied-standby** (ASHRAE 90.1-2019 section 6.5.3.8): during scheduled occupancy (schedule
+  cooling setpoint below 26 degC), a zone whose `OCC-SENSOR` has read Unoccupied for 300 sim-s
+  enters standby at the next tick. Its relinquish default rises 0.5 K, and its damper shuts once
+  the zone is 0.5 K inside both setpoints, reopens when it reaches either, and holds in between.
+  Any Occupied value ends standby at once. `OCC-MODE` shows Occupied, Standby or Unoccupied.
+- **Heartbeat watchdog** (wall time, injectable clock): once `SPOTCOOL-HEARTBEAT` has been
+  written, 120 s without a change of its value releases every priority-10 slot, reason
+  "heartbeat timeout". Slot 8 is never touched.
+- **Network.** By default the machine's primary IPv4 address (its default route's) with /24, UDP
+  47808; `address` (`192.168.1.20` or `192.168.1.20/24`) and `port` override it. Tests marked
+  `bacnet` use 127.0.0.1 and ports from 47900, and skip when a port is taken.
+
+### Checking the BMS with YABE (manual)
+
+[YABE](https://sourceforge.net/projects/yetanotherbacnetexplorer/) is a free BACnet explorer for
+Windows. Menu names are those of current YABE; older builds say "Add device" and "Add".
+
+1. Start the device with a step every 15 s (a day in 12 minutes). It prints its address, such
+   as `10.20.22.190:47808`:
+
+   ```bash
+   uv run python packages/world/examples/foundational/06_bacnet_device.py --speed 60
+   ```
+
+2. On another PC in the same /24 (allow the firewall rule below on the device's PC): Functions >
+   Add BACnet Channel. In "BACnet/IP V4 & V6 over Udp", Port 47808, Local endpoint this PC's
+   address, then Start. The Devices tree shows `10.20.22.190:47808 - 1001`. On the same PC, use
+   the loopback workaround in the Windows notes instead.
+3. Click the device. The Objects tree lists 52 entries: the 51 points of `office_bms.yaml` and
+   the device. Click a point: Properties shows its name, Present Value and units or state texts;
+   commandable points (`*-CLG-SP`, `*-OCC-SENSOR`, `SPOTCOOL-HEARTBEAT`) also show Priority Array,
+   Relinquish Default and Current Command Priority.
+4. The priority array, on ANALOG_VALUE:201 `ZN-COR-CLG-SP`:
+   1. Press Ctrl+Alt+8 (a beep; the Log says "WritePriority change to level 8"), or set Options >
+      Settings > DefaultWritePriority to 8. Write Present Value 27: it reads back 27, Priority
+      Array holds 27 at 8, Current Command Priority is 8.
+   2. Set DefaultWritePriority to 10 in Options > Settings (Ctrl+Alt stops at 9). Write 26.5:
+      Present Value stays 27; Priority Array holds 27 at 8 and 26.5 at 10.
+   3. Still at 10, clear the Present Value field and press Enter: YABE writes NULL. Slot 10
+      empties; Present Value stays 27.
+   4. Ctrl+Alt+8, then clear the field again: slot 8 empties, Present Value falls back to the
+      Relinquish Default (the schedule: 24 by day, 30 at night) and Current Command Priority
+      empties.
+   5. Refusals: at priority 5 (Ctrl+Alt+5), or at 10 with 26.3 or 35, YABE says "Couldn't write
+      property". The device's console logs every write as accepted or rejected, with the reason.
+5. COV: drag `ZN-COR-T` from the Objects tree into the Subscriptions panel; it updates every
+   step.
+
 ## Key directories
 
 | Path | Contents |
@@ -241,6 +317,9 @@ reader needs them to avoid a trap. When behaviour changes, update this file in t
   `StartFrame` and `EndFrame` the harness sent. `send_end=False` lets the processor end the run
   itself (e.g. a `TickSource`); `params=PipelineParams(...)` passes a clock or observers.
 - Tests must not leak tasks: `uv run pytest packages -W error::RuntimeWarning` stays green.
+- Tests that open sockets are marked `@pytest.mark.bacnet`. They run by default, on 127.0.0.1 and
+  ports from 47900, and skip when a port is taken. `tests/bacnet/conftest.py` has the device and
+  client fixtures.
 - Wall-clock assertions need margins for Windows timers (see below).
 - Golden evals with a stub agent (a tiny BACnet client acting like A's agent) live in
   `evals/` and arrive with WP10.
@@ -275,6 +354,20 @@ reader needs them to avoid a trap. When behaviour changes, update this file in t
   `time.perf_counter()` (frames and observers already do).
 - asyncio timers on Windows can fire up to one 15.6 ms tick early, so `asyncio.sleep(0.05)` may
   return after about 0.035 s. Give timing assertions that margin.
-- The firewall may block BACnet: allow UDP 47808-47810 or use loopback addresses.
+- **The firewall blocks BACnet/IP from other PCs.** Allow it once, in an elevated PowerShell
+  (add `Public` to `-Profile` if Windows calls the network public; undo with
+  `Remove-NetFirewallRule -DisplayName "SpotCool BACnet/IP"`). Loopback traffic is not filtered.
+
+  ```powershell
+  New-NetFirewallRule -DisplayName "SpotCool BACnet/IP" -Direction Inbound -Protocol UDP -LocalPort 47808-47810 -Action Allow -Profile Domain,Private
+  ```
+
+- **YABE on the same PC: the loopback workaround.** YABE keeps a shared socket on UDP 47808,
+  which can swallow unicasts meant for a device on the same address. Serve the device on
+  loopback on another port: `06_bacnet_device.py --address 127.0.0.1 --port 47809`. In YABE, add
+  a channel with Local endpoint `127.0.0.1` (type it in), Start, then Functions > IP Services >
+  Add Remote Bacnet/IP node: `1001 - 127.0.0.1:47809`. No Who-Is broadcast is needed.
+- A port already in use fails `BacnetBmsTransport.start()` with `[WinError 10048] Only one usage
+  of each socket address`: another BACnet program (or YABE in exclusive-socket mode) holds it.
 - Git Bash and PowerShell set environment variables differently (`export X=...` vs
   `$env:X = "..."`).

@@ -19,11 +19,12 @@ from spotcool_world.services.plant_service import PlantService, PlantStartParams
 class ReplayPlant(PlantService):
     """Replays one run of a recording (``runs/<run_id>/events.jsonl``).
 
-    ``start`` reads the run's raw records from the start time on (a record is stamped with the
-    end of its step); each ``step`` returns the next one, whatever the overrides (they are still
-    validated, like on every plant). ``kpis`` returns the run's final recorded KPIs. The records
-    must be one run: no index twice, one step apart (``RunWriter`` appends, so a reused run
-    directory would mix two runs).
+    A run's raw records are its states: index 0 is the state at the start time, index ``k``
+    the state after step ``k`` (stamped ``start + k * step``). ``start`` reads the records from
+    its start time on and returns the state at that time; each ``step`` returns the next one,
+    whatever the overrides (they are still validated, like on every plant). ``kpis`` returns
+    the run's final recorded KPIs. The records must be one run: no index twice, one step apart
+    (``RunWriter`` appends, so a reused run directory would mix two runs).
 
     Args:
         path: The recording.
@@ -49,15 +50,14 @@ class ReplayPlant(PlantService):
         """Load the run's records from ``params.start_time_s`` on.
 
         Args:
-            params: Start time and step; the recording must have a step that starts then.
+            params: Start time and step; the recording must hold a state at the start time.
 
         Returns:
-            Nothing: a recording holds measurements after steps only.
+            The recorded state at ``params.start_time_s``.
 
         Raises:
-            ValueError: If the recording has no step of this run starting at
-                ``params.start_time_s``, repeats an index, or is not one ``params.step_s``
-                per step.
+            ValueError: If the recording has no state of this run at ``params.start_time_s``,
+                repeats an index, or is not one ``params.step_s`` per step.
         """
         records = await asyncio.to_thread(lambda: list(read_records(self._path)))
         raws = sorted(
@@ -68,11 +68,10 @@ class ReplayPlant(PlantService):
             raise ValueError(
                 f"{self._path} repeats {self._run} step indices: two runs in one file?"
             )
-        first_end_s = params.start_time_s + params.step_s
-        raws = [r for r in raws if r.sim_time_s >= first_end_s - 1e-6]
-        if not raws or not math.isclose(raws[0].sim_time_s, first_end_s, abs_tol=1e-6):
+        raws = [r for r in raws if r.sim_time_s >= params.start_time_s - 1e-6]
+        if not raws or not math.isclose(raws[0].sim_time_s, params.start_time_s, abs_tol=1e-6):
             raise ValueError(
-                f"{self._path} has no {self._run} step from {params.start_time_s} s to replay"
+                f"{self._path} has no {self._run} state at {params.start_time_s} s to replay"
             )
         for before, after in itertools.pairwise(raws):
             if not math.isclose(after.sim_time_s - before.sim_time_s, params.step_s, abs_tol=1e-6):
@@ -80,11 +79,11 @@ class ReplayPlant(PlantService):
                     f"{self._path}: {self._run} step {after.index} is not {params.step_s} s "
                     f"after step {before.index}"
                 )
-        self._raws = [r.raw for r in raws]
+        self._raws = [r.raw for r in raws[1:]]
         self._next = 0
         self._kpis = _final_kpis(records, self._run)
         self._step_s = params.step_s
-        return {}
+        return dict(raws[0].raw)
 
     async def step(self, overrides: Mapping[str, float | None]) -> dict[str, float]:
         """Return the next recorded measurements.

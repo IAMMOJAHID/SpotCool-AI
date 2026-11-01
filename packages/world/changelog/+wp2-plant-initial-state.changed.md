@@ -1,0 +1,1 @@
+`PlantProcessor` now pushes the plant's initial state as a `PlantMeasurementsFrame` stamped with the start time, right after the `StartFrame`, so every point has a value before the first step ends. A replay recording holds it as record 0 (the state at the start time), and record k is the state after step k; `ReplayPlant.start()` returns record 0.

@@ -43,7 +43,7 @@ class FakePlant(PlantService):
         self.calls.append(("start", params))
         if self.fail_start:
             raise RuntimeError("no plant today")
-        return {}
+        return {"time": params.start_time_s}
 
     async def step(self, overrides: Mapping[str, float | None]) -> dict[str, float]:
         self.calls.append(("step", dict(overrides)))
@@ -90,6 +90,7 @@ async def test_ticks_step_the_plant_and_the_end_brings_kpis_then_stop() -> None:
         params=params(),
     )
     assert names(down) == [
+        "PlantMeasurementsFrame",  # the initial state, right after the StartFrame
         "SetpointCommandFrame",
         "PlantMeasurementsFrame",
         "MetricsFrame",
@@ -111,11 +112,11 @@ async def test_ticks_step_the_plant_and_the_end_brings_kpis_then_stop() -> None:
         ("kpis", None),
         ("stop", None),
     ]
-    measured = down[1]
+    measured = down[2]
     assert isinstance(measured, PlantMeasurementsFrame)
     assert (measured.run, measured.raw) == ("spotcool", {"time": 2.0})
     assert measured.sim_time_s == START_S + 900.0  # the end of the step the values describe
-    metrics = down[2]
+    metrics = down[3]
     assert isinstance(metrics, MetricsFrame)
     assert [s.name for s in metrics.samples] == ["plant_step_latency", "plant_time_ratio"]
     assert metrics.sim_time_s == START_S  # the tick's time
@@ -126,6 +127,22 @@ async def test_ticks_step_the_plant_and_the_end_brings_kpis_then_stop() -> None:
         {"ener_tot": 1.0},
         False,
     )
+
+
+@pytest.mark.asyncio
+async def test_the_initial_state_follows_the_start_frame_stamped_with_the_start_time() -> None:
+    start = params().start_frame()
+    down, _ = await run_test(
+        PlantProcessor(FakePlant(), "baseline"),
+        frames_to_send=[start],  # our own StartFrame, so it comes back like any other frame
+        send_start=False,
+        params=params(),
+    )
+    assert names(down) == ["StartFrame", "PlantMeasurementsFrame", "KpiFrame"]
+    initial = down[1]
+    assert isinstance(initial, PlantMeasurementsFrame)
+    assert (initial.run, initial.raw) == ("baseline", {"time": START_S})
+    assert initial.sim_time_s == START_S  # the start time: no step has run yet
 
 
 @pytest.mark.asyncio
@@ -174,11 +191,12 @@ async def test_a_failed_step_is_fatal_and_the_plant_is_still_stopped() -> None:
 @pytest.mark.asyncio
 async def test_a_failed_start_is_fatal_and_nothing_steps() -> None:
     plant = FakePlant(fail_start=True)
-    _, up = await run_test(
+    down, up = await run_test(
         PlantProcessor(plant, "spotcool"), frames_to_send=[tick(0)], params=params()
     )
     assert [f.fatal for f in up if isinstance(f, ErrorFrame)] == [True]
     assert [call for call, _ in plant.calls] == ["start", "stop"]
+    assert not any(isinstance(f, PlantMeasurementsFrame) for f in down)  # no initial state
 
 
 @pytest.mark.asyncio
