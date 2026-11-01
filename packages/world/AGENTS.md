@@ -72,7 +72,9 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras WP4 |
 | **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); VRF WP3, HTTP WP4-5, WebSocket WP6 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
+| **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records done (WP1); dashboard JSON WP6 |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
+| **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | WP10 |
 | **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `cameras`, `rc`, `dashboard`, `video` |
 
 ### One tick of the world (target pipeline)
@@ -122,7 +124,8 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 ## Important patterns
 
 - **Frames are the public interface.** Add a public method only for work that must happen
-  outside the flow of frames (like `PipelineWorker.stop()`), and say so in its docstring.
+  outside the flow of frames (like `PipelineWorker.stop()`), and say so in its docstring. A
+  method that does the same work as a frame names that frame in its docstring.
 - **The `process_frame` shape.** Call `await super().process_frame(frame, direction)` first,
   handle the frame, then push it on **in the direction it arrived**. The base class never
   pushes: a processor that forgets `push_frame` swallows the frame, and a swallowed `EndFrame`
@@ -141,6 +144,10 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   `ErrorFrame` upstream. The worker fires `on_pipeline_error`; a fatal error cancels the run
   (unless `PipelineParams(fatal_error_cancels=False)`). Do not raise from `process_frame` for
   expected failures: an exception there fails the run (or kills the tick task).
+- **Errors are non-fatal by default**, as in pipecat's services. A failure the run can survive
+  (a camera snapshot, a post to the agent, the dashboard) uses `fatal=False`. Use `fatal=True`
+  only when the run's results would be wrong, such as a failed plant step. A worker outside
+  the pipeline logs a failure, reports it in its result, and carries on.
 - **Ask for a cancel from inside** by pushing a `CancelFrame` upstream.
 - **ParallelPipeline output is deterministic.** Each downstream frame goes to every branch at
   once; what the branches emit is pushed on in branch order after all branches finish, then the
@@ -156,7 +163,7 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 - **Events.** Declare with `self.register_event_handler("on_x")` in `__init__`; users attach with
   `@obj.event_handler("on_x")`; fire with `await self._call_event_handler("on_x", *args)`.
   Handlers run as background tasks unless `sync=True`, receive the object first, and a failing
-  handler is logged, never raised.
+  handler is logged, never raised. A `sync=True` handler runs inline, so keep it fast.
 - **Bus.** `InProcessBus` gives each subscriber a bounded queue that drops the oldest message
   when full (`subscription.dropped` counts). Publish immutable values; messages are shared.
   `BusPublisher(bus, topic)` publishes every `EventFrame.envelope`.
@@ -289,7 +296,8 @@ Windows. Menu names are those of current YABE; older builds say "Add device" and
 - Google-style docstrings. Document `__init__` arguments in the class docstring under `Args:`;
   dataclass and model fields under `Parameters:`. Every public module, class, method and
   property has a docstring (ruff `D`, not enforced in tests and examples).
-- Ruff with line length 100 (rule families ASYNC, B, D, E, F, I, UP) and `ruff format`.
+- Ruff with line length 100 (pipecat's rule families ASYNC, B, D, F, I, UP, plus E and RUF006,
+  which flags a task created without keeping a reference) and `ruff format`.
 - Type hints everywhere; pyright in standard mode must be clean, tests and examples included.
 - Frames are `@dataclass(kw_only=True)`; repeat the decorator on every subclass.
 - Pydantic `BaseModel` for config, parameters, metrics and wire models.
@@ -298,21 +306,34 @@ Windows. Menu names are those of current YABE; older builds say "Add device" and
 - Strings printed or logged are ASCII (`->`, `degC`): Windows consoles may not be UTF-8.
 - Comment only the why the code cannot show. A known shortcut gets
   `# shortcut: <the limit>, <when to upgrade>`.
+- **No deprecation shims.** When you rename or change an API, update every caller in the same
+  WP and delete the old name. Nothing outside this repo imports `spotcool_world`: Person A
+  depends only on `packages/contracts`, which is versioned and changed only by the lead.
+  (Pipecat's deprecation rules exist for its external users.)
 
 ## Writing for future readers
 
-Docs and docstrings describe what the code does now, not how it got there. Keep prose in
-proportion to the code. Leave out rejected alternatives and verification notes unless a future
-reader needs them to avoid a trap. When behaviour changes, update this file in the same PR.
+This covers comments, docstrings, commit messages, changelog fragments and PR descriptions.
+- Describe what the code does now, not how it got there. Leave out rejected alternatives,
+  earlier behaviour, work-in-progress shorthand and the verification you did.
+- Keep prose in proportion to the code: routine code needs a short note or none.
+- The test: every sentence answers "what does the code do now?".
+- Keep a rationale only as a short trailing note, where a reader would otherwise be puzzled or
+  walk into a trap.
+- When behaviour changes, update this file in the same PR.
 
 ## Adding a service, transport or adapter
 
 1. Subclass the base (`PlantService`, `CameraService`, `BaseTransport`) in its provider
-   sub-package (e.g. `services/boptest/hosted.py`) and implement every abstract method.
+   sub-package (e.g. `services/boptest/hosted.py`) and implement every abstract method. Copy
+   the shape of an existing provider: `services/boptest/` for a service (a client with
+   timeouts and retries, and a `stop()` that always runs) or `transports/bacnet/bms.py` for a
+   transport (`input()` and `output()` processors around the protocol).
 2. Put third-party dependencies in an extra in `pyproject.toml` (`uv lock`, then
    `uv sync --all-packages --extra <name>`). The core must import without them.
-3. Wrap it in a processor that handles frames; report failures with `push_error`; emit
-   `MetricsFrame`s for latency where useful; release everything in `stop()`.
+3. Wrap it in a processor that handles frames and pushes each one on in the direction it
+   arrived. Report failures with `push_error` (non-fatal unless the run's results would be
+   wrong), emit `MetricsFrame`s for latency where useful, and release everything in `stop()`.
 4. Convert units with `adapters.units`, take point names from `spotcool_contracts`.
 5. Pass the shared contract suite for that base (RC runs always; BOPTEST tests are marked
    `@pytest.mark.live` and skipped by default).
@@ -339,8 +360,14 @@ reader needs them to avoid a trap. When behaviour changes, update this file in t
   ports from 47900, and skip when a port is taken. `tests/bacnet/conftest.py` has the device and
   client fixtures.
 - Wall-clock assertions need margins for Windows timers (see below).
-- Golden evals with a stub agent (a tiny BACnet client acting like A's agent) live in
-  `evals/` and arrive with WP10.
+- Pipecat's `SleepFrame` isn't needed here. With lockstep push, a frame is fully handled when
+  `push_frame` returns, so tests assert on order directly.
+- **Evals** (`evals/`, WP10) follow pipecat's behavioral evals:
+  - each eval is a scenario from the WP5 library plus expectations: the savings band, comfort
+    where people were, and the priority rules;
+  - a stub agent, a tiny BACnet client acting like A's agent, drives the run;
+  - every run saves its records (WP6's recorder), and judging runs again on the saved records,
+    so a BOPTEST run can be re-judged without re-running the building.
 
 ## Definition of done
 
