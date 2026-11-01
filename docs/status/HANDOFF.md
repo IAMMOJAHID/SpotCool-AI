@@ -67,14 +67,10 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 **Order (sequential):** ~~WP8~~ → **WP1** → WP2 → WP5 → WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
 
 **BOPTEST Codespace build failure (Nov 1, 16:52 IST).** The `worker` image failed at its Miniconda step (`service/worker/Dockerfile`: `conda update -n base -c defaults conda`, then `conda create …`, exit 1).
-- **Hypothesis:** conda's update to 25.x brings Anaconda's terms-of-service gate, so the next non-interactive `conda create` on `defaults` aborts.
-- **Status:** a diagnostic rebuild was running to capture the actual error line.
-- **Fix to try (inside the Codespace only, not upstream):**
-  - delete the `conda update -n base -c defaults conda` line;
-  - add `-c conda-forge --override-channels` to both `conda create` and `conda install`;
-  - or set `CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes`.
-
-  conda-forge-only avoids Anaconda's terms altogether. Then run `docker compose up -d web worker provision`.
+- **The diagnosis disproved the terms-of-service hypothesis.** conda got past its `Proceed ([y]/n)?` prompt with no ToS error.
+- **Actual cause:** network flakiness inside the Codespace's Docker build. `pip install -r production.txt` hit repeated `ReadTimeoutError`s against `pypi.org` and `files.pythonhosted.org`, so the first build most likely failed once pip ran out of retries.
+- **Fix if it recurs** (inside the Codespace only, not upstream): in `service/worker/Dockerfile`, make the pip step `python -m pip install --default-timeout=120 --retries 10 -r /boptest/production.txt`, then rebuild.
+- A second `docker compose up -d web worker provision` was started after the diagnostic rebuild.
 
 **How to start a WP:** follow the recipe in `docs/workpackages/README.md` ("Starting a WP"), then hand the agent its brief.
 
