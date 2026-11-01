@@ -94,6 +94,13 @@ Then give the agent its brief:
   - **Inputs latch.** An empty `/advance` body keeps the last override active, so send `<x>_activate: 0` to release it.
   - **`PUT /stop/{id}`** returns 200 with a non-JSON body. Afterwards `/status/{id}` answers 400 "Invalid testid".
   - **KPI keys:** `cost_tot`, `emis_tot`, `ener_tot`, `idis_tot`, `pdih_tot` (null), `pele_tot`, `pgas_tot` (null), `tdis_tot`, `time_rat`.
-  - **Setpoint-only control is weak in this building.** The core VAV box already sits near minimum airflow:
-    - a 28 °C core override from 10:00 to 11:00 moved the core temperature by 0.00 °C;
-    - left on until midnight, it gave +0.2 °C and −1.3 % HVAC energy for the day.
+  - **Savings levers.** Every zone was treated as empty all day; the baseline uses 195.3 kWh for that day.
+    - **Setpoint only** (28 °C in every zone): 138.3 kWh, **−29 %**.
+      - The VAV boxes drop to minimum airflow: damper 0.174 in core, north and south and 0.15 in east and west. Flows are core 879 L/s, north and south 185, east 154, west 120.
+      - So the zones float only to 24.7–26.1 °C.
+      - The core zone alone barely responds, because it already runs near minimum airflow. A core override from 10:00 to 11:00 moved it 0.00 °C. Left on until midnight, it gave +0.2 °C and −1.3 % for the building.
+    - **Plus airflow shut-off** (zone damper `hvac_oveZonAct<Z>_yDam_u = 0` while the zone is below 27.5 °C, released above): 37.3 kWh, **−81 %**.
+      - Zones reach 28.1 °C.
+      - Leakage at damper 0 is core 112 L/s and 17–24 L/s elsewhere.
+      - This is ASHRAE 90.1-2019 §6.5.3.8 occupied-standby, which WP2's BMS implements.
+    - **BOPTEST's `tdis_tot` and `idis_tot`** count discomfort on BOPTEST's own fixed occupancy schedule, so they penalize zones the scenario says are empty. Judge comfort with the world's comfort-where-people-were metric.

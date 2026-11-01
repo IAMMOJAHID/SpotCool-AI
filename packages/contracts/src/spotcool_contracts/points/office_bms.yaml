@@ -85,7 +85,10 @@ points:
     name: ZN-COR-OCC-SENSOR
     description: >-
       Core zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
-      sensor; the BMS then applies the ASHRAE G36 occupied-standby offset on its own.
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
     zone: cor
     writability: commandable
     states: [Unoccupied, Occupied]
@@ -161,7 +164,10 @@ points:
     name: ZN-NOR-OCC-SENSOR
     description: >-
       North zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
-      sensor; the BMS then applies the ASHRAE G36 occupied-standby offset on its own.
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
     zone: nor
     writability: commandable
     states: [Unoccupied, Occupied]
@@ -237,7 +243,10 @@ points:
     name: ZN-SOU-OCC-SENSOR
     description: >-
       South zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
-      sensor; the BMS then applies the ASHRAE G36 occupied-standby offset on its own.
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
     zone: sou
     writability: commandable
     states: [Unoccupied, Occupied]
@@ -313,7 +322,10 @@ points:
     name: ZN-EAS-OCC-SENSOR
     description: >-
       East zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
-      sensor; the BMS then applies the ASHRAE G36 occupied-standby offset on its own.
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
     zone: eas
     writability: commandable
     states: [Unoccupied, Occupied]
@@ -389,7 +401,10 @@ points:
     name: ZN-WES-OCC-SENSOR
     description: >-
       West zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
-      sensor; the BMS then applies the ASHRAE G36 occupied-standby offset on its own.
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
     zone: wes
     writability: commandable
     states: [Unoccupied, Occupied]
