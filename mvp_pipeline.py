@@ -1,17 +1,29 @@
-import asyncio, os, re
-from typing import Optional, Literal
+import asyncio
+import os
+import re
+from collections import deque
+from functools import lru_cache
+from typing import Any, Literal, Optional, Sequence
+
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
-import cv2
-import base64
-from PIL import Image
-from io import BytesIO
-from collections import deque
 from openai import BadRequestError
 
 
-client = AsyncOpenAI(base_url="https://api.meta.ai/v1", api_key="LLM_1840598827088714_FEamtikGaV-PLniCCAnMpa3RsiM")
 BOX_REGEX = re.compile(r"x1=(\d+);y1=(\d+);x2=(\d+);y2=(\d+);w=(\d+);h=(\d+)")
+
+
+@lru_cache(maxsize=1)
+def get_client() -> AsyncOpenAI:
+    api_key = os.getenv("META_API_KEY")
+    if not api_key:
+        raise RuntimeError("META_API_KEY must be set to call the Meta AI API.")
+
+    return AsyncOpenAI(
+        base_url=os.getenv("META_API_BASE_URL", "https://api.meta.ai/v1"),
+        api_key=api_key,
+    )
+
 
 class ManipulatedVariables(BaseModel):
 
@@ -72,7 +84,7 @@ class SceneSemantics(BaseModel):
 
 
 async def run_sam31(b64_frame: str, concept: str) -> list[dict]:
-    resp = await client.responses.create(
+    resp = await get_client().responses.create(
         model="sam-3.1",
         input=[{"type": "message", "role": "user", "content": [
             {"type": "input_text", "text": concept},
@@ -86,7 +98,7 @@ async def run_sam31(b64_frame: str, concept: str) -> list[dict]:
                       "z_est_m": round(1.8 / max((y2 - y1) / h, 0.1), 2)})
     return boxes
 
-async def run_muse_spark(b64_grids: str) -> dict:
+async def run_muse_spark(b64_grids: Sequence[str]) -> dict:
     content = [
         {
             "type": "input_text",
@@ -100,7 +112,7 @@ async def run_muse_spark(b64_grids: str) -> dict:
             "image_url": f"data:image/jpeg;base64,{b64_grid}"
         })
     
-    resp = await client.responses.parse(
+    resp = await get_client().responses.parse(
         model="muse-spark-1.3",
         input=[{"type": "message", "role": "user", "content": content}],
         text_format=SceneSemantics
@@ -108,11 +120,11 @@ async def run_muse_spark(b64_grids: str) -> dict:
     return resp.output_parsed.model_dump()
 
 async def process_window(
-        b64_frames: deque,
-        current_control_state: dict,
-        current_manipulated_state: dict,
-        turn_history: deque,
-    ) -> dict:
+    b64_frames: deque[str],
+    current_control_state: dict[str, Any],
+    current_manipulated_state: dict[str, Any],
+    turn_history: deque[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], Optional[str]]:
     # 1. Fire SAM 3.1 (person + door) and Muse Spark in parallel (~1.2s total wall time)
     b64_latest = b64_frames[-1]
     b64_grids = b64_frames
@@ -155,18 +167,18 @@ async def process_window(
     Output the JSON formate of new value of manipulated variables. Set any variable that does NOT need to change right now to null.
     """
     try:
-        decision = await client.responses.parse(
+        decision = await get_client().responses.parse(
             model="muse-wonder-1.0",
             reasoning={"effort": "minimal"},
             input=[{"type": "message", "role": "user", "content": prompt}],
             text_format=ManipulatedVariables
         )
         output_dict = decision.output_parsed.model_dump()
-        id = decision.id
+        response_id = decision.id
     except BadRequestError as e:
         print(f"[Warning] Tick filtered or rejected ({e.status_code}), holding previous HVAC state.")
         # Return all None so hardware holds steady and the video loop continues smoothly
         output_dict = ManipulatedVariables().model_dump()
-        id = None
+        response_id = None
 
-    return output_dict, current_telemetry, id
+    return output_dict, current_telemetry, response_id
