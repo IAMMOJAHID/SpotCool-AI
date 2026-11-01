@@ -19,7 +19,7 @@ from spotcool_contracts.zones import Zone
 
 def test_scene_zones_are_the_contract_zones():
     assert set(SCENES) == {zone.value for zone in Zone}
-    assert len(clip_names()) == 12
+    assert len(clip_names()) == 13
 
 
 @pytest.mark.parametrize(

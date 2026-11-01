@@ -29,8 +29,7 @@ SCENES: dict[str, tuple[str, ...]] = {
     "cor": ("empty", "few", "many"),
     "nor": ("empty", "few"),
     "sou": ("empty", "meeting", "complaint"),
-    "eas": ("empty",),
-    # wes/empty is missing from WP5's scene list, but West is empty at 07:00 and after 18:00.
+    "eas": ("empty", "few"),
     "wes": ("empty", "few", "door_open"),
 }
 """Scenes per zone (spotcool_contracts.zones.Zone values) the scenario library uses."""

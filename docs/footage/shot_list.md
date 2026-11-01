@@ -25,8 +25,8 @@ Use role letters only: no real names on screen, on paper in frame, or in file na
 | A | `cor_few`, `cor_many`, `sou_meeting`, `sou_complaint` (speaks), live phone segment (speaks) |
 | B | `cor_many`, `nor_few`, `sou_meeting`, `sou_complaint`, `wes_door_open` |
 | C | `cor_many`, `nor_few`, `sou_meeting`, `sou_complaint`, `wes_door_open` |
-| D | `cor_many`, `sou_meeting`, `sou_complaint` |
-| E | `sou_meeting`, `sou_complaint`, `wes_few`, `wes_door_open` |
+| D | `cor_many`, `sou_meeting`, `sou_complaint`, `eas_few` |
+| E | `sou_meeting`, `sou_complaint`, `wes_few`, `wes_door_open`, `eas_few` |
 
 - **Cast size.** At least 4 people, ideally 5. With fewer, film everyone you have and write the real count in the People column. The scenario (WP5) must use the count that is on screen.
 - **Wardrobe.** Everyone wears light clothes (T-shirt or shirt). A brings a jacket and hangs it on A's chair in the meeting room.
@@ -49,6 +49,7 @@ Use role letters only: no real names on screen, on paper in frame, or in file na
 | 11 | `wes_few.mp4` | West | W (unchanged) | Same as 10 | E | 1 | E works at the reception desk. The door stays closed. | 35 s |
 | 12 | `wes_door_open.mp4` | West | W (unchanged) | Same as 10 | E, B, C | 1 at the desk, plus 2 passing | 0-3 s: door closed, E at the desk. 3 s: B opens the door and props it open. 5-25 s: B and C carry 2-3 boxes in through the door and out again. Leave the door open to the end of the take; it must stay open for at least 20 s. | 35 s |
 | 13 | Live phone segment (`cam-meeting-live`). Backup take: `raw/phone/live_backup.mp4` | South meeting room, or any room with 4-5 m to walk | Phone on a stand about 2 m up, landscape, streaming with the IP Webcam app (WP4 setup). A second phone records the backup take. | Wide enough for the whole walk: entry on the left, a chair far away on the right | A | 1 | A enters at the left edge and walks right. A sits on the far chair (about 4 m from the camera) for 5 s, gets up, walks to about 1 m from the camera and says *"The AC is blowing right on my face."* Optional second take: *"Can someone turn up the AC?"* | 30-40 s |
+| 14 | `eas_few.mp4` | East | E (unchanged) | Same as 9 | D, E | 2 | D and E work at neighbouring desks on laptops, typing and talking quietly. Both stay in frame for the whole take. Only the `all_hands_day` scenario uses it: it checks that savings are about 0 when every zone is occupied. | 35 s |
 
 Row 10 (`wes_empty`) is missing from the scenario's scene list, but the timeline needs it: West is empty from 07:00 to 08:30 and after 18:00.
 
@@ -83,7 +84,7 @@ Every time is on the world's 15-minute step grid (:00, :15, :30, :45): the world
 1. Core: rows 1, 2, 3.
 2. North: rows 4, 5.
 3. South: rows 6, 7, 8, plus the complaint audio.
-4. East: row 9.
+4. East: rows 9 and 14.
 5. West: rows 10, 11, 12.
 6. Live phone segment: row 13.
 
