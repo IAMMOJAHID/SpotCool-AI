@@ -113,6 +113,13 @@ class WorkerRunner(BaseObject):
 
     def _install_signal_handlers(self) -> Callable[[], None]:
         loop = asyncio.get_running_loop()
+        # The handlers in place now (asyncio.run installs a graceful SIGINT one), put back on exit.
+        before: dict[signal.Signals, Any] = {sig: signal.getsignal(sig) for sig in _SIGNALS}
+
+        def restore() -> None:
+            for sig, old in before.items():
+                signal.signal(sig, old if old is not None else signal.SIG_DFL)
+
         try:
             for sig in _SIGNALS:
                 loop.add_signal_handler(sig, self._on_signal, sig)
@@ -127,21 +134,19 @@ class WorkerRunner(BaseObject):
             def remove() -> None:
                 for sig in _SIGNALS:
                     loop.remove_signal_handler(sig)
+                # remove_signal_handler resets SIGINT to default_int_handler, not to the handler
+                # that was there before, so asyncio.run's graceful Ctrl+C was lost on POSIX.
+                restore()
 
             return remove
 
         def handler(signum: int, frame: FrameType | None) -> None:
             loop.call_soon_threadsafe(self._on_signal, signal.Signals(signum))
 
-        previous: dict[signal.Signals, Any] = {}
         try:
             for sig in _SIGNALS:
-                previous[sig] = signal.signal(sig, handler)
+                signal.signal(sig, handler)
         except ValueError:  # not the main thread: signals cannot be handled here
             logger.warning("signal handlers need the main thread; Ctrl+C will not stop cleanly")
-
-        def restore() -> None:
-            for sig, old in previous.items():
-                signal.signal(sig, old if old is not None else signal.SIG_DFL)
-
+            return lambda: None
         return restore
