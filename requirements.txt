@@ -1,0 +1,6 @@
+aio-pika
+openai
+opencv-python-headless
+Pillow
+pydantic
+python-dotenv
