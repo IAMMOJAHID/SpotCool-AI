@@ -44,7 +44,7 @@ Rather than treating AI assistants as disconnected chat windows, SpotCool AI ope
 
 ## 2. The Six Non-Negotiable Invariants
 
-Both agents are bound by the invariants documented in [`AGENTS.md`](file:///c:/Users/hussa/OneDrive/Desktop/Spot-cool-ai/SpotCool-AI/AGENTS.md) and [`REVIEW.md`](file:///c:/Users/hussa/OneDrive/Desktop/Spot-cool-ai/SpotCool-AI/REVIEW.md):
+Both agents are bound by the invariants documented in [`AGENTS.md`](../../AGENTS.md) and [`REVIEW.md`](../../REVIEW.md):
 
 | Law | Invariant | Failure Condition | Mitigation |
 | :--- | :--- | :--- | :--- |

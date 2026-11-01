@@ -41,7 +41,7 @@ Worktrees live **outside OneDrive**, so syncing doesn't lock files mid-build. Ea
 
 ```bash
 WP=wp1-plants                                   # change per WP
-git -C "C:/Users/hussa/OneDrive/Desktop/Spot-cool-ai/SpotCool-AI" worktree add \
+git -C "C:/Users/hussa/dev/SpotCool-AI" worktree add \
     "C:/Users/hussa/dev/wt/$WP" -b "wp/$WP" wp/wp0-core-contracts
 cd "C:/Users/hussa/dev/wt/$WP"
 export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/$WP"
@@ -74,6 +74,6 @@ Then give the agent its brief:
   - BOPTEST's ElectricPower KPI sums `chi_reaPChi_y`, `chi_reaPPumDis_y`, `heaPum_reaPHeaPum_y`, `heaPum_reaPPumDis_y`, `hvac_reaAhu_PFanSup_y`, `hvac_reaAhu_PPumCoo_y` and `hvac_reaAhu_PPumHea_y` (all in W).
 - **Hosted BOPTEST** (`http://api.boptest.net`, plain HTTP: the HTTPS certificate expired 2026-10-26):
   - `/version` and `/testcases` answer.
-  - `POST /testcases/<name>/select` queued past a 300 s timeout on Nov 1, so the hosted service can't be relied on.
+  - `POST /testcases/<name>/select` queued past a 300 s timeout on Nov 1, and again past a 900 s timeout, so the hosted service can't be relied on.
   - Local Docker (`C:/Users/hussa/dev/boptest`, master branch) and GitHub Codespaces are the real paths.
 - **The service rejects an empty body sent as `Content-Type: application/json`** (HTTP 500 "Unexpected end of JSON input"). Send the header only when there is a body.

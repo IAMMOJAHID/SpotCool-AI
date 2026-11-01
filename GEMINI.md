@@ -10,7 +10,7 @@
 ---
 
 ## 1. Shared Invariants
-Read and enforce all **Six Engineering Laws** defined in [`AGENTS.md`](file:///c:/Users/hussa/OneDrive/Desktop/Spot-cool-ai/SpotCool-AI/AGENTS.md):
+Read and enforce all **Six Engineering Laws** defined in [`AGENTS.md`](AGENTS.md):
 1. **Appliance-Only Twin:** AC clone only, never full room 3D model.
 2. **Slew Rate Invariant:** Louver slew rate $\le 15^\circ/\text{s}$ ($\pm 0.75^\circ$ per 50ms tick). No instant jumps.
 3. **Mask-Only Median Depth:** `np.median()` within SAM 3 segmented mask; never bounding box average.
