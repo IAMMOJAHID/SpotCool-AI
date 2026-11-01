@@ -3,22 +3,15 @@ name: Claude Code Automated PR Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  issue_comment:
-    types: [created]
+  # issue_comment trigger removed: any commenter could spend the API key, and on
+  # comment events github.base_ref is empty so base-branch REVIEW.md grounding broke.
 
 permissions:
   contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   review:
-    # Run on PRs, or when a user comments '@claude review' on an open PR
-    if: >
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' &&
-       github.event.issue.pull_request &&
-       contains(github.event.comment.body, '@claude'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR Code
@@ -28,9 +21,12 @@ jobs:
 
       - name: Fetch Base Branch REVIEW.md (Ground Truth)
         run: |
-          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} || true
-          git show origin/${{ github.base_ref }}:REVIEW.md > .base_review_rules.md 2>/dev/null || cp REVIEW.md .base_review_rules.md
-          echo "Base review rules loaded from target branch."
+          # Never fall back to the PR's own REVIEW.md: a PR must not grade itself.
+          if git show "origin/${{ github.base_ref }}:REVIEW.md" > .base_review_rules.md 2>/dev/null; then
+            echo "Base review rules loaded from ${{ github.base_ref }}."
+          else
+            echo "No REVIEW.md on base branch; use only the definitions in the prompt." > .base_review_rules.md
+          fi
 
       - name: Run Claude Code Review
         uses: anthropics/claude-code-action@v1
@@ -47,8 +43,12 @@ jobs:
                - Perception: Failure is 'bounding box averaging' (must use SAM 3 mask median depth)
                - Event Loop: Failure is 'blocking 10 Hz loop' with slow inference
 
-            2. Examine the full diff and surrounding code files.
+            2. Examine the full diff and surrounding code files. If the PR description links a design in
+               docs/designs/, check the code against it; an undocumented divergence is a finding.
             3. Verify findings to eliminate false positives.
-            4. Rank findings as P0 (Blocking Bug), P1 (Warning / Test Gap), or P2 (Polish).
-            5. Enforce 3-round cap: if this PR has already had 3 failed review rounds, recommend architectural redesign.
-            6. Post a concise review summary and line-level review comments.
+            4. Rank findings as P0 (Blocking Bug), P1 (Warning / Test Gap), or P2 (Polish). Tag bugs the PR did
+               not introduce as "Pre-existing". At most 3 P2 findings.
+            5. Do not repeat findings already posted on this PR. Enforce 3-round cap: if this PR has already had
+               3 failed review rounds, recommend architectural redesign instead of more findings.
+            6. Start the summary with the finding count ("2 findings (1 P0, 1 P1)"), or say plainly
+               "No issues found." Then post line-level review comments.

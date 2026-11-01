@@ -55,6 +55,7 @@ pytest tests/test_state_bus.py -k "test_louver_angle"
 ## EGM (Elephant-Goldfish Model)
 EGM artifact directory: docs/designs
 Use `/egm:egm-brainstorm`, `/egm:egm-draft`, and `/egm:egm-review` for spec-driven design reviews.
+Flow: EGM spec approved in `docs/designs/` → implement → `/code-review` + `/security-review` checks code against the spec → PR (template links the spec). Weekly: `/egm:egm-drift-report`.
 
 ## Code Review Standards (Anthropic Architecture)
 * **Charter:** See `REVIEW.md` for domain-specific "Definitions of Failure" and false-positive elimination rules.

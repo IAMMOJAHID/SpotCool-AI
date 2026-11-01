@@ -19,3 +19,7 @@
 /src/backend/pmv_engine.py @IAMMOJAHID
 /src/backend/state_bus.py @IAMMOJAHID
 /src/digital_twin/ @IAMMOJAHID
+
+# Always human: CI workflows, review standards, and ownership rules (a PR must not loosen its own gates)
+/.github/ @IAMMOJAHID
+/REVIEW.md @IAMMOJAHID
