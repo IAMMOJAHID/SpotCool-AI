@@ -1,18 +1,20 @@
 """``spotcool-world`` command line.
 
-Subcommands so far: ``version``, ``run --dry-run`` (print the resolved settings) and ``probe``
-(the go/no-go check of a plant). Running a world, ``replay``, ``lint`` and ``report`` arrive
-with later work packages.
+Subcommands so far: ``version``, ``run --dry-run`` (print the resolved settings), ``probe``
+(the go/no-go check of a plant) and ``lint`` (check scenarios). Running a world, ``replay`` and
+``report`` arrive with later work packages.
 """
 
 import argparse
 import asyncio
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from spotcool_contracts import CONTRACTS_VERSION
 from spotcool_world import __version__
 from spotcool_world.runner.probe import probe
+from spotcool_world.scenarios import library_names, lint
 from spotcool_world.services.settings import WorldSettings
 
 
@@ -35,7 +37,55 @@ def _parser() -> argparse.ArgumentParser:
         help="plant provider (default: the settings' plant)",
     )
     check.add_argument("--steps", type=int, default=4, help="steps to take (default 4)")
+    lint_command = commands.add_parser(
+        "lint", help="check scenarios: print every finding, exit 1 if any is an error"
+    )
+    lint_command.add_argument(
+        "scenarios",
+        nargs="*",
+        metavar="SCENARIO",
+        help="a library name or a .yaml file (default: the whole library)",
+    )
+    lint_command.add_argument(
+        "--clips",
+        type=Path,
+        metavar="DIR",
+        help="also check that each <zone>_<scene>.mp4 is in DIR",
+    )
+    lint_command.add_argument(
+        "--step-s",
+        type=float,
+        metavar="S",
+        help="step grid in simulation seconds (default: the settings' step_s)",
+    )
     return parser
+
+
+def _lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    """Lint the scenarios ``args`` names; 1 if any finding is an error, else 0."""
+    if args.step_s is not None and not args.step_s > 0:
+        parser.error("--step-s must be positive")
+    if args.clips is not None and not args.clips.is_dir():
+        parser.error(f"--clips: {args.clips} is not a directory")
+    settings = WorldSettings()
+    step_s = settings.step_s if args.step_s is None else args.step_s
+    sources = args.scenarios or library_names()
+    errors = warnings = 0
+    for source in sources:
+        try:
+            findings = lint(
+                source, step_s=step_s, footage_dir=settings.footage_dir, clips_dir=args.clips
+            )
+        except (OSError, ValueError) as exc:
+            print(f"{source}: error: {exc}")
+            errors += 1
+            continue
+        for finding in findings:
+            print(finding)
+        errors += sum(finding.level == "error" for finding in findings)
+        warnings += sum(finding.level == "warning" for finding in findings)
+    print(f"{len(sources)} scenario(s): {errors} error(s), {warnings} warning(s)")
+    return 1 if errors else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -65,6 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"probe failed: {type(exc).__name__}: {exc}")
             return 1
         return 0
+    if args.command == "lint":
+        return _lint(parser, args)
     settings = WorldSettings()
     if args.dry_run:
         print(settings.model_dump_json(indent=2))

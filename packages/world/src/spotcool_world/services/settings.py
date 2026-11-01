@@ -47,6 +47,9 @@ class WorldSettings(BaseSettings):
         dashboard_port: Port of the dashboard event stream.
         agent_base_url: Base URL of Person A's agent (``/chat``, ``/voice``).
         run_dir: Directory for recorded runs.
+        footage_dir: Filmed footage, outside the repo (usually ``C:/Users/hussa/dev/footage``):
+            camera clips in ``clips/``, voice complaints in ``audio/``. ``None`` when there is
+            none; voice cues then fall back to chat.
         vrf_profile: VRF gateway brand profile.
         log_level: Loguru level.
     """
@@ -76,6 +79,7 @@ class WorldSettings(BaseSettings):
     dashboard_port: Port = 8090
     agent_base_url: str = "http://127.0.0.1:8002"
     run_dir: Path = Path("runs")
+    footage_dir: Path | None = None
     vrf_profile: Literal["mitsubishi", "daikin", "lg"] = "mitsubishi"
     log_level: str = "INFO"
 
