@@ -1,0 +1,5 @@
+temp/*
+.venv
+videos/*
+testing_directory/*
+__pycache__
