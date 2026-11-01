@@ -1,0 +1,65 @@
+# WiseNET -> SpotCool zone mapping (WP8 proposal). Read by scripts/footage/wisenet_index.py.
+#
+# The machine-read lines are at the bottom, one per SpotCool zone:
+#   <zone>: {camera: <WiseNET camera number>, space: <WiseNET space id>}
+# They use the one-line flow style that normalize.read_flow_yaml reads without a YAML
+# library. "camera" selects the videos (video<set>_<camera>.avi); "space" is documentation.
+#
+# Source: R. Marroquin, J. Dubois, C. Nicolle, "WiseNET: An indoor multi-camera multi-space
+# dataset with contextual information and annotations for people detection and tracking",
+# Data in Brief 27 (2019) 104654, https://pmc.ncbi.nlm.nih.gov/articles/PMC6838453/
+#
+# Facts from the paper's text and tables:
+# - 6 smart cameras on the third floor of the I3M building, Dijon; 11 video sets, 62 videos.
+# - Sets 1-4: 1280x720 at 30 fps, 5 cameras, 2-5 people. Sets 5-11: 640x480 at 25 fps,
+#   6 cameras, 6-15 people (Table 1).
+# - Spaces, length x width x height (Table 2): s1 27.7 x 1.75 x 3.52 m, s2 14.33 x 7.04,
+#   s3 7.5 x 7.04, s4 2.78 x 2.91, s5 3.16 x 4.14, s6 2.48 x 4.47.
+#   Doors d1-d4 are 1.5 m wide, d5-d7 are 1 m.
+# - Smart Camera 4 is in s2 and observes doors d2, d5 and d6 (Listing 1).
+# - Camera 6 never recorded a person, only the shadows of people walking around s2. Its videos
+#   have no detections in sets 5-11 (Section 2.5).
+# - Video files are named like video3_2.avi (set 3, SmartCamera_2) (Listing 2).
+#
+# Assumptions. These are not stated in the text; they come from Fig. 1 and Fig. 3 or by
+# inference. Check each against the camera-calibration JSON files ("location" field) once
+# data.zip is extracted:
+# A1 s1 is a corridor (27.7 m long, 1.75 m wide). Fig. 3 gives it doors d1, d2, d3, d4 and d7,
+#    and Fig. 1 puts cameras 1 and 2 in it.
+# A2 s2 is an open-plan office: the largest space, with desks and monitors in the camera 4
+#    and 5 views of Fig. 1. Fig. 1 puts camera 5 in s2 next to camera 4.
+# A3 s3 is a closed room with one door (d4, to the corridor), with tables and lab equipment.
+#    The project website's IFC example names a space "Experiment Room"; we assume it is s3.
+#    Fig. 1 puts camera 3 in s3.
+# A4 Camera 6 is in s4, the small room off s2 through door d5 (Fig. 1). Sets 1-4 used only
+#    5 cameras; we assume camera 6 is the one missing there, so it has videos in sets 5-11 only.
+# A5 d1 is the door into the monitored wing, at the west end of the corridor, and camera 1
+#    faces it (Fig. 1: its view shows people coming through a door).
+# A6 The WiseNET floor has no reception or meeting room, and no north/east/south/west wings.
+#    Each pick matches the zone's role in spotcool_contracts.zones, nothing more.
+#
+# Mapping, one camera per zone:
+# - cor (Core, open-plan workspace: empty, few, many) -> camera 4 in s2 (A2). The open office
+#   matches best, and with 6-15 people in a set it should have runs of 4 or more people.
+# - nor (North, team area: empty, few) -> camera 5, also in s2, which looks at the other end
+#   of the same office (A2). Risk: cor and nor are one physical space, so one person can be in
+#   both views at once. The index picks segments for each camera independently.
+# - sou (South, meeting room: empty, meeting) -> camera 3 in s3, a closed room with one door
+#   and tables (A3). The complaint scene is our own footage only.
+# - eas (East, team area, empty all day because the team works from home) -> camera 6 in s4
+#   (A4). It never shows a person, which is exactly the scene. Risks: the image is dark, and
+#   shadows from s2 move across it, which a people counter may miscount.
+# - wes (West, reception and entrance: empty, few) -> camera 1 in s1, facing door d1 (A1, A5).
+#   The door_open scene is our own footage only: the annotations don't record door state.
+# Unused: camera 2 (s1, far end of the corridor). It is the fallback for wes if camera 1's
+# view turns out not to show d1.
+#
+# Sets to extract (SETS in wisenet_codespace.sh):
+# - 1 and 2 (HD, 5 and 2 people), for 720p empty and few;
+# - 5 and 11 (VGA, 14 and 15 people), for many and meeting, and for camera 6.
+
+cor: {camera: 4, space: s2}  # A2
+nor: {camera: 5, space: s2}  # A2
+sou: {camera: 3, space: s3}  # A3
+eas: {camera: 6, space: s4}  # A4
+wes: {camera: 1, space: s1}  # A1, A5
