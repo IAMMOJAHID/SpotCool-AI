@@ -4,6 +4,24 @@ Person B's half of SpotCool is the **world**: the simulated building that the ag
 
 - **One WP = one agent = one git worktree = one branch** (`wp/<id>-<slug>`).
 - The lead (Person B with the main Claude Code session) owns `packages/contracts/`, integration and merges.
+
+## Branches
+
+| Branch | Role | Who writes it |
+|---|---|---|
+| `main` | Release. Shared by Person A and Person B. | Merged from `dev` at release, agreed by both |
+| `dev` | Integration of the agent (A) and the world (B). Shared. | Merged from `world/main` and A's trunk at agreed integration points |
+| **`world/main`** | **Person B's trunk**: every finished and verified world WP, merged in order | The lead only, by merge |
+| `wp/<id>-<slug>` | One work package. Cut from the latest `world/main`. | One agent, in its own worktree |
+| `docs/person-b-handoff` | The running status document `docs/status/HANDOFF.md` | The lead; merged into `world/main` at milestones |
+
+**The flow for each WP:**
+1. **Cut** `wp/<id>-<slug>` from the current `world/main`, so the WP builds on every WP finished before it. That is the sequential stack.
+2. **The agent builds it.** The lead re-runs the checks (the four in the definition of done, plus the live suite where it applies), and a separate reviewer agent reviews it. Fixes go in as their own commit.
+3. **The lead pushes the WP branch.** Then `git merge --no-ff` it into `world/main`, so the WP stays one revertible unit (`git revert -m 1 <merge>`). The lead re-runs the checks on the merged trunk and pushes `world/main`.
+4. **The handoff** branch is merged into `world/main` at the same milestone.
+
+**No pull requests between B's own branches.** Merges are local. A PR triggers the Claude review workflows, which spend `ANTHROPIC_API_KEY` credits. Every push still runs the free world CI. The PR from `world/main` into `dev` is the integration point, scheduled with Person A.
 - Every agent follows [`packages/world/AGENTS.md`](../../packages/world/AGENTS.md).
 
 ## Dependency graph
@@ -22,7 +40,7 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 
 | WP | Brief | Tool | Branch |
 |---|---|---|---|
-| WP0 | (in progress) core framework + contracts | Claude Code (lead) | `wp/wp0-core-contracts` |
+| WP0 | core framework + contracts (done) | Claude Code (lead) | `wp/wp0-core-contracts` |
 | WP1 | [plants](WP1-plants.md) | Claude Code | `wp/wp1-plants` |
 | WP2 | [BMS over BACnet](WP2-bms-bacnet.md) | Claude Code | `wp/wp2-bms-bacnet` |
 | WP3 | [VRF gateway](WP3-vrf-gateway.md) | Claude Code | `wp/wp3-vrf-gateway` |
@@ -39,12 +57,13 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 
 Worktrees live **outside OneDrive**, so syncing doesn't lock files mid-build. Each worktree gets its own virtualenv; uv hardlinks packages from its cache, so extra venvs cost little disk.
 
-The base is `wp/wp0-contracts-rest-keys`, which is `wp/wp0-core-contracts` plus the contracts fixes measured on BOPTEST. Switch back to `wp/wp0-core-contracts` once it has been fast-forwarded.
+Cut every WP from the latest `world/main` (see "Branches").
 
 ```bash
 WP=wp2-bms-bacnet                               # change per WP
 git -C "C:/Users/hussa/dev/SpotCool-AI" worktree add \
-    "C:/Users/hussa/dev/wt/$WP" -b "wp/$WP" wp/wp0-contracts-rest-keys
+    "C:/Users/hussa/dev/wt/$WP" -b "wp/$WP" world/main   # local trunk: no upstream tracking
+# when it's done: git -C "C:/Users/hussa/dev/wt/$WP" push -u origin "wp/$WP"
 cd "C:/Users/hussa/dev/wt/$WP"
 export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/$WP"
 uv sync --all-packages              # add --extra <name> for the extras your WP needs
