@@ -224,6 +224,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **`POST /chat`:** a `ComplaintText` JSON body: `text` (1–280 characters), `source` (`occupant-sim` or `occupant`), an optional `room_hint`, and an optional `sim_time_s`.
 - **`POST /voice`:** `multipart/form-data` with an `audio` file in `VOICE_FORMAT` (WAV, 16 kHz, mono, s16le) and an optional `meta` field holding a `ComplaintText` JSON string. Its `text` is the script line, for logging only. **Transcribe the audio yourself.**
 - **Reply within 10 s** to `/chat` and `/voice`: accept the complaint and answer, then process it (transcription included) in the background. The world waits 10 s and doesn't retry a request that timed out, because you may already have it. It retries only connection failures and 5xx responses, twice.
+- **Allow CORS on `/chat` and `/voice`** from the dashboard's origin (`http://<world>:8090`, and `http://localhost:5173` in development). The dashboard's chat box and hold-to-talk button call you straight from the browser.
 - **Dashboard WebSocket (port 8090):** every message is an `EventEnvelope` `{v: 1, type, source, t_ms, sim_time_s, data}`.
   - **World types:** `tick`, `run_status`, `scenario_state`, `plant_measurements`, `bms_write`, `kpi`, `vrf_state`, `camera_scene`, `calendar`, `complaint_cue`, `error`, `metrics`.
   - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them.
