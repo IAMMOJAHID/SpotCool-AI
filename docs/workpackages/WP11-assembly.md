@@ -1,7 +1,7 @@
 # WP11: World assembly and CLI (`spotcool-world run`)
 
 **Tool:** Claude Code (lead-supervised). **Branch:** `wp/wp11-assembly`. **Depends on:** WP1–WP6, merged in as they land. Stub any WP that's late at its interface, so the assembly never blocks.
-**Directories:** `packages/world/src/spotcool_world/runner/{assembly.py,cli.py}`, `examples/foundational/09_full_world.py`, `tests/assembly/`, `world.example.yaml`.
+**Directories:** `packages/world/src/spotcool_world/runner/{assembly.py,cli.py}`, `examples/foundational/10_full_world.py`, `tests/assembly/`, `world.example.yaml`.
 
 ## Goal
 One command brings up the whole stand-in building from `WorldSettings` / `world.yaml`.
@@ -40,5 +40,5 @@ TickSource
 
 ## Done when
 - `uv run spotcool-world run --plant rc --speed 0` completes `hybrid_tuesday` and prints the KPIs.
-- `09_full_world.py` does the same in under a minute.
+- `10_full_world.py` does the same in under a minute.
 - With `--plant boptest-local`, the same run completes against local Docker BOPTEST.

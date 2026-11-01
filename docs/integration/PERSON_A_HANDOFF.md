@@ -87,7 +87,7 @@ B builds everything your agent connects to, because there is no real building:
 | Room calendar | `GET http://<world>:8081/calendar/rooms/meeting-south/schedule` (also `.ics`) | you read | built (§8) |
 | Complaints, text | `POST http://<agent>:8002/chat` | world calls you | planned (§9) |
 | Complaints, voice | `POST http://<agent>:8002/voice` | world calls you | planned (§9) |
-| Dashboard events | WebSocket on port **8090** | you publish | planned (§9) |
+| Dashboard events | WebSocket `ws://<world>:8090/ws/agent` | you publish | planned (WP6, §9) |
 
 The world expects your agent at `http://127.0.0.1:8002` by default (`agent_base_url`; tell us if that changes).
 
@@ -225,6 +225,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **`POST /voice`:** `multipart/form-data` with an `audio` file in `VOICE_FORMAT` (WAV, 16 kHz, mono, s16le) and an optional `meta` field holding a `ComplaintText` JSON string. Its `text` is the script line, for logging only. **Transcribe the audio yourself.**
 - **Reply within 10 s** to `/chat` and `/voice`: accept the complaint and answer, then process it (transcription included) in the background. The world waits 10 s and doesn't retry a request that timed out, because you may already have it. It retries only connection failures and 5xx responses, twice.
 - **Dashboard WebSocket (port 8090):** every message is an `EventEnvelope` `{v: 1, type, source, t_ms, sim_time_s, data}`.
+  - **Publish on `ws://<world>:8090/ws/agent`.** Send one envelope per message, with `source: "agent"` and one of your types below, at most 64 KB each and 20 per second. An invalid message gets `{"error": "..."}` back. That socket never sends you world events, so ground truth stays out of your agent. The dashboard itself reads `/ws/events`.
   - **World types:** `tick`, `run_status`, `scenario_state`, `plant_measurements`, `bms_write`, `kpi`, `vrf_state`, `camera_scene`, `calendar`, `complaint_cue`, `error`, `metrics`.
   - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them.
 - **Don't read ground truth.** `scenario_state` and `camera_scene` carry the true people counts (`people`), the scene, the door state and clothing. They exist for the dashboard and the scoring. **Your agent must not read them**; it has to perceive from the cameras. Use the stream only to publish.
