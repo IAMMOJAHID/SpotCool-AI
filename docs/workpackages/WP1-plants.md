@@ -26,29 +26,32 @@ Responses are wrapped as `{status, message, payload}`.
 
 **Rules:**
 - **Only send `Content-Type: application/json` when there is a body.** The hosted service returns HTTP 500 for an empty JSON body.
-- **Overrides are per call.** `_activate` defaults to 0 (the building's own control) on every advance. Each `advance` therefore sends, for **every** input the world manages:
+- **Inputs latch.** An override stays active until `<x>_activate = 0` is sent. An empty advance body changes nothing: on Nov 1 a core override sent from 10:00 to 11:00 was still applied at midnight. Each `advance` therefore sends, for **every** input the world manages:
   - `<x>_u` and `<x>_activate = 1` when overridden;
   - `<x>_activate = 0` when released.
 
-  Never rely on an earlier call's values persisting. Reject unknown names before sending: BOPTEST answers 400 "Unexpected input variable".
-- **Timeouts:**
+  Be explicit on every step, and never rely on what an earlier call left behind. Reject unknown names before sending: BOPTEST answers 400 "Unexpected input variable".
+- **Overwritten signals are read by their `_u` key.** The REST API drops each override block's `_y` output. `/advance` and `/results` report the value actually applied under the input's `_u` name: the baseline value when released, ours when active. The point map's `read` bindings already use these keys.
+- **`PUT stop` returns HTTP 200 with a non-JSON body.** Don't parse it. Afterwards the id answers 400 "Invalid testid".
+- **Timeouts** (measured Nov 1 through the Codespace port forward: select about 8 s; scenario 283 s; advance p50 0.24 s, p95 1.0 s, max 5.6 s):
   - select: up to 600 s (the hosted queue can be slow), retried with exponential backoff and jitter;
-  - scenario: 600 s;
+  - scenario: 900 s;
   - advance: 120 s.
+- **Step size:** BOPTEST's default is 3600 s, so always `PUT step` 900 explicitly.
 - **Keep-alive:** a test is stopped after 15 idle minutes. If a run pauses, send a no-op request before that.
 - **Always `PUT stop`**: in `stop()`, in `finally:`, and on SIGINT. This is a shared, free service.
 - **Metrics:** emit `MetricsFrame`s for call latency and BOPTEST's own time ratio.
 
 ## RC plant
-- **The contract to honour:** it returns the **same raw output names** as BOPTEST for every point the BMS map reads (see `packages/contracts/.../points/office_bms.yaml`): zone temperatures in K, the setpoint `_y` values, CO₂, `V_flow`, all 7 power meters, `weaSta_reaWeaTDryBul_y` and `weaSta_reaWeaRelHum_y`.
+- **The contract to honour:** it returns the **same raw output names** as BOPTEST for every point the BMS map reads (see `packages/contracts/.../points/office_bms.yaml`): zone temperatures in K, the applied setpoints under their `_u` keys, CO₂, `V_flow`, all 7 power meters, `weaSta_reaWeaTDryBul_y` and `weaSta_reaWeaRelHum_y`.
 - **Zones:** 1R1C or 2R1C per zone.
   - Areas follow the DOE medium-office floor: core about 983 m², north and south about 207 m² each, east and west about 131 m² each. Scale them to the total of 1,662.66 m².
   - Internal gains come from the **scenario's** people count (about 120 W sensible per person) plus equipment.
   - Outdoor temperature follows a peak-cooling-day sine (Chicago, 22–33 °C).
 - **HVAC:** a VAV cooling-capacity limit. Chiller electric power is cooling ÷ COP 3.5. Fan power is cubic in airflow.
-- **Baseline schedule:** cooling setpoint 24 °C occupied (07:00–19:00) and 30 °C otherwise; heating 21 °C and 15.6 °C.
+- **Baseline schedule:** cooling setpoint 24 °C occupied (06:00–19:00, measured on BOPTEST) and 30 °C otherwise; heating 21 °C and 15.6 °C.
 
-  Document this in the module docstring. It is the RC stand-in for BOPTEST's controller, and the `_y` setpoints report it.
+  Document this in the module docstring. It is the RC stand-in for BOPTEST's controller, and the `_u` setpoint keys report it.
 - **Calibration note** (docstring): the RC plant is deliberately simple. It exists for speed and for the honesty bracket, where its "people heat" matches the cameras. It does not replace BOPTEST.
 
 ## PlantProcessor (`processors/plant_processor.py`)
@@ -72,8 +75,9 @@ This is the go/no-go check the plan calls for.
 ## Tests
 - **Contract suite** (`tests/plants/test_plant_contract.py`): one parametrized suite, run on RC always and on BOPTEST with `@pytest.mark.live`. It checks that:
   - every point-map `read` is in the output;
-  - a 28 °C core override raises the core temperature compared with baseline after 4 steps;
-  - releasing returns the core setpoint `_y` to the schedule;
+  - while a 28 °C core override is active, the core setpoint's `_u` key reports it (301.15 K);
+  - the core temperature with the override is at least the baseline minus 0.05 K. On the RC plant it must rise strictly. On BOPTEST, don't assert a rise: the core VAV box sits near minimum airflow in the morning, and a 4-step override at 10:00 moved the core temperature by 0.00 K;
+  - after `_activate = 0`, the core setpoint's `_u` key returns to the schedule (297.15 K in occupied hours);
   - `kpis()` has `ener_tot`;
   - `stop()` is idempotent.
 - **BOPTEST client:** unit tests with `httpx.MockTransport`, covering the header rule, explicit `_activate`, retry and stop-on-error.
