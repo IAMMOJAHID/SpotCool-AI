@@ -1,9 +1,9 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-01, about 22:50 IST, by the lead Claude Code session. **End of day 1. The user said to stop here and not start the next WP.** State:
-- **`world/main` (`f4c147e`) holds WP0, WP8, WP1 and WP2**, every merge with green World CI. The trunk is green on Windows and Linux (§2).
-- **WP5 is next** and has not started (§8).
-- **The BOPTEST Codespace was stopped for the night** to save quota; restart it with the steps in §8.
+**Last updated:** 2026-11-01, about 21:45 IST, by the lead Claude Code session. **Day 2's work started early, on the evening of Nov 1: WP5 is being built.** State:
+- **`world/main` (`a24ec06`) holds WP0, WP8, WP1 and WP2**, every merge with green World CI. The trunk is green on Windows and Linux (§2).
+- **WP5 is in progress** on `wp/wp5-scenarios`. The lead's kickoff commit `6235d68` holds the binding decisions, and one build agent is implementing it (§8).
+- **The BOPTEST Codespace is stopped** and stays off until a WP needs it (WP5 doesn't). Restart it with the steps in §8.
 - **Person A's integration handoff** is at `docs/integration/PERSON_A_HANDOFF.md`, and the user is sending it to A.
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history.
 
@@ -33,7 +33,8 @@
   6. Never store camera frames or audio. Always stop BOPTEST tests you start.
 - **The repo moved** out of OneDrive to **`C:\Users\hussa\dev\SpotCool-AI`**.
   - The old copy at `C:\Users\hussa\OneDrive\Desktop\Spot-cool-ai\SpotCool-AI` is **stale** (behind by at least `e82e7c3`). Don't use it.
-  - Delete it once the user confirms. The pre-compression session was still running from it.
+  - Checked on Nov 1 at 21:07 IST: it holds nothing that isn't in dev or on GitHub, so the user can delete it.
+  - The lead session moved to dev with `/cd` (it's now session `441270a4…`). The day-1 transcripts and the scratchpad archive (BOPTEST probe scripts and raw results) are listed in the memory note `day1-session-archive`.
 
 ## 1. Environment (this laptop)
 
@@ -67,7 +68,7 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 | **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). Also `f2d849b` (the recipe base). **`wp/wp0-core-contracts` was fast-forwarded to `f2d849b` and pushed (lead's decision, Nov 1)**, so both branches are identical, and Person A's branch has the fixes. |
 | **WP1 plants** | **Done, pushed, merged into `world/main` (`c6f7204`)** | `wp/wp1-plants`:<br>- `4b1905f` (build);<br>- `f7e953a` (review fixes);<br>- `714e5e2` (brief amendments);<br>- on top of the cherry-picked fixes `a4e4bb2 694b0b5 91de2bc`.<br><br>Worktree `C:\Users\hussa\dev\wt\wp1-plants`. | Lead re-ran everything after the fixes:<br>- ruff, format and pyright clean;<br>- 191 tests (with `-W error::RuntimeWarning`, and in the CI-equivalent `ci-check` venv);<br>- live suite 5 passed in 119 s.<br><br>The reviewer agent's 1 medium and 10 low findings are fixed, each with a regression test. Decisions:<br>- measurements and raw records are stamped with the end of the step;<br>- start latencies are logged.<br><br>Lead's changes:<br>- RC heating now 20/12 °C, as BOPTEST;<br>- CI installs `--all-extras` (otherwise `tests/plants` and pyright fail on GitHub).<br><br>Key API: `create_plant(settings, run)`, `PlantProcessor(service, run, warmup_s=3 days)`, `BoptestClient`, `RcPlant(occupancy)`, `ReplayPlant(path, run)`, `serializers.jsonl` (`RunWriter`, `read_records`), `services.boptest.catalog` (`MANAGED_INPUTS`, `zone_damper`, `bms_signal`), and `spotcool-world probe`.<br><br>**Known gap (follow-up WP1.1):** on an all-empty day the RC plant shows −32 to −38 % for the damper lever vs BOPTEST's −81 %, because BOPTEST's heavy mass absorbs a day of gains. A slow mass node per zone would close it. |
 | **WP2 BMS (BACnet)** | **Done, pushed, merged into `world/main` (`f4c147e`)** | `wp/wp2-bms-bacnet`:<br>- `734a6c9` (build);<br>- `38a6447` (review fixes);<br>- `8a68f0f` (trunk synced in).<br><br>Worktree `C:\Users\hussa\dev\wt\wp2-bms-bacnet`. | `SpotCool-Office-BMS` (1001, UDP 47808) from the point map, with priority arrays, COV and the command policy. Plus:<br>- **occupied-standby** with airflow shut-off. The hysteresis sits **above** the setpoint; the reviewer found the brief's rule worked only once (H1). It is guarded by the occupied hours 06:00–19:00, because BOPTEST reports values one stamp late (M1);<br>- the heartbeat watchdog;<br>- fault flags until data;<br>- plants publish their initial state, and ParallelPipeline keeps the `StartFrame` first.<br><br>Lead verified: 403 tests (17 bacnet), the CI-equivalent run, example 06, and green CI (run `41319431833`).<br><br>Measured on RC, standby alone with South empty: damper shut on 55 % of standby ticks, airflow −30 %.<br><br>**Not verified:** YABE (manual; steps in `packages/world/AGENTS.md`), LAN discovery from another PC, BOPTEST with the BMS. |
-| WP5 scenarios | Queued | `wp/wp5-scenarios` | Originally Antigravity; the user wants Claude Code |
+| WP5 scenarios | **In progress** | `wp/wp5-scenarios` (worktree `C:\Users\hussa\dev\wt\wp5-scenarios`) | Kickoff `6235d68` rewrote the brief with binding decisions:<br>- `day` is BOPTEST's 0-based index;<br>- times sit on the 15-minute grid;<br>- calendar dates are 2026-01-01 plus the sim seconds;<br>- bookings have `booked_at`;<br>- the audio rides on `ComplaintCueFrame`;<br>- `footage_dir` and the `calendar`/`occupants` extras;<br>- the calendar is a router only.<br><br>The demo timeline moved onto the grid: the door is open 10:00–10:45 and the complaint is at 14:15. |
 | WP4 cameras | Queued | `wp/wp4-cameras` | Same as WP5 |
 | WP6 telemetry | Queued | `wp/wp6-telemetry` | |
 | WP11 assembly | Queued | `wp/wp11-assembly` | |
@@ -100,7 +101,7 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 - `POST /testcases/multizone_office_simple_air/select` **timed out at 300 s and again at 900 s** on Nov 1, because the service has no worker capacity.
 - **Bug to remember:** the service returns HTTP 500 "Unexpected end of JSON input" if `Content-Type: application/json` is sent with an empty body. Send the header only with a body.
 
-**GitHub Codespace: built, 2 workers. Stopped for the night on Nov 1 at 22:50 IST (restart: §8 item 1).**
+**GitHub Codespace: built, 2 workers. Stopped on the evening of Nov 1 (restart: §8 item 1).**
 - Name **`spotcool-boptest-qxxjjj94x672rp`**: repo `ibpsa/project1-boptest`, branch `master`, 2-core `basicLinux32gb` (7.8 GB RAM), idle timeout 90 minutes, paid from `mhussam-ai`'s free quota (120 core-hours and 15 GB-month per month; blocked at the limit, never billed).
 - **Images are built.** worker 5.02 GB, web 1.17 GB, provision 682 MB. All 12 test cases are provisioned, and `/version` is `1.0.0-dev`.
 - **Concurrency:** one worker runs one test. The second worker was added with `docker compose up -d --no-recreate --scale worker=2 worker`. Check with:
@@ -274,11 +275,11 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 
 ## 8. Next actions, in order
 
-1. **Start of day 2: bring BOPTEST back** (the Codespace was stopped on Nov 1 at 22:50 IST; its images and state are kept):
+1. **Bring BOPTEST back when a WP needs it.** Lead's call: WP5 doesn't need it, so it stays off to save quota. The next users are WP11's BOPTEST checkpoint and WP10's live evals. The Codespace was stopped on the evening of Nov 1, and its images and state are kept:
    - `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision && docker compose ps'`. This also starts the Codespace.
    - Then run `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` as a background job, and check `curl http://127.0.0.1:8000/version`.
    - Only needed for live tests and BOPTEST runs. The RC plant needs nothing.
-2. **WP5 next** (scenarios, calendar and occupants). Cut `wp/wp5-scenarios` from the local `world/main` with the recipe in `docs/workpackages/README.md`. **Binding inputs for its agent:**
+2. **WP5 (scenarios, calendar and occupants): in progress.** It was cut and kicked off on the evening of Nov 1, and its binding decisions are in the brief (`6235d68`). The inputs that fed them:
    - WP8's decisions: zone-id file names (`sou_meeting.mp4`); the `wes_empty` clip; the counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. Use the real counts if Nov 2 filming has fewer people.
    - The `hybrid_tuesday` timeline in `docs/footage/shot_list.md`, which matches §12 of the Person A handoff.
    - The demo day is day 199 (`start_clock` 07:00).
@@ -287,7 +288,13 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
    - The scenario's door state drives BI 601 through `ScenarioStateFrame`, which WP2 already reads.
 3. **Then the queue, one agent at a time:** WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
    - Each WP goes through the same gates: lead checks, reviewer agent, fixes, **green CI on the branch**, merge, green trunk CI.
-   - **WP6 kickoff note:** raw records start with the initial state (index 0 at the start time), then step k at index k (start + k·step, stamped at the end of the step).
+   - **WP6 kickoff notes:**
+     - Raw records start with the initial state (index 0 at the start time), then step k at index k (start + k·step, stamped at the end of the step).
+     - Comfort-where-people-were for the step ending at `t` must use the scenario state of the step that just ended, `state_at(t − step)`. A tick's `ScenarioStateFrame` describes the step it starts.
+   - **WP4 kickoff notes:**
+     - **Clip timing.** At speed 300, a 15-minute scene lasts 3 s of wall time, but `sou_complaint.mp4` shows its action between 5 and 15 s. Restarting the clip at the scene's start isn't enough. Choose between a slower pace around cues (WP11's pacer) and playing the scene's clip time-compressed.
+     - **East clip.** `all_hands_day` needs an occupied East clip, but WP8 filmed only `eas_empty`. Use a dataset clip or a synthetic one.
+     - **Settings.** `footage_dir` already arrives with WP5.
    - **WP11 wiring:** `TickSource → scenario → bms.input() → ParallelPipeline[spotcool ∥ baseline] → bms.output() → …`. Call `bms.start()` before the worker runs and `stop()` after. Pass `settings.bms_address` and `bms_port`.
    - **Follow-up WP1.1** (RC slow mass node) is queued after WP11.
    - **Schedule risk:** the Nov 2, 18:00 checkpoint (`hybrid_tuesday` on RC end to end) needs WP5, WP4, WP6 and WP11 in one day, alongside filming.
