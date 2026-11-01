@@ -1,10 +1,10 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-01, about 19:30 IST, by the lead Claude Code session (after an account switch). Since 16:40:
+**Last updated:** 2026-11-01, about 20:15 IST, by the lead Claude Code session. Since 16:40:
 - BOPTEST runs in the Codespace, and the live probes are done (§3);
-- the contracts fix and the standby decision are on `wp/wp0-contracts-rest-keys` (§2, §5);
-- WP1 is built and verified, and in review (§2);
-- WP branches are now stacked (§0 rule 3).
+- the contracts fixes and the standby decision are in `wp/wp0-core-contracts` (§2, §5);
+- **`world/main` is Person B's trunk**, holding WP0, WP8 and this handoff (§0 rule 3);
+- WP1 has been reviewed, and its fix round is running (§2).
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history.
 
 ---
@@ -21,7 +21,11 @@
 - **Working rules from the user** (also saved as Claude memory notes):
   1. **Claude Code for everything.** Flag anywhere Antigravity, a browser or a person is really needed.
   2. **One subagent at a time, sequentially**, because of usage limits. The user has several accounts and switches when a limit hits. If an agent dies with HTTP 429 "spend limit", resume it with `SendMessage` after the switch; its work is saved.
-  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`). Because WPs run one at a time, **stack** each new WP branch on the previous finished one: `wp/wp0-core-contracts` → `wp/wp1-plants` → WP2 → …. `wp/wp0-core-contracts` was fast-forwarded on Nov 1 to `f2d849b`, so it includes the contracts fixes. `wp/wp0-contracts-rest-keys` points at the same commit.
+  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`).
+     - **Person B's trunk is `world/main`** (user, Nov 1: "for person B we will have a world main branch… after each worker finishes the work, merge in main of person B, and stack the sequential work").
+     - **The flow:** cut each WP from the latest local `world/main`, verify it and have it reviewed, push it, then `git merge --no-ff` it into `world/main`, re-run the checks on the trunk, and push. The roles of `main`, `dev`, `world/main`, `wp/*` and the handoff branch are in `docs/workpackages/README.md` → "Branches".
+     - **Merges are local; there are no PRs between B's branches.** A PR runs the Claude review workflows, which spend `ANTHROPIC_API_KEY` credits.
+     - **Where things are checked out:** the main checkout `C:\Users\hussa\dev\SpotCool-AI` is on `world/main`. This handoff is edited in the worktree `C:\Users\hussa\dev\wt\docs-person-b-handoff`.
   4. **Engineering decisions are the lead's call** (user, Nov 1: "it's engineering decision, and you are leading the engineering part"). That covers architecture, and branch integration such as fast-forwarding or merging between B's WP branches. Push `wp/*` branches after their checks pass.
      - **Still ask the user** for destructive or irreversible actions (force-push, deleting branches or data) and for anything outside engineering (spend, people, external communication).
      - Coordinate merges into the shared `main`/`dev` with Person A through the user.
@@ -57,10 +61,11 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 
 | WP | Status | Branch / location | Notes |
 |---|---|---|---|
+| **Trunk** | **`world/main`, pushed** | `6289312` holds WP0 (with the contracts fixes), WP8 (merge `b71ff99`), this handoff (merge `789ed74`) and the branching docs (merge `6289312`) | Checks on the merged trunk: ruff and format (`packages` + `scripts`), pyright, 132 package tests and 45 script tests, all green. Contains all of shared `main` and `dev` (0 behind), so a later `world/main` → `dev` merge is clean. |
 | **WP0** contracts + core | **Done, pushed** | `wp/wp0-core-contracts`, commits `bac5163`, `d670e67`, `e8cc7a8`, `e82e7c3` | Contracts v0.1 (19 tests). World core: 132 tests in total; ruff and pyright clean; examples 01–04 run. Reviewed by the lead. |
 | **WP8** footage | **Done, pushed** | `wp/wp8-footage` commit `28f2788` (worktree `C:\Users\hussa\dev\wt\wp8-footage`) | 45 tests; ruff clean. Shot list (`docs/footage/shot_list.md`, 13 clips) and consent form are print-ready for filming on Nov 2 morning. **Decisions adopted** (WP5 must use them): file names use zone ids (`sou_meeting.mp4`, not `south_meeting`); the extra clip `wes_empty`; people counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. **The shoot needs 4–5 people** (roles A–E); with fewer, film the real count and update WP5's numbers. Follow-ups: WP10 adds `scripts` to pytest `testpaths`. 4TU was unreachable, so WiseNET's CC0 and download URL are unconfirmed. MEVA indoor keys are listed in `scripts/footage/meva_fetch.py`. |
 | **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). Also `f2d849b` (the recipe base). **`wp/wp0-core-contracts` was fast-forwarded to `f2d849b` and pushed (lead's decision, Nov 1)**, so both branches are identical, and Person A's branch has the fixes. |
-| **WP1 plants** | **Built, verified by the lead; in review (not pushed yet)** | `wp/wp1-plants` commit `4b1905f`, on top of the cherry-picked fixes `a4e4bb2 694b0b5 91de2bc` (worktree `C:\Users\hussa\dev\wt\wp1-plants`) | Lead re-ran everything:<br>- ruff, format and pyright clean; 176 tests;<br>- the same in a CI-equivalent venv (`C:/Users/hussa/dev/venvs/ci-check`, `--all-extras`);<br>- live suite 5 passed in 117 s on the Codespace.<br><br>Lead's changes:<br>- RC heating now 20/12 °C, as BOPTEST;<br>- CI installs `--all-extras` (otherwise `tests/plants` and pyright fail on GitHub).<br><br>Key API: `create_plant(settings, run)`, `PlantProcessor(service, run, warmup_s=3 days)`, `BoptestClient`, `RcPlant(occupancy)`, `ReplayPlant(path, run)`, `serializers.jsonl` (`RunWriter`, `read_records`), `services.boptest.catalog` (`MANAGED_INPUTS`, `zone_damper`, `bms_signal`), and `spotcool-world probe`.<br><br>**Known gap (follow-up WP1.1):** on an all-empty day the RC plant shows −32 to −38 % for the damper lever vs BOPTEST's −81 %, because BOPTEST's heavy mass absorbs a day of gains. A slow mass node per zone would close it. |
+| **WP1 plants** | **Reviewed; fix round running** (agent `a9c7b0070a5e01157`), then verify, push and merge into `world/main` | `wp/wp1-plants` commit `4b1905f`, on top of the cherry-picked fixes `a4e4bb2 694b0b5 91de2bc` (worktree `C:\Users\hussa\dev\wt\wp1-plants`) | Lead re-ran everything:<br>- ruff, format and pyright clean; 176 tests;<br>- the same in a CI-equivalent venv (`C:/Users/hussa/dev/venvs/ci-check`, `--all-extras`);<br>- live suite 5 passed in 117 s on the Codespace.<br><br>Lead's changes:<br>- RC heating now 20/12 °C, as BOPTEST;<br>- CI installs `--all-extras` (otherwise `tests/plants` and pyright fail on GitHub).<br><br>Key API: `create_plant(settings, run)`, `PlantProcessor(service, run, warmup_s=3 days)`, `BoptestClient`, `RcPlant(occupancy)`, `ReplayPlant(path, run)`, `serializers.jsonl` (`RunWriter`, `read_records`), `services.boptest.catalog` (`MANAGED_INPUTS`, `zone_damper`, `bms_signal`), and `spotcool-world probe`.<br><br>**Known gap (follow-up WP1.1):** on an all-empty day the RC plant shows −32 to −38 % for the damper lever vs BOPTEST's −81 %, because BOPTEST's heavy mass absorbs a day of gains. A slow mass node per zone would close it. |
 | WP2 BMS (BACnet) | Queued | `wp/wp2-bms-bacnet` | |
 | WP5 scenarios | Queued | `wp/wp5-scenarios` | Originally Antigravity; the user wants Claude Code |
 | WP4 cameras | Queued | `wp/wp4-cameras` | Same as WP5 |
@@ -269,12 +274,28 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 
 ## 8. Next actions, in order
 
-1. **WP1.** A read-only reviewer agent is checking `4b1905f`.
-   - Fix what it confirms, as a separate commit, and re-run the checks: the four checks, plus the live suite with `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live`.
-   - Then push `wp/wp1-plants`.
-   - **Branch stacking (decided Nov 1):** agents run one at a time, so cut each new WP branch from the **previous finished WP branch**. WP2 is cut from `wp/wp1-plants` and reuses its catalog helpers. This makes final integration a straight line; WP8 stays a separate branch.
+1. **WP1.** The review of `4b1905f` found no critical or high issues; there are 1 medium and 10 low. The fix round has been sent to the WP1 agent. It leaves its changes uncommitted.
+   - **The fixes:**
+     - M1: a test that advance is never retried.
+     - L1: select-async retries only on ConnectError or 429, and the final stop is shielded.
+     - L2: a truncated last JSONL line is tolerated.
+     - L3: no keep-alive while a call is in flight.
+     - L4 (**decision**): `PlantMeasurementsFrame.sim_time_s` is the **end** of the step, the instant the data describes, per the base `Frame` contract.
+     - L5: a test that the core imports without the extras.
+     - L6: documented only (SIGINT during a start).
+     - L7: non-finite raw values are rejected.
+     - L8: replay checks indices and step.
+     - L9 (**decision**): start latencies are logged, not added to `PlantService`, and the brief is amended.
+     - L10: exit-path tests.
+   - **When it reports:**
+     - re-run the four checks, the CI-equivalent run (venv `ci-check`, `--all-extras`) and the live suite;
+     - commit as "fix(world): WP1 review fixes";
+     - push `wp/wp1-plants`;
+     - `git merge --no-ff` it into `world/main`, re-check, and push;
+     - merge this handoff branch too.
+   - **Also amend** `docs/workpackages/WP1-plants.md`'s metrics line (L9) on a docs branch.
 2. **BOPTEST Codespace:** keep the port forward running while live work happens. Run `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp` when idle for a long time; after a restart, re-run compose with `--scale worker=2` (§3). Always stop tests you select.
-3. **WP2** (BMS) next, cut from `wp/wp1-plants` once it's pushed. Its brief includes the occupied-standby airflow shut-off.
+3. **WP2** (BMS) next, cut from `world/main` once WP1 is merged. Its brief includes the occupied-standby airflow shut-off. Measurements are stamped with the end-of-step time (L4).
    - Tell its agent about WP1's API: `PlantProcessor` merges `SetpointCommandFrame`s, and `None` releases; `catalog.zone_damper(zone)`, `bms_signal(point)` and `MANAGED_INPUTS`.
    - Then the rest of the queue in §2, one agent at a time, each in its own worktree and branch.
 4. **Optional:** build the local Docker BOPTEST stack (`C:\Users\hussa\dev\boptest`, ≈ 7.5 GB of images) for lower-latency recording runs. Do it in a quiet moment, as it uses the laptop's network and CPU for a while.
