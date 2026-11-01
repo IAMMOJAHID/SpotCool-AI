@@ -21,8 +21,10 @@
 - **Working rules from the user** (also saved as Claude memory notes):
   1. **Claude Code for everything.** Flag anywhere Antigravity, a browser or a person is really needed.
   2. **One subagent at a time, sequentially**, because of usage limits. The user has several accounts and switches when a limit hits. If an agent dies with HTTP 429 "spend limit", resume it with `SendMessage` after the switch; its work is saved.
-  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`). Because WPs run one at a time, **stack** each new WP branch on the previous finished one: rest-keys → `wp/wp1-plants` → WP2 → …. The base of the stack is `wp/wp0-contracts-rest-keys`, which is `wp/wp0-core-contracts` plus the contracts fixes (§2).
-  4. **Pushing `wp/*` branches after their checks pass is allowed.** PRs and merges need the user's OK.
+  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`). Because WPs run one at a time, **stack** each new WP branch on the previous finished one: `wp/wp0-core-contracts` → `wp/wp1-plants` → WP2 → …. `wp/wp0-core-contracts` was fast-forwarded on Nov 1 to `f2d849b`, so it includes the contracts fixes. `wp/wp0-contracts-rest-keys` points at the same commit.
+  4. **Engineering decisions are the lead's call** (user, Nov 1: "it's engineering decision, and you are leading the engineering part"). That covers architecture, and branch integration such as fast-forwarding or merging between B's WP branches. Push `wp/*` branches after their checks pass.
+     - **Still ask the user** for destructive or irreversible actions (force-push, deleting branches or data) and for anything outside engineering (spend, people, external communication).
+     - Coordinate merges into the shared `main`/`dev` with Person A through the user.
   5. **Zero spend** for B: free, open-source and free-tier tools only.
   6. Never store camera frames or audio. Always stop BOPTEST tests you start.
 - **The repo moved** out of OneDrive to **`C:\Users\hussa\dev\SpotCool-AI`**.
@@ -57,7 +59,7 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 |---|---|---|---|
 | **WP0** contracts + core | **Done, pushed** | `wp/wp0-core-contracts`, commits `bac5163`, `d670e67`, `e8cc7a8`, `e82e7c3` | Contracts v0.1 (19 tests). World core: 132 tests in total; ruff and pyright clean; examples 01–04 run. Reviewed by the lead. |
 | **WP8** footage | **Done, pushed** | `wp/wp8-footage` commit `28f2788` (worktree `C:\Users\hussa\dev\wt\wp8-footage`) | 45 tests; ruff clean. Shot list (`docs/footage/shot_list.md`, 13 clips) and consent form are print-ready for filming on Nov 2 morning. **Decisions adopted** (WP5 must use them): file names use zone ids (`sou_meeting.mp4`, not `south_meeting`); the extra clip `wes_empty`; people counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. **The shoot needs 4–5 people** (roles A–E); with fewer, film the real count and update WP5's numbers. Follow-ups: WP10 adds `scripts` to pytest `testpaths`. 4TU was unreachable, so WiseNET's CC0 and download URL are unconfirmed. MEVA indoor keys are listed in `scripts/footage/meva_fetch.py`. |
-| **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). **Cut new WP branches from this branch.** It is `wp/wp0-core-contracts` plus these fixes. Fast-forwarding `wp/wp0-core-contracts` is a merge, so ask the user first. |
+| **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). Also `f2d849b` (the recipe base). **`wp/wp0-core-contracts` was fast-forwarded to `f2d849b` and pushed (lead's decision, Nov 1)**, so both branches are identical, and Person A's branch has the fixes. |
 | **WP1 plants** | **Built, verified by the lead; in review (not pushed yet)** | `wp/wp1-plants` commit `4b1905f`, on top of the cherry-picked fixes `a4e4bb2 694b0b5 91de2bc` (worktree `C:\Users\hussa\dev\wt\wp1-plants`) | Lead re-ran everything:<br>- ruff, format and pyright clean; 176 tests;<br>- the same in a CI-equivalent venv (`C:/Users/hussa/dev/venvs/ci-check`, `--all-extras`);<br>- live suite 5 passed in 117 s on the Codespace.<br><br>Lead's changes:<br>- RC heating now 20/12 °C, as BOPTEST;<br>- CI installs `--all-extras` (otherwise `tests/plants` and pyright fail on GitHub).<br><br>Key API: `create_plant(settings, run)`, `PlantProcessor(service, run, warmup_s=3 days)`, `BoptestClient`, `RcPlant(occupancy)`, `ReplayPlant(path, run)`, `serializers.jsonl` (`RunWriter`, `read_records`), `services.boptest.catalog` (`MANAGED_INPUTS`, `zone_damper`, `bms_signal`), and `spotcool-world probe`.<br><br>**Known gap (follow-up WP1.1):** on an all-empty day the RC plant shows −32 to −38 % for the damper lever vs BOPTEST's −81 %, because BOPTEST's heavy mass absorbs a day of gains. A slow mass node per zone would close it. |
 | WP2 BMS (BACnet) | Queued | `wp/wp2-bms-bacnet` | |
 | WP5 scenarios | Queued | `wp/wp5-scenarios` | Originally Antigravity; the user wants Claude Code |
@@ -277,11 +279,12 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
    - Then the rest of the queue in §2, one agent at a time, each in its own worktree and branch.
 4. **Optional:** build the local Docker BOPTEST stack (`C:\Users\hussa\dev\boptest`, ≈ 7.5 GB of images) for lower-latency recording runs. Do it in a quiet moment, as it uses the laptop's network and CPU for a while.
 5. **User actions pending:**
-   - **decide:** may `wp/wp0-core-contracts` be fast-forwarded to `wp/wp0-contracts-rest-keys`? (It's a merge, so it needs the user's OK.)
-   - **tell Person A:**
-     - (a) contracts v0.1 interface is unchanged; the fixes are B-internal BOPTEST bindings plus a clearer `OCC-SENSOR` description;
-     - (b) `OCC-SENSOR` = Unoccupied triggers the BMS's occupied-standby with airflow shut-off, the biggest lever (§5);
-     - (c) share `wp/wp0-contracts-rest-keys`, or `wp/wp0-core-contracts` once fast-forwarded;
+   - **Person A note:** the user is relaying the occupancy-sensor and standby note (written Nov 1). It covers:
+     - the unchanged v0.1 interface on `wp/wp0-core-contracts`;
+     - `OCC-SENSOR` = Unoccupied triggering standby with airflow shut-off;
+     - the measured levers, heartbeat, recovery and reading `OCC-MODE` and `SA-FLOW`.
+
+     Follow up on A's reply.
    - reopen VS Code and Claude Code in `C:\Users\hussa\dev\SpotCool-AI`, then delete the OneDrive copy;
    - film per the shot list (Nov 2 morning);
    - confirm the submission form rules;
@@ -297,4 +300,4 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
   - "read the effective setpoints as `_y`" (use the `_u` keys);
   - "G36 standby is just +0.5 °C" (90.1 standby also shuts the zone airflow off).
 
-  `wp/wp0-core-contracts` still has the old `_y` bindings until it's fast-forwarded.
+  All three are fixed on `wp/wp0-core-contracts` (fast-forwarded to `f2d849b`).
