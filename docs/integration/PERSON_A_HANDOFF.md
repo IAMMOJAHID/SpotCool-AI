@@ -215,6 +215,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **Endpoint:** `GET /calendar/rooms/meeting-south/schedule` returns `ScheduleInformation` (`scheduleId`, `scheduleItems`), shaped like Microsoft Graph `getSchedule`.
 - **Items:** each `ScheduleItem` has `status` (`free`, `tentative`, `busy`, `oof`, `workingElsewhere` or `unknown`), `subject`, `location`, and `start`/`end` (Graph `dateTimeTimeZone`).
 - **Other forms:** an `.ics` feed at `/calendar/rooms/meeting-south.ics`.
+- **Dates:** the calendar puts simulation time on 2026 dates: a date-time is 2026-01-01 00:00 plus `SIM-CLOCK` seconds, labelled `timeZone: "UTC"` (the simulation's local clock; no daylight saving). The demo day, BOPTEST day 199, is 2026-07-19.
 - **Rooms:** `meeting-south` is the South zone.
 - **Use:** pre-cool before a booking (§11).
 
@@ -261,11 +262,11 @@ This is the story the video tells. **Don't hardcode it**: the point is that your
 |---|---|---|---|---|---|
 | 07:00 | empty | empty | empty | empty | empty |
 | 08:30 | 4 people | 2 | empty | empty (team works from home) | 1 at reception |
-| 10:00–10:40 | 4 | 2 | empty | empty | **door propped open**, boxes carried in |
+| 10:00–10:45 | 4 | 2 | empty | empty | **door propped open**, boxes carried in |
 | 12:30–13:30, lunch | 1 | empty | empty | empty | 1 |
 | 13:45 | | | **calendar shows a 14:00–15:00 booking** | | |
 | 14:00–15:00 | 4 | 2 | **meeting, 5 people** | empty | 1 |
-| 14:20 | | | **complaint**, voice and chat: "It's freezing in this meeting room." | | |
+| 14:15 | | | **complaint**, voice and chat: "It's freezing in this meeting room." | | |
 | 17:30 | 1 | 2 | empty | empty | 1 |
 | 18:00 | empty | empty | empty | empty | empty |
 

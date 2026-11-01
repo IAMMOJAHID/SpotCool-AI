@@ -64,17 +64,20 @@ Row 10 (`wes_empty`) is missing from the scenario's scene list, but the timeline
 |---|---|---|---|---|---|
 | 07:00 | `cor_empty` | `nor_empty` | `sou_empty` | `eas_empty` | `wes_empty` |
 | 08:30 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
-| 10:00-10:40 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_door_open` |
-| 10:40 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
+| 10:00-10:45 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_door_open` |
+| 10:45 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 12:30-13:30 (lunch) | `cor_few` | `nor_empty` | `sou_empty` | `eas_empty` | `wes_few` |
 | 13:30 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
-| 14:00-15:00 | `cor_many` | `nor_few` | `sou_meeting` | `eas_empty` | `wes_few` |
-| 14:20 (cue) | `cor_many` | `nor_few` | `sou_complaint`, plus the voice cue `south_complaint.wav` | `eas_empty` | `wes_few` |
+| 14:00 | `cor_many` | `nor_few` | `sou_meeting` | `eas_empty` | `wes_few` |
+| 14:15 (cue) | `cor_many` | `nor_few` | `sou_complaint`, plus the voice cue `south_complaint.wav` | `eas_empty` | `wes_few` |
+| 14:45 | `cor_many` | `nor_few` | `sou_meeting` | `eas_empty` | `wes_few` |
 | 15:00 | `cor_many` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 17:30 | `cor_few` | `nor_few` | `sou_empty` | `eas_empty` | `wes_few` |
 | 18:00 | `cor_empty` | `nor_empty` | `sou_empty` | `eas_empty` | `wes_empty` |
 
 The calendar shows the 14:00 South booking from 13:45. That is calendar data, not a clip.
+
+Every time is on the world's 15-minute step grid (:00, :15, :30, :45): the world ticks every 15 simulated minutes, so a change between ticks would only show at the next tick.
 
 ## Filming order (about 90 minutes)
 
