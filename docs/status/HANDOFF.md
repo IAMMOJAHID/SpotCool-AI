@@ -52,7 +52,7 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 | WP | Status | Branch / location | Notes |
 |---|---|---|---|
 | **WP0** contracts + core | **Done, pushed** | `wp/wp0-core-contracts`, commits `bac5163`, `d670e67`, `e8cc7a8`, `e82e7c3` | Contracts v0.1 (19 tests). World core: 132 tests in total; ruff and pyright clean; examples 01–04 run. Reviewed by the lead. |
-| **WP8** footage | **In progress** (agent running at handoff time) | worktree `C:\Users\hussa\dev\wt\wp8-footage`, branch `wp/wp8-footage` (nothing committed yet) | Priorities: shot list and consent (filming Nov 2 morning) → scripts and tests → `CREDITS.md` → WiseNET mapping → MEVA keys. When it reports, verify, review, commit and push. |
+| **WP8** footage | **Done, pushed** | `wp/wp8-footage` commit `28f2788` (worktree `C:\Users\hussa\dev\wt\wp8-footage`) | 45 tests; ruff clean. Shot list (`docs/footage/shot_list.md`, 13 clips) and consent form are print-ready for filming on Nov 2 morning. **Decisions adopted** (WP5 must use them): file names use zone ids (`sou_meeting.mp4`, not `south_meeting`); the extra clip `wes_empty`; people counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. **The shoot needs 4–5 people** (roles A–E); with fewer, film the real count and update WP5's numbers. Follow-ups: WP10 adds `scripts` to pytest `testpaths`. 4TU was unreachable, so WiseNET's CC0 and download URL are unconfirmed. MEVA indoor keys are listed in `scripts/footage/meva_fetch.py`. |
 | WP1 plants | Next | `wp/wp1-plants` | Needs BOPTEST running (Codespace, §3). |
 | WP2 BMS (BACnet) | Queued | `wp/wp2-bms-bacnet` | |
 | WP5 scenarios | Queued | `wp/wp5-scenarios` | Originally Antigravity; the user wants Claude Code |
@@ -64,7 +64,17 @@ Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
 | WP10 evals + release | Queued | `wp/wp10-evals-release` | |
 | WP9 video | Queued | `wp/wp9-video` | HyperFrames, OBS websocket and Shotcut. People: narration, review |
 
-**Order (sequential):** WP8 → WP1 → WP2 → WP5 → WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → **WP1** → WP2 → WP5 → WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
+
+**BOPTEST Codespace build failure (Nov 1, 16:52 IST).** The `worker` image failed at its Miniconda step (`service/worker/Dockerfile`: `conda update -n base -c defaults conda`, then `conda create …`, exit 1).
+- **Hypothesis:** conda's update to 25.x brings Anaconda's terms-of-service gate, so the next non-interactive `conda create` on `defaults` aborts.
+- **Status:** a diagnostic rebuild was running to capture the actual error line.
+- **Fix to try (inside the Codespace only, not upstream):**
+  - delete the `conda update -n base -c defaults conda` line;
+  - add `-c conda-forge --override-channels` to both `conda create` and `conda install`;
+  - or set `CONDA_PLUGINS_AUTO_ACCEPT_TOS=yes`.
+
+  conda-forge-only avoids Anaconda's terms altogether. Then run `docker compose up -d web worker provision`.
 
 **How to start a WP:** follow the recipe in `docs/workpackages/README.md` ("Starting a WP"), then hand the agent its brief.
 
