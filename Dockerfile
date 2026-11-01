@@ -9,7 +9,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
     && adduser --disabled-password --gecos "" --uid 10001 appuser
 
-COPY --chown=appuser:appuser mvp_pipeline.py worker.py ./
+COPY --chown=appuser:appuser app/worker.py ./
 
 USER appuser
 

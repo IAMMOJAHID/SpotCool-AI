@@ -3,7 +3,7 @@ import base64
 from PIL import Image
 from io import BytesIO
 from collections import deque
-from mvp_pipeline import process_window
+from app.mvp_pipeline import process_window
 import asyncio
 
 

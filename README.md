@@ -65,18 +65,17 @@ For each clip, the client creates and publishes a payload like this to
 }
 ```
 
-The client sets the AMQP `correlation_id` to `job_id`, waits for the response
-on a temporary exclusive reply queue, and prints each clip's control update.
-The worker also writes every result to the durable `spotcool.results` queue,
-so results remain available if a submitter times out or disconnects. The
-client uses the RabbitMQ connection settings in `.env`; outside Docker it
-connects to `localhost:5672`.
+The client sets the AMQP `correlation_id` to `job_id` and waits for the matching
+message directly on the durable `spotcool.results` queue. It acknowledges the
+matching result and prints each clip's control update. Results belonging to
+other jobs are left unacknowledged while the client searches, then requeued so
+they remain available. The client uses the RabbitMQ connection settings in
+`.env`; outside Docker it connects to `localhost:5672`.
 
-The temporary reply queue returns a response to that submitter without other
-clients competing for it. `spotcool.results` is a shared competing-consumer
-queue; for recovery or auditing, use one result-dispatching consumer to persist
-and route messages by `job_id` rather than having independent clients consume
-from it directly.
+`spotcool.results` is a shared competing-consumer queue. For multiple
+simultaneous video clients, use a single result-dispatching consumer to route
+messages by `job_id`; otherwise clients can temporarily reserve unrelated
+results while waiting for their own.
 
 A successful response has this shape:
 

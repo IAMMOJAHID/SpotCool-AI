@@ -36,6 +36,8 @@ services:
       RESULT_QUEUE_NAME: ${RESULT_QUEUE_NAME:-spotcool.results}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - ./app:/app
 
 volumes:
   rabbitmq_data:
