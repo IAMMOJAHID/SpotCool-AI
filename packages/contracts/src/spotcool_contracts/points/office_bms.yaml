@@ -41,8 +41,8 @@ points:
     brick: Zone_Air_Cooling_Temperature_Setpoint
     boptest:
       write: hvac_oveZonSupCor_TZonCooSet_u
-      read: hvac_oveZonSupCor_TZonCooSet_y
-      relinquish_from_baseline: hvac_oveZonSupCor_TZonCooSet_y
+      read: hvac_oveZonSupCor_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupCor_TZonCooSet_u
       conversion: "K->degC"
   - object_type: analog-value
     instance: 251
@@ -52,7 +52,7 @@ points:
     zone: cor
     haystack: [point, sp, zone, air, temp, heating]
     brick: Zone_Air_Heating_Temperature_Setpoint
-    boptest: {read: hvac_oveZonSupCor_TZonHeaSet_y, conversion: "K->degC"}
+    boptest: {read: hvac_oveZonSupCor_TZonHeaSet_u, conversion: "K->degC"}
   - object_type: analog-input
     instance: 301
     name: ZN-COR-CO2
@@ -117,8 +117,8 @@ points:
     brick: Zone_Air_Cooling_Temperature_Setpoint
     boptest:
       write: hvac_oveZonSupNor_TZonCooSet_u
-      read: hvac_oveZonSupNor_TZonCooSet_y
-      relinquish_from_baseline: hvac_oveZonSupNor_TZonCooSet_y
+      read: hvac_oveZonSupNor_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupNor_TZonCooSet_u
       conversion: "K->degC"
   - object_type: analog-value
     instance: 252
@@ -128,7 +128,7 @@ points:
     zone: nor
     haystack: [point, sp, zone, air, temp, heating]
     brick: Zone_Air_Heating_Temperature_Setpoint
-    boptest: {read: hvac_oveZonSupNor_TZonHeaSet_y, conversion: "K->degC"}
+    boptest: {read: hvac_oveZonSupNor_TZonHeaSet_u, conversion: "K->degC"}
   - object_type: analog-input
     instance: 302
     name: ZN-NOR-CO2
@@ -193,8 +193,8 @@ points:
     brick: Zone_Air_Cooling_Temperature_Setpoint
     boptest:
       write: hvac_oveZonSupSou_TZonCooSet_u
-      read: hvac_oveZonSupSou_TZonCooSet_y
-      relinquish_from_baseline: hvac_oveZonSupSou_TZonCooSet_y
+      read: hvac_oveZonSupSou_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupSou_TZonCooSet_u
       conversion: "K->degC"
   - object_type: analog-value
     instance: 253
@@ -204,7 +204,7 @@ points:
     zone: sou
     haystack: [point, sp, zone, air, temp, heating]
     brick: Zone_Air_Heating_Temperature_Setpoint
-    boptest: {read: hvac_oveZonSupSou_TZonHeaSet_y, conversion: "K->degC"}
+    boptest: {read: hvac_oveZonSupSou_TZonHeaSet_u, conversion: "K->degC"}
   - object_type: analog-input
     instance: 303
     name: ZN-SOU-CO2
@@ -269,8 +269,8 @@ points:
     brick: Zone_Air_Cooling_Temperature_Setpoint
     boptest:
       write: hvac_oveZonSupEas_TZonCooSet_u
-      read: hvac_oveZonSupEas_TZonCooSet_y
-      relinquish_from_baseline: hvac_oveZonSupEas_TZonCooSet_y
+      read: hvac_oveZonSupEas_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupEas_TZonCooSet_u
       conversion: "K->degC"
   - object_type: analog-value
     instance: 254
@@ -280,7 +280,7 @@ points:
     zone: eas
     haystack: [point, sp, zone, air, temp, heating]
     brick: Zone_Air_Heating_Temperature_Setpoint
-    boptest: {read: hvac_oveZonSupEas_TZonHeaSet_y, conversion: "K->degC"}
+    boptest: {read: hvac_oveZonSupEas_TZonHeaSet_u, conversion: "K->degC"}
   - object_type: analog-input
     instance: 304
     name: ZN-EAS-CO2
@@ -345,8 +345,8 @@ points:
     brick: Zone_Air_Cooling_Temperature_Setpoint
     boptest:
       write: hvac_oveZonSupWes_TZonCooSet_u
-      read: hvac_oveZonSupWes_TZonCooSet_y
-      relinquish_from_baseline: hvac_oveZonSupWes_TZonCooSet_y
+      read: hvac_oveZonSupWes_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupWes_TZonCooSet_u
       conversion: "K->degC"
   - object_type: analog-value
     instance: 255
@@ -356,7 +356,7 @@ points:
     zone: wes
     haystack: [point, sp, zone, air, temp, heating]
     brick: Zone_Air_Heating_Temperature_Setpoint
-    boptest: {read: hvac_oveZonSupWes_TZonHeaSet_y, conversion: "K->degC"}
+    boptest: {read: hvac_oveZonSupWes_TZonHeaSet_u, conversion: "K->degC"}
   - object_type: analog-input
     instance: 305
     name: ZN-WES-CO2
@@ -501,7 +501,7 @@ points:
     units: percent
     haystack: [point, cmd, discharge, fan, speed, ahu]
     brick: Fan_Speed_Command
-    boptest: {read: hvac_oveAhu_yFan_y, conversion: "1->%"}
+    boptest: {read: hvac_oveAhu_yFan_u, conversion: "1->%"}
   - object_type: binary-input
     instance: 601
     name: WES-ENTRANCE-DOOR

@@ -54,12 +54,16 @@ class BoptestBinding(BaseModel):
     """How a point maps onto BOPTEST signals.
 
     Parameters:
-        read: BOPTEST output read to update the point (SpotCool run).
+        read: Key read from BOPTEST's ``/advance`` and ``/results`` payloads to update the
+            point (SpotCool run). For an overwritten signal this is the input's ``_u`` name:
+            the REST API drops the overwrite block's ``_y`` output and reports the value
+            actually applied (baseline when released, the override when active) as ``_u``.
         write: BOPTEST input that receives the point's effective value (SpotCool run).
-            When no priority slot is active the input is released (``_activate = 0``),
+            Inputs latch: an override stays active until ``_activate = 0`` is sent, so when
+            no priority slot is active the plant must send ``_activate = 0`` explicitly,
             which hands control back to BOPTEST's own controller.
-        relinquish_from_baseline: BOPTEST output of the baseline run used as the point's
-            relinquish default, i.e. the value the building's own schedule would apply.
+        relinquish_from_baseline: Key read from the baseline run's payload and used as the
+            point's relinquish default, i.e. the value the building's own schedule applies.
         conversion: Unit conversion from BOPTEST units to BACnet units.
     """
 
