@@ -77,3 +77,12 @@ Tests never wait in real time for backoff: inject the clock and sleep functions.
 - **The checks are green** with all extras installed: `uv run ruff check packages`, `uv run ruff format --check packages`, `uv run pyright packages`, `uv run pytest packages -W error::RuntimeWarning` and `uv lock --check`.
 - The changelog fragment is written.
 - The lead re-runs the paced BOPTEST checkpoint over the supervised forward.
+
+## Amendments by the lead after the independent review (binding)
+The review (approve after fixes) found no way for the recovery to guess a state or resend an advance BOPTEST certainly got. The fix commit is `fca94ea`.
+- **Every step checks BOPTEST's own time**, whether normal, resent or recovered. An answer more than 1.5 steps past the step's start fails the step: "advanced more than once". A lost advance landing more than `ADVANCE_TIMEOUT_S` late can't leave the world silently a step behind.
+- **The final `GET /kpi` is retried** for up to 60 s, so a forward restart at the run's end doesn't make the run unquotable.
+- **Both plants stop concurrently**, in `ParallelPipeline.cleanup` and in `World.run`'s exit stack.
+- **The recovery's own reads are capped at the time left**, so `RECOVERY_S` really is the cap. HTTP 429 is transient for reads and means unsent for an advance.
+- **The BMS address check reports a loss after 2 ticks**, says when the address is back, and can report again later.
+- **Two samples at `t_next`** (a time event at the step's end): take the last, as `advance` does.
