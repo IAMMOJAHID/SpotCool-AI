@@ -1,12 +1,20 @@
 """create_plant: the plant provider ``WorldSettings.plant`` names, for one run."""
 
+from collections.abc import Callable, Mapping
+
+from spotcool_contracts import Zone
 from spotcool_contracts.events import Run
 from spotcool_world.serializers.jsonl import EVENTS_FILE
 from spotcool_world.services.plant_service import PlantService
 from spotcool_world.services.settings import WorldSettings
 
 
-def create_plant(settings: WorldSettings, run: Run) -> PlantService:
+def create_plant(
+    settings: WorldSettings,
+    run: Run,
+    *,
+    occupancy: Callable[[float], Mapping[Zone, int]] | None = None,
+) -> PlantService:
     """Build the plant for one run.
 
     Providers are imported here, not at module level, so the core runs without the extras of
@@ -17,6 +25,9 @@ def create_plant(settings: WorldSettings, run: Run) -> PlantService:
             ``boptest-local`` (``boptest_local_url``) or ``replay`` (``replay_run`` under
             ``run_dir``).
         run: Which run the plant is for; the replay plant feeds back that run's recording.
+        occupancy: People in each zone at a simulation time, for the RC plant's occupant heat
+            (``RcPlant``'s weekday when ``None``). The other plants ignore it: BOPTEST keeps its
+            own fixed occupancy schedule.
 
     Returns:
         A plant that has not been started.
@@ -28,7 +39,7 @@ def create_plant(settings: WorldSettings, run: Run) -> PlantService:
         case "rc":
             from spotcool_world.services.rc import RcPlant
 
-            return RcPlant()
+            return RcPlant() if occupancy is None else RcPlant(occupancy)
         case "boptest-hosted":
             from spotcool_world.services.boptest.hosted import HostedBoptestPlant
 

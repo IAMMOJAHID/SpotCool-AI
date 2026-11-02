@@ -13,7 +13,7 @@ from spotcool_contracts.priorities import AGENT_PRIORITY, OPERATOR_PRIORITY
 from spotcool_contracts.vrf import VrfProfile, load_vrf_profiles
 from spotcool_contracts.zones import ZONES, Zone, ZoneInfo
 
-CONTRACTS_VERSION = "0.1.0"
+CONTRACTS_VERSION = "0.1.1"
 
 __all__ = [
     "AGENT_PRIORITY",

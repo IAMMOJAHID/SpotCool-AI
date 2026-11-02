@@ -6,6 +6,7 @@
 - ``/ws/events``: every envelope on the events topic, one JSON text message each, for the
   dashboards. Each client gets its own subscription, whose queue drops its oldest messages
   when full, so a slow browser never holds up the world. What a client sends is ignored.
+  ``app.state.viewers`` counts the clients connected (a replay can wait for the first one).
 - ``/ws/agent``: publish-only, for Person A's agent. Each message must be one ``EventEnvelope``
   as JSON text, with ``source: "agent"`` and an agent type (``AGENT_TYPES``), at most
   ``MAX_AGENT_MESSAGE_BYTES`` long and at most ``MAX_AGENT_MESSAGES_PER_S`` a second on the
@@ -73,6 +74,7 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
     """
     app = FastAPI(title="SpotCool World dashboard", version=__version__)
     app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGINS, allow_methods=["GET"])
+    app.state.viewers = 0  # /ws/events clients connected now
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -98,8 +100,11 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
         """Every event on the bus as JSON text; what the client sends is ignored."""
         # Subscribe first: the client gets everything published after its handshake.
         subscription = bus.subscribe(EVENTS_TOPIC, maxsize=CLIENT_QUEUE_SIZE)
+        viewing = False
         try:
             await websocket.accept()
+            app.state.viewers += 1
+            viewing = True
             async with asyncio.TaskGroup() as group:
                 group.create_task(_send_events(websocket, subscription))
                 group.create_task(_ignore_inbound(websocket, subscription))
@@ -107,6 +112,8 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
             pass  # the client went away mid-send
         finally:
             subscription.close()
+            if viewing:
+                app.state.viewers -= 1
 
     @app.websocket("/ws/agent")
     async def agent(websocket: WebSocket) -> None:

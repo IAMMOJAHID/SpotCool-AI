@@ -1,0 +1,1 @@
+`BoptestPlant.stop()` keeps its stop request as a task of its own. A stop cancelled by a second Ctrl+C no longer cuts the request, and the next `stop()` waits up to 15 s (`STOP_WAIT_S`) for it before closing the client, so both BOPTEST tests are still stopped.
