@@ -528,9 +528,9 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
     RecorderProcessor -> BusPublisher(EVENTS_TOPIC)`. `PipelineParams.scenario` is
     `settings.scenario`, so the manifest hashes its file.
   - `RunStatusProcessor` (`processors/run_status.py`) gives the dashboard the run's status as
-    `run_status` events: `running` after the start, then `finished` before the `EndFrame`, or
-    `failed` before a `CancelFrame`, with the fatal error's message or `cancelled: <reason>`
-    (the contract's statuses have no `cancelled`).
+    `run_status` events: `running` after the start, then `finished` before the `EndFrame`, or,
+    before a `CancelFrame`, `failed` with the fatal error's message, or else `cancelled` with
+    the cancel's reason (contracts 0.1.1).
   - Beside it, on one `InProcessBus`: the occupants, the HTTP server (cameras and calendar,
     `http_host:http_port`), the dashboard server (`http_host:dashboard_port`, which serves
     `apps/dashboard/dist` at `/` once it is built) and, with `stub_agent`, the stub agent.

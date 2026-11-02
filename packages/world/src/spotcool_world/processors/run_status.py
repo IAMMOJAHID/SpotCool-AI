@@ -19,9 +19,9 @@ class RunStatusProcessor(FrameProcessor):
 
     - After passing a ``StartFrame`` on: ``running``, unless a fatal error came up meanwhile.
     - Before passing an ``EndFrame`` on: ``finished``.
-    - Before passing a downstream ``CancelFrame`` on: ``failed``, with the message of the first
-      fatal ``ErrorFrame`` it saw pass upstream, or ``cancelled: <reason>`` without one. The
-      contract's statuses have no ``cancelled``, and a run that did not reach its end is never
+    - Before passing a downstream ``CancelFrame`` on: ``failed`` with the message of the first
+      fatal ``ErrorFrame`` it saw pass upstream, or else ``cancelled`` with the cancel's reason
+      (a stop or Ctrl+C is not a failure). A run that did not reach its end is never
       ``finished``.
 
     Only a run's first end frame is reported. Place it right after the ``TickSource``: every
@@ -60,12 +60,17 @@ class RunStatusProcessor(FrameProcessor):
             t_s = self.clock.now_s if frame.sim_time_s is None else frame.sim_time_s
             if isinstance(frame, EndFrame):
                 await self._report("finished", None, t_s)
+            elif self._fatal is not None:
+                await self._report("failed", self._fatal, t_s)
             else:
-                await self._report("failed", self._fatal or f"cancelled: {frame.reason}", t_s)
+                await self._report("cancelled", frame.reason or None, t_s)
         await self.push_frame(frame, direction)
 
     async def _report(
-        self, status: Literal["running", "finished", "failed"], message: str | None, t_s: float
+        self,
+        status: Literal["running", "finished", "cancelled", "failed"],
+        message: str | None,
+        t_s: float,
     ) -> None:
         data = RunStatusData(
             run_id=self._run_id,

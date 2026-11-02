@@ -1,6 +1,6 @@
 [project]
 name = "spotcool-contracts"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interface contracts between the SpotCool agent (Person A) and the simulated world (Person B)."
 readme = "README.md"
 requires-python = ">=3.11"

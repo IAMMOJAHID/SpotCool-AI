@@ -66,7 +66,7 @@ async def test_a_cancelled_run_is_failed_with_the_cancels_reason() -> None:
     down, _ = await run_test(
         status(), frames_to_send=[CancelFrame(reason="SIGINT")], send_end=False
     )
-    assert kinds(down) == ["running: None", "failed: cancelled: SIGINT", "CancelFrame"]
+    assert kinds(down) == ["running: None", "cancelled: SIGINT", "CancelFrame"]
 
 
 @pytest.mark.asyncio

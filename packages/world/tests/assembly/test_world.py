@@ -190,7 +190,7 @@ async def test_ctrl_c_stops_the_world_and_both_boptest_tests(
     assert (done.ended, done.end_reason) == ("cancelled", "SIGINT")
     assert done.end_time_s < world.compiled.end_s
     assert sorted(done.final_kpis) == ["baseline", "spotcool"]
-    assert statuses(recorded(world)) == [("running", None), ("failed", "cancelled: SIGINT")]
+    assert statuses(recorded(world)) == [("running", None), ("cancelled", "SIGINT")]
     for client in fake_boptest.clients:
         assert client.events[:4] == ["select", "stop sent", "stop done", "closed"]
     assert signal.getsignal(signal.SIGINT) == before
