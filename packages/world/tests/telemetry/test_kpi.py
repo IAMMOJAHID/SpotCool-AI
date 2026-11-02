@@ -1,6 +1,7 @@
 from collections.abc import Callable
 
 import pytest
+from loguru import logger
 
 from spotcool_contracts import Zone
 from spotcool_contracts.events import KpiData, PlantMeasurementsData, Run, ScenarioStateData
@@ -15,8 +16,13 @@ from spotcool_world.frames import (
 )
 from spotcool_world.pipeline import Pipeline
 from spotcool_world.processors import FrameDirection, KpiProcessor, TelemetryProcessor
-from spotcool_world.processors.kpi import comfort_kh, energy_saved_pct
-from spotcool_world.services.boptest.catalog import bms_signal
+from spotcool_world.processors.kpi import (
+    comfort_kh,
+    cross_check_pct,
+    energy_saved_pct,
+    plant_energy_kwh,
+)
+from spotcool_world.services.boptest.catalog import bms_signal, load_catalog
 from spotcool_world.testing import CaptureProcessor, run_test
 
 Summary = Callable[..., PlantMeasurementsData]
@@ -51,6 +57,14 @@ def test_energy_saved_is_relative_to_the_baseline() -> None:
     assert energy_saved_pct(4.0, 3.0) == pytest.approx(25.0)
     assert energy_saved_pct(4.0, 5.0) == pytest.approx(-25.0)
     assert energy_saved_pct(0.0, 0.0) is None
+
+
+def test_the_cross_check_is_relative_to_the_plants_own_energy() -> None:
+    assert plant_energy_kwh({"ener_tot": 0.1}) == pytest.approx(0.1 * 1662.66)  # kWh/m2 x m2
+    assert plant_energy_kwh({"ener_tot": None}) is None and plant_energy_kwh({}) is None
+    assert cross_check_pct(103.0, 100.0) == pytest.approx(3.0)
+    assert cross_check_pct(97.0, 100.0) == pytest.approx(-3.0)
+    assert cross_check_pct(1.0, 0.0) is None  # the plant used no energy
 
 
 def tick(index: int) -> TickFrame:
@@ -192,3 +206,25 @@ async def test_measurements_without_a_summary_are_skipped(make_raw: Raw, make_st
     assert spotcool.comfort_where_people_kh == pytest.approx(0.25)  # 1 K for a quarter hour
     assert baseline.comfort_where_people_kh == 0.0
     assert spotcool.energy_saved_pct == pytest.approx(50.0)  # metered from the initial states
+
+
+@pytest.mark.asyncio
+async def test_the_end_warns_about_a_run_whose_energy_is_off_its_plants_own(
+    make_summary: Summary,
+) -> None:
+    per_m2 = 100.0 / load_catalog().area_m2  # ener_tot of 100 kWh
+    frames: list[Frame] = [
+        measured(make_summary("spotcool", energy_kwh=103.0), T0 + STEP_S),  # 3 % over
+        measured(make_summary("baseline", energy_kwh=101.5), T0 + STEP_S),  # 1.5 %: close enough
+        final_from_plant("spotcool", {"ener_tot": per_m2}),
+        final_from_plant("baseline", {"ener_tot": per_m2}),
+    ]
+    warnings: list[str] = []
+    sink = logger.add(lambda message: warnings.append(message.record["message"]), level="WARNING")
+    try:
+        down, _ = await run_test(KpiProcessor(), frames_to_send=frames)  # then an EndFrame
+    finally:
+        logger.remove(sink)
+    [warning] = [w for w in warnings if "plant's own" in w]
+    assert "spotcool energy 103.0 kWh is +3.0 % off its plant's own 100.0 kWh" in warning
+    assert [k.boptest["ener_tot"] for k in kpis(down)] == [per_m2] * 2  # still merged

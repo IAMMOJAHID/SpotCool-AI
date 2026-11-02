@@ -1,6 +1,9 @@
 """KpiProcessor: energy saved and comfort where people were, for the SpotCool and baseline runs."""
 
 import math
+from collections.abc import Mapping
+
+from loguru import logger
 
 from spotcool_contracts import Zone
 from spotcool_contracts.events import KpiData, PlantMeasurementsData, Run, ScenarioStateData
@@ -15,11 +18,14 @@ from spotcool_world.frames import (
     TickFrame,
 )
 from spotcool_world.processors.frame_processor import FrameDirection, FrameProcessor
+from spotcool_world.services.boptest.catalog import load_catalog
 
 PROVISIONAL_EVERY_STEPS = 4
 """Steps between two provisional ``KpiFrame``s."""
 RUNS: tuple[Run, Run] = ("spotcool", "baseline")
 """The plant runs, in the order their KPI frames are pushed."""
+CROSS_CHECK_PCT = 2.0
+"""How far (%) a run's integrated energy may be from its plant's own before it is not trusted."""
 
 
 def comfort_kh(
@@ -64,6 +70,34 @@ def energy_saved_pct(baseline_kwh: float, spotcool_kwh: float) -> float | None:
     return (baseline_kwh - spotcool_kwh) / baseline_kwh * 100
 
 
+def plant_energy_kwh(boptest: Mapping[str, float | None]) -> float | None:
+    """A run's energy by its plant's own account: ``ener_tot`` (kWh/m2) times the floor area.
+
+    Args:
+        boptest: The plant's KPIs (``PlantService.kpis()``).
+
+    Returns:
+        ``None`` if the plant reports no ``ener_tot``.
+    """
+    ener_tot = boptest.get("ener_tot")
+    return None if ener_tot is None else ener_tot * load_catalog().area_m2
+
+
+def cross_check_pct(energy_kwh: float, plant_kwh: float) -> float | None:
+    """``(energy - plant) / plant * 100``: how far the integrated energy is from the plant's own.
+
+    Args:
+        energy_kwh: A run's energy, integrated from its measurements.
+        plant_kwh: The same run's energy by its plant's own account (``plant_energy_kwh``).
+
+    Returns:
+        ``None`` if the plant used no energy.
+    """
+    if plant_kwh <= 0:
+        return None
+    return (energy_kwh - plant_kwh) / plant_kwh * 100
+
+
 class KpiProcessor(FrameProcessor):
     """Scores both plant runs and pushes their ``KpiFrame``s.
 
@@ -82,6 +116,9 @@ class KpiProcessor(FrameProcessor):
     - The plants' own final ``KpiFrame``s (BOPTEST's KPIs) are kept, not passed on. At the
       first ``EndFrame`` or ``CancelFrame`` it pushes one final ``KpiFrame`` per run
       (``provisional=False``) that merges them with the scores, then passes the frame on.
+    - **Cross-check**, at that end: each run's energy against its plant's own
+      (``plant_energy_kwh``); a difference of more than ``CROSS_CHECK_PCT`` is logged as a
+      warning.
 
     Measurements without a summary are skipped: a step is scored only when both runs have one
     at its stamp. A run's comfort is ``None`` until a step of it could be scored. A
@@ -118,9 +155,25 @@ class KpiProcessor(FrameProcessor):
                     await self.push_frame(kpi)
             elif isinstance(frame, EndFrame | CancelFrame) and not self._ended:
                 self._ended = True  # a CancelFrame after the EndFrame (stop() at the end) adds none
+                self._cross_check()
                 for kpi in self._kpis(provisional=False, sim_time_s=frame.sim_time_s):
                     await self.push_frame(kpi)
         await self.push_frame(frame, direction)
+
+    def _cross_check(self) -> None:
+        """Warn about each run whose energy is more than ``CROSS_CHECK_PCT`` off its plant's own."""
+        for run in RUNS:
+            _, summary = self._latest.get(run, (None, None))
+            plant_kwh = plant_energy_kwh(self._boptest.get(run, {}))
+            if summary is None or plant_kwh is None:
+                continue
+            error = cross_check_pct(summary.energy_kwh, plant_kwh)
+            if error is not None and abs(error) > CROSS_CHECK_PCT:
+                logger.warning(
+                    f"{self.name}: {run} energy {summary.energy_kwh:.1f} kWh is {error:+.1f} % off "
+                    f"its plant's own {plant_kwh:.1f} kWh (ener_tot x floor area), more than "
+                    f"{CROSS_CHECK_PCT:g} %: energy saved is not cross-checked"
+                )
 
     def _step(self, tick: TickFrame) -> list[KpiFrame]:
         """Score the step the tick ended; the provisional KPI frames if they are due."""

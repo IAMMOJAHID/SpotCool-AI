@@ -18,8 +18,14 @@ import pytest
 from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, EventType
 from spotcool_world.bus import Subscription
 from spotcool_world.processors import EVENTS_TOPIC
+from spotcool_world.processors.kpi import (
+    CROSS_CHECK_PCT,
+    RUNS,
+    energy_saved_pct,
+    plant_energy_kwh,
+)
 from spotcool_world.runner.assembly import World
-from spotcool_world.runner.report import REPORT_FILE, STUB_AGENT_NOTE, write_report
+from spotcool_world.runner.report import REPORT_FILE, STUB_AGENT_NOTE, load_run, write_report
 from spotcool_world.serializers import (
     EVENTS_FILE,
     MANIFEST_FILE,
@@ -149,6 +155,32 @@ async def test_two_hours_with_the_stub_agent(make_settings: MakeSettings, two_ho
     assert sum(e.type is EventType.PERCEPTION for e in agent) == 8  # one per step
     assert all(e.data["stub"] is True for e in agent)
     assert STUB_AGENT_NOTE in report_top(world)
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_full_day_with_the_stub_agent_matches_the_plants_own_energy(
+    make_settings: MakeSettings,
+) -> None:
+    settings = make_settings(scenario="hybrid_tuesday", stub_agent=True)
+    # The world's own HTTP server answers the 14:15 complaint with a 404 at once, where a
+    # closed port takes three refused connections of about 2 s each on Windows.
+    agent = f"http://127.0.0.1:{settings.http_port}"
+    world = World(settings.model_copy(update={"agent_base_url": agent}), run_id="full-day")
+    await asyncio.wait_for(world.run(handle_sigint=False), 120)
+    run = load_run(settings.run_dir, world.run_id)
+    assert (run.manifest.ended, run.manifest.end_time_s) == ("finished", DAY_S + 19 * 3600)
+    plants: dict[str, float] = {}
+    for name in RUNS:
+        own = plant_energy_kwh(run.manifest.final_kpis[name].boptest)
+        assert own is not None
+        energy = run.samples[name][-1].summary.energy_kwh
+        assert energy == pytest.approx(own, rel=CROSS_CHECK_PCT / 100)  # the cross-check
+        plants[name] = own
+    saved = run.manifest.final_kpis["spotcool"].energy_saved_pct
+    by_plants = energy_saved_pct(plants["baseline"], plants["spotcool"])
+    assert saved is not None and by_plants is not None and saved > 0
+    assert saved == pytest.approx(by_plants, rel=CROSS_CHECK_PCT / 100)
     assert_all_stopped(world)
 
 

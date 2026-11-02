@@ -32,12 +32,19 @@ from spotcool_world.serializers import (
     RunManifest,
     RunWriter,
 )
-from spotcool_world.services.boptest.catalog import bms_signal
+from spotcool_world.services.boptest.catalog import bms_signal, load_catalog
 
 Raw = Callable[..., dict[str, float]]
 State = Callable[..., ScenarioStateData]
 STEP_S = 900.0
 T0 = 199 * 86_400.0 + 7 * 3600  # 07:00 on 2026-07-19
+AREA = load_catalog().area_m2
+# The plants' own ener_tot (kWh/m2) of the tiny run: the hour at 1 kW and at 2 kW.
+ENER_TOT: tuple[float | None, float | None] = (1.0 / AREA, 2.0 / AREA)
+BASIS = (
+    "Energy saved compares the HVAC energy: each step's mean power times the step, added up from "
+    "the first step."
+)
 BRIEF_NOTE = (
     "BOPTEST's occupant heat follows its fixed schedule. Savings in zones that the cameras show "
     "empty may therefore be overstated by up to the occupants' heat. The RC plant and the "
@@ -66,19 +73,20 @@ def write_run(
     core: list[float] = CORE,
     run_id: str = "tiny",
     missing_at_start: tuple[str, ...] = (),
+    ener_tot: tuple[float | None, float | None] = ENER_TOT,
 ) -> Path:
     folder = run_dir / run_id
     kpis: dict[Run, KpiData] = {
         "spotcool": KpiData(
             run="spotcool",
-            boptest={"ener_tot": 0.05, "tdis_tot": None},
+            boptest={"ener_tot": ener_tot[0], "tdis_tot": None},
             comfort_where_people_kh=1.234,
             energy_saved_pct=25.0,
             provisional=False,
         ),
         "baseline": KpiData(
             run="baseline",
-            boptest={"ener_tot": 0.0667, "tdis_tot": None},
+            boptest={"ener_tot": ener_tot[1], "tdis_tot": None},
             comfort_where_people_kh=0.0,
             provisional=False,
         ),
@@ -136,10 +144,14 @@ def test_a_tiny_run_renders_with_its_kpis_recovery_times_and_charts(
     for row in [
         "| KPI | SpotCool | Baseline |",
         "| HVAC energy (kWh) | 1.0 | 2.0 |",  # an hour at 1 and 2 kW, from the raw records
+        "| Plant's own energy, `ener_tot` x 1662.66 m2 (kWh) | 1.0 | 2.0 |",
+        "| Difference from the plant's own (%) | 0.0 | 0.0 |",
         "| Energy saved (%) | 25.0 | n/a |",
         "| Comfort where people were (K h) | 1.23 | 0.00 |",
-        "| BOPTEST `ener_tot` | 0.0500 | 0.0667 |",
+        "| BOPTEST `ener_tot` | 0.0006 | 0.0012 |",
         "| BOPTEST `tdis_tot` | n/a | n/a |",
+        f"{BASIS} Each run's HVAC energy is within 2 % of its plant's own, so the saving is "
+        "cross-checked: it is the figure to quote.",
         "| South | 07:15 | 5 | 30 | 0 |",
         "| Core | 07:45 | 3 | never | 0 |",
         "- SpotCool: Core at 07:45 (3 people)",
@@ -166,6 +178,41 @@ def test_a_state_without_every_value_is_not_drawn_but_its_power_counts(
     assert run.samples["spotcool"][-1].summary.energy_kwh == pytest.approx(1.0)  # from 07:00
     text = write_report(tmp_path, "tiny").read_text(encoding="utf-8")
     assert "| HVAC energy (kWh) | 1.0 | 2.0 |" in text and "| South | 07:15 | 5 | 30 | 0 |" in text
+
+
+@pytest.mark.parametrize(
+    ("ener_tot", "lines"),
+    [
+        (
+            (1.05 / AREA, 2.0 / AREA),  # SpotCool's plant used 1.05 kWh: -4.8 %
+            [
+                "| Difference from the plant's own (%) | -4.8 | 0.0 |",
+                f"**Warning:** {BASIS} The HVAC energy differs from the plant's own by more "
+                "than 2 % (SpotCool -4.8 %), so the saving is not cross-checked: do not quote it.",
+            ],
+        ),
+        (
+            (1.0 / AREA, None),
+            [
+                "| Difference from the plant's own (%) | 0.0 | n/a |",
+                f"{BASIS} A plant reported no energy, so the saving is not cross-checked.",
+            ],
+        ),
+    ],
+    ids=["off-by-more-than-2-pct", "no-ener-tot"],
+)
+def test_a_saving_that_fails_the_cross_check_is_flagged(
+    ener_tot: tuple[float | None, float | None],
+    lines: list[str],
+    tmp_path: Path,
+    make_raw: Raw,
+    make_state: State,
+) -> None:
+    write_run(tmp_path, make_raw, make_state, ener_tot=ener_tot)
+    text = write_report(tmp_path, "tiny").read_text(encoding="utf-8")
+    for line in lines:
+        assert line in text
+    assert "the figure to quote" not in text
 
 
 def test_recovery_reads_temperatures_from_the_arrival_on(
@@ -227,6 +274,8 @@ async def test_a_recorded_world_run_gets_its_report(
     run = await record_world(steps=7)  # 07:00 to 08:45: the staff arrive at 08:30
     report = write_report(run.folder.parent, run.folder.name).read_text(encoding="utf-8")
     assert "| HVAC energy (kWh) |" in report and "| Energy saved (%) |" in report
+    assert "| Difference from the plant's own (%) | 0.0 | 0.0 |" in report  # the RC plants'
+    assert "the saving is cross-checked: it is the figure to quote." in report
     for row in ("| Core | 08:30 | 4 |", "| North | 08:30 | 2 |", "| West | 08:30 | 1 |"):
         assert row in report
     assert (run.folder / ZONES_CHART).exists()

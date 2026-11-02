@@ -5,12 +5,15 @@
 
 The series come from the record's raw measurements, through the ``TelemetryProcessor``'s own
 ``metered_summary`` (a state lacking a value is left out, its power still counted), and the
-people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The
-report adds recovery times, which the contract's ``KpiData`` has no field for. A stub run's
-report (``stub_agent`` in the manifest's settings) opens with ``STUB_AGENT_NOTE``.
+people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The KPI
+table cross-checks each run's energy against its plant's own (``ener_tot`` times the floor
+area) and says whether energy saved, which compares the former, may be quoted. The report adds
+recovery times, which the contract's ``KpiData`` has no field for. A stub run's report
+(``stub_agent`` in the manifest's settings) opens with ``STUB_AGENT_NOTE``.
 """
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,7 +26,12 @@ from spotcool_contracts.events import (
     ZoneMeasurement,
 )
 from spotcool_world.clocks import SimClock
-from spotcool_world.processors.kpi import RUNS
+from spotcool_world.processors.kpi import (
+    CROSS_CHECK_PCT,
+    RUNS,
+    cross_check_pct,
+    plant_energy_kwh,
+)
 from spotcool_world.processors.telemetry import EnergyMeter, metered_summary
 from spotcool_world.scenarios import sim_datetime
 from spotcool_world.serializers.jsonl import (
@@ -34,6 +42,7 @@ from spotcool_world.serializers.jsonl import (
     RunManifest,
     read_records,
 )
+from spotcool_world.services.boptest.catalog import load_catalog
 
 REPORT_FILE = "report.md"
 """The report's name inside the run directory."""
@@ -256,10 +265,22 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
 
 
 def _kpi_table(run: RecordedRun, runs: list[Run]) -> list[str]:
+    """The KPI table, then which energy saved it shows and whether that is cross-checked."""
     kpis = run.manifest.final_kpis
     saved = kpis["spotcool"].energy_saved_pct if "spotcool" in kpis else None
-    rows: list[tuple[str, dict[Run, float | None], int]] = [
-        ("HVAC energy (kWh)", {name: run.samples[name][-1].summary.energy_kwh for name in runs}, 1),
+    energy: dict[Run, float] = {name: run.samples[name][-1].summary.energy_kwh for name in runs}
+    plant: dict[Run, float | None] = {
+        name: plant_energy_kwh(kpis[name].boptest) for name in runs if name in kpis
+    }
+    errors: dict[Run, float | None] = {
+        name: None if (own := plant.get(name)) is None else cross_check_pct(energy[name], own)
+        for name in runs
+    }
+    area = load_catalog().area_m2
+    rows: list[tuple[str, Mapping[Run, float | None], int]] = [
+        ("HVAC energy (kWh)", energy, 1),
+        (f"Plant's own energy, `ener_tot` x {area:g} m2 (kWh)", plant, 1),
+        ("Difference from the plant's own (%)", errors, 1),
         ("Energy saved (%)", {"spotcool": saved}, 1),
         (
             "Comfort where people were (K h)",
@@ -269,16 +290,41 @@ def _kpi_table(run: RecordedRun, runs: list[Run]) -> list[str]:
     ]
     names = dict.fromkeys(key for name in runs if name in kpis for key in kpis[name].boptest)
     for key in names:
-        values: dict[Run, float | None] = {
+        boptest: dict[Run, float | None] = {
             name: kpis[name].boptest.get(key) for name in runs if name in kpis
         }
-        rows.append((f"BOPTEST `{key}`", values, 4))
+        rows.append((f"BOPTEST `{key}`", boptest, 4))
     header = "| KPI | " + " | ".join(_LABELS[name] for name in runs) + " |"
     lines = [header, "|---|" + "---:|" * len(runs)]
     for label, values, digits in rows:
         cells = [_number(values.get(name), digits) for name in runs]
         lines.append(f"| {label} | " + " | ".join(cells) + " |")
-    return lines
+    return [*lines, "", _saving_note(errors)]
+
+
+def _saving_note(errors: Mapping[Run, float | None]) -> str:
+    """Which energy saved the report shows, and whether every run passed the cross-check."""
+    basis = (
+        "Energy saved compares the HVAC energy: each step's mean power times the step, added up "
+        "from the first step."
+    )
+    off = [
+        f"{_LABELS[name]} {error:.1f} %"
+        for name, error in errors.items()
+        if error is not None and abs(error) > CROSS_CHECK_PCT
+    ]
+    if off:
+        return (
+            f"**Warning:** {basis} The HVAC energy differs from the plant's own by more than "
+            f"{CROSS_CHECK_PCT:g} % ({', '.join(off)}), so the saving is not cross-checked: do "
+            "not quote it."
+        )
+    if None in errors.values():
+        return f"{basis} A plant reported no energy, so the saving is not cross-checked."
+    return (
+        f"{basis} Each run's HVAC energy is within {CROSS_CHECK_PCT:g} % of its plant's own, so "
+        "the saving is cross-checked: it is the figure to quote."
+    )
 
 
 def _recovery_lines(found: list[Arrival], runs: list[Run]) -> list[str]:
@@ -306,7 +352,8 @@ def _recovery_lines(found: list[Arrival], runs: list[Run]) -> list[str]:
 
 
 def _number(value: float | None, digits: int) -> str:
-    return "n/a" if value is None else f"{value:.{digits}f}"
+    # + 0.0 turns a rounded -0.0 into 0.0
+    return "n/a" if value is None else f"{round(value, digits) + 0.0:.{digits}f}"
 
 
 def _draw_charts(run: RecordedRun, folder: Path) -> None:
@@ -347,9 +394,10 @@ def _draw_charts(run: RecordedRun, folder: Path) -> None:
     for name, samples in run.samples.items():
         x = [hours(s.t_s) for s in samples]
         style = {"color": _COLORS[name], "linewidth": 1.6, "label": _LABELS[name]}
-        power.plot(x, [s.summary.total_power_kw for s in samples], **style)
+        # A step's mean power holds over the step that ends at its stamp.
+        power.plot(x, [s.summary.total_power_kw for s in samples], drawstyle="steps-pre", **style)
         energy.plot(x, [s.summary.energy_kwh for s in samples], **style)
-    power.set_ylabel("Power (kW)", color=_MUTED)
+    power.set_ylabel("Step-mean power (kW)", color=_MUTED)
     energy.set_ylabel("Energy (kWh)", color=_MUTED)
     power.legend(frameon=False, labelcolor=_INK)
     fig.savefig(folder / POWER_CHART, dpi=120)

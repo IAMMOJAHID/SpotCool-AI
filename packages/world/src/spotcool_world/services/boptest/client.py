@@ -7,7 +7,8 @@ Rules it enforces (checked against BOPTEST master ``a29024f`` and the hosted v0.
 - Test calls answer ``{status, message, payload}``; any status but 200 raises ``BoptestError``.
   ``stop`` answers a plain-text ``OK``, so it is not parsed.
 - ``advance`` is never retried: an advance whose answer was lost may have run, and a retry
-  would step the test twice.
+  would step the test twice. ``results`` changes nothing, so it is retried on any transient
+  failure.
 - ``select`` uses ``select-async`` and polls ``status``, so the test id is known at once and a
   test that queues too long (the hosted queue has passed 900 s) can always be stopped. The
   POST is retried only when it provably created nothing (no connection, or HTTP 429): a
@@ -26,7 +27,7 @@ import httpx
 from loguru import logger
 
 QUICK_TIMEOUT_S = 30.0
-"""Timeout of quick calls (select-async, status, step, name, version, stop)."""
+"""Timeout of quick calls (select-async, status, step, results, name, version, stop)."""
 SIMULATE_TIMEOUT_S = 900.0
 """Timeout of ``scenario`` and ``initialize``, which simulate the warm-up (``peak_cool_day``'s
 seven days took 283 s on a Codespace)."""
@@ -242,6 +243,44 @@ class BoptestClient:
             "POST", f"advance/{testid}", inputs, timeout_s=ADVANCE_TIMEOUT_S
         )
         return _state(payload, "advance")
+
+    async def results(
+        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+    ) -> dict[str, list[float]]:
+        """Stored trajectories of some points between two times (``PUT /results``).
+
+        BOPTEST stores every point each 30 simulated seconds and at each step's end. Any
+        transient failure is retried with backoff, for up to ``QUICK_TIMEOUT_S``.
+
+        Args:
+            testid: The test.
+            point_names: Outputs (``_y``) or inputs (``_u``) to read.
+            start_time_s: First simulation time, included.
+            final_time_s: Last simulation time, included.
+
+        Returns:
+            Each point's samples and, under ``time``, their times, oldest first.
+
+        Raises:
+            BoptestError: If BOPTEST fails, or a series is not all numbers (a NaN arrives as
+                null).
+        """
+        body = {
+            "point_names": list(point_names),
+            "start_time": start_time_s,
+            "final_time": final_time_s,
+        }
+        payload = await self._retrying(
+            lambda: self._payload("PUT", f"results/{testid}", body),
+            time.perf_counter() + QUICK_TIMEOUT_S,
+            retry=lambda exc: exc.retryable,
+        )
+        series: dict[str, list[float]] = {}
+        for name, values in _mapping(payload, "results").items():
+            if not isinstance(values, list) or not all(isinstance(v, int | float) for v in values):
+                raise BoptestError(f"results: {name} is not a list of numbers", status=200)
+            series[name] = [float(value) for value in values]
+        return series
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
         """The test's KPIs since it was initialized (``ener_tot``, ``tdis_tot``, ...).

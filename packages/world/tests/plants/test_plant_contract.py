@@ -12,6 +12,7 @@ import pytest
 import pytest_asyncio
 
 from spotcool_contracts import Zone, load_point_map
+from spotcool_world.processors.kpi import CROSS_CHECK_PCT
 from spotcool_world.services import PlantService, PlantStartParams
 from spotcool_world.services.boptest.catalog import bms_signal, load_catalog, zone_damper
 from spotcool_world.services.rc import RcPlant
@@ -123,6 +124,21 @@ async def test_kpis_have_the_boptest_keys(plant: PlantService) -> None:
     assert kpis.keys() == KPI_KEYS
     ener_tot = kpis["ener_tot"]
     assert ener_tot is not None and ener_tot >= 0
+
+
+@pytest.mark.asyncio
+async def test_the_meters_add_up_to_the_plants_own_energy(plant: PlantService) -> None:
+    # Each meter is its mean over the step, so mean x step, summed, is the plant's own energy.
+    await plant.start(PARAMS)
+    steps = [await plant.step({SOUTH_DAMPER: 0.0}) for _ in range(2)]
+    steps += [await plant.step({}) for _ in range(2)]  # the box opens again, wide at first
+    catalog = load_catalog()
+    watts = sum(raw[name] for raw in steps for name in catalog.electric_power)
+    ener_tot = (await plant.kpis())["ener_tot"]
+    assert ener_tot is not None
+    assert watts * PARAMS.step_s / 3.6e6 == pytest.approx(
+        ener_tot * catalog.area_m2, rel=CROSS_CHECK_PCT / 100
+    )
 
 
 @pytest.mark.asyncio

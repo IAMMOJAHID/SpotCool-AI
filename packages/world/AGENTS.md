@@ -194,6 +194,16 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   an overwritten signal under its input's `_u` key, as BOPTEST's REST API does. BOPTEST inputs
   latch, so the BOPTEST plant sends `_activate` for all ten managed inputs (each zone's cooling
   setpoint and damper) on every step.
+- **A step's values describe the step that just ended.** The seven ElectricPower meters
+  (`catalog.electric_power`) are their means over the step, in W; every other value is the one
+  at the end of the step. An initial state has no step, so its meters are instantaneous, and
+  telemetry never integrates them. Power spikes inside a step when a VAV box opens wide, so a
+  value at the end of the step would miss it.
+  - The BOPTEST plant reads each step's meters from `PUT /results` over `[t - step, t]`
+    (`BoptestClient.results`, retried on transient failures) and averages BOPTEST's 30-second
+    samples with the time-weighted trapezoid (`step_means`). If that fails, the meters keep
+    their values at the end of the step: a warning, counted in `power_fallbacks`, never fatal.
+  - The RC plant divides each meter's energy over its 60-second sub-steps by the step.
 
 ## The BMS on BACnet/IP
 
@@ -411,9 +421,10 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   lockstep publishes a frame's events before the next frame reaches the recorder.
 - **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`metered_summary`):
   every zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
-  (`power_kw`, BOPTEST's ElectricPower basis), their total, and the run's energy: the trapezoid
-  rule over the stamps (`EnergyMeter`), from the run's first frame with all seven meters
-  (normally its initial state). BOPTEST leaves out values it reports as null, such as the `_u`
+  (`power_kw`, BOPTEST's ElectricPower basis: each step's means), their total, and the run's
+  energy: each step's mean power times the step (`EnergyMeter`, a rectangle per step), from the
+  run's first frame with all seven meters (normally its initial state, whose power is never
+  counted). BOPTEST leaves out values it reports as null, such as the `_u`
   setpoints of an initial state: a frame lacking a value keeps no summary, its power still
   counts if it has the meters, and that is logged once per run. The KPIs and the report skip
   such frames.
@@ -426,6 +437,9 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   - A provisional `KpiFrame` per run every 4 steps, ahead of the tick, with `boptest` empty.
   - At the first `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the
     plant's own final one (BOPTEST's KPIs); the plants' frames are not passed on.
+  - The cross-check, at that end: each run's energy against its plant's own, `ener_tot`
+    (kWh/m2) x the floor area, 1662.66 m2 (`plant_energy_kwh`). A difference of more than
+    `CROSS_CHECK_PCT` (2 %) is logged as a warning: that run's saving must not be quoted.
   - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
     computes them.
 - **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
@@ -488,6 +502,9 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under
   the settings' `run_dir`. The series come from the raw records through the telemetry's
   functions, the people from the `scenario_state` events, the KPIs from the manifest.
+  - The KPI table shows each run's energy, its plant's own and their difference (%). Below it,
+    a note says that energy saved compares the former, and whether it passed the cross-check
+    (the figure to quote) or not (a warning: do not quote it).
   - Recovery: for each zone and arrival (people after a step with none), the minutes until the
     zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
     on. Arrivals that never recover are listed.
@@ -608,12 +625,15 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
      The start (select, then a 3-day warm-up per test) takes a minute or two; then each step
      takes a BOPTEST round trip. Expect `run boptest-checkpoint finished (end time reached)`,
      the stub label, both runs' energy and comfort, and energy saved. The log shows
-     `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids.
+     `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids, and no
+     `no power means` or `off its plant's own` warning.
   4. Ctrl+C: start the same run with `--run-id boptest-ctrl-c`, press Ctrl+C after a few steps
      (after the start has returned). Expect `cancelled (SIGINT)` and both tests stopped in the
      log. Then run step 2 again: it must get a worker at once, which shows no test was left.
   5. `uv run spotcool-world report boptest-checkpoint`, and
-     `uv run spotcool-world replay boptest-checkpoint --speed 0`.
+     `uv run spotcool-world replay boptest-checkpoint --speed 0`. The report's KPI table shows
+     both runs within 2 % of their plants' own energy, and its note calls the saving
+     cross-checked.
   6. Stop the Codespace to save its quota: `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
 
 ## The stub agent

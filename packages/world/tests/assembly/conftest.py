@@ -7,7 +7,7 @@ into the test's tmp dir. No network beyond loopback, no BOPTEST, no footage.
 import asyncio
 import os
 import socket
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -114,6 +114,7 @@ class FakeBoptestClient:
         self.stop_sent = asyncio.Event()
         self.idle_s = 0.0
         self._rc = RcPlant()
+        self._state: dict[str, float] = {}
 
     async def select(self, testcase: str) -> str:
         self.events.append("select")
@@ -129,7 +130,15 @@ class FakeBoptestClient:
         assert step_s == 900.0
 
     async def advance(self, testid: str, inputs: Mapping[str, float]) -> dict[str, float]:
-        return await self._rc.step({})  # BOPTEST's own control: the RC plant's schedule
+        self._state = await self._rc.step({})  # BOPTEST's own control: the RC plant's schedule
+        return dict(self._state)
+
+    async def results(
+        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+    ) -> dict[str, list[float]]:
+        # Each point holds the RC plant's value over the step: its meters' means.
+        samples = {name: [self._state[name]] * 2 for name in point_names}
+        return samples | {"time": [start_time_s, final_time_s]}
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
         return await self._rc.kpis()
