@@ -1,0 +1,54 @@
+name: Claude Code Automated PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  review:
+    # Run on PRs, or when a user comments '@claude review' on an open PR
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request &&
+       contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch Base Branch REVIEW.md (Ground Truth)
+        run: |
+          git fetch origin ${{ github.base_ref }}:${{ github.base_ref }} || true
+          git show origin/${{ github.base_ref }}:REVIEW.md > .base_review_rules.md 2>/dev/null || cp REVIEW.md .base_review_rules.md
+          echo "Base review rules loaded from target branch."
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            You are conducting an automated pull request review for SpotCool AI following Anthropic's multi-agent review architecture.
+
+            1. Read '.base_review_rules.md' for project standards and "Definitions of Failure":
+               - Documentation: Failure is 'it lies'
+               - Configuration: Failure is 'it misroutes'
+               - Thermodynamics: Failure is 'it hallucinates comfort' (must use deterministic Fanger PMV)
+               - Digital Twin: Failure is 'instantaneous angle jumps' (must slew <= 15 deg/sec)
+               - Perception: Failure is 'bounding box averaging' (must use SAM 3 mask median depth)
+               - Event Loop: Failure is 'blocking 10 Hz loop' with slow inference
+
+            2. Examine the full diff and surrounding code files.
+            3. Verify findings to eliminate false positives.
+            4. Rank findings as P0 (Blocking Bug), P1 (Warning / Test Gap), or P2 (Polish).
+            5. Enforce 3-round cap: if this PR has already had 3 failed review rounds, recommend architectural redesign.
+            6. Post a concise review summary and line-level review comments.
