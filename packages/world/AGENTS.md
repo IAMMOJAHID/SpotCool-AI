@@ -72,7 +72,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1), power meters as step means (WP6.1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6), replaying the run so far to each new viewer (WP7); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
@@ -393,7 +393,10 @@ dataset indexes and `CameraSceneProcessor` need only the core.
   - `GET /cameras/{id}/mjpeg`: new frames only, at most 5 a second. It ends when the client
     disconnects or the server stops.
   - `GET /healthz`. CORS lets `http://127.0.0.1:*` and `http://localhost:*` read every GET,
-    including the stale header.
+    including the stale header, and so does the dashboard's own page on a private address:
+    `http://<host>:<dashboard_port>` with `<host>` a loopback, RFC 1918 or link-local IP
+    (`create_http_app(routers, dashboard_port=...)`, `is_dashboard_origin`), so a dashboard
+    opened from another PC on the LAN reads the camera catalog.
 - **The live phone.** `PhoneCamera` polls `live_camera_url` at 2 fps with a 2 s timeout. It serves
   only an HTTP 200 JPEG under 5 MB that decodes, as it came, and reports its size in the
   catalog. It keeps the last good frame. It has no zone: it films the real room of the VRF
@@ -490,9 +493,14 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   - Records are JSON: no image or audio bytes (`tests/telemetry/test_recorder.py` checks).
 - **Dashboard server**: `create_dashboard_app(bus, run_dir, dist_dir=None)`
   (`transports/websocket/dashboard.py`).
-  - `/ws/events`: every envelope as JSON text. Each client gets its own subscription (1000
-    messages, the oldest dropped first), made before its handshake ends; what it sends is
-    ignored.
+  - `/ws/events`: every envelope as JSON text. A client that joins mid-run first gets the run
+    so far, then the live events, each once and in order (`EventFeed`). The feed subscribes when
+    the app is made and runs in the app's lifespan (uvicorn and `HttpServerWorker` run it). Its
+    history keeps the current run's events, except `vrf_state` (the latest only) and `metrics`
+    (the latest of each metric, by name and labels); a `run_status` of another run clears it;
+    it holds at most `HISTORY_LIMIT` (50,000) events, dropping the oldest with one warning.
+    Each client has its own queue (1000 messages, the oldest dropped first), joined before its
+    handshake ends; what it sends is ignored. `replay` serves the same app.
   - `/ws/agent`: publish-only. One `EventEnvelope` per JSON text message, `source: "agent"`,
     type perception, decision, explanation or chat, at most 64 KB and 20 messages a second per
     connection, and no image: no string starting `data:` and none over 8192 characters
@@ -503,7 +511,8 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     events.
   - `GET /runs` (`{"runs": [...]}`); `GET /runs/{run_id}/events.jsonl` (422 for an id outside
     `RUN_ID_PATTERN`, 404 for an unknown run); `GET /healthz`; `/` serves `apps/dashboard/dist`
-    if it exists when the app is made. CORS as in `create_http_app`.
+    if it exists when the app is made. CORS lets this machine's pages (`LOCAL_ORIGINS`) read
+    the GET routes.
   - A failing socket ends only its own connection; `HttpServerWorker.stop()` closes them all.
 - **Report**: `spotcool-world report <run_id>` (`runner/report.py`) writes `report.md`,
   `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under

@@ -23,7 +23,7 @@ from spotcool_world.services.camera_service import (
 from spotcool_world.services.clips import synthetic_frame
 from spotcool_world.transports.http.calendar import CalendarStore, calendar_router
 from spotcool_world.transports.http.cameras import MJPEG_BOUNDARY, cameras_router
-from spotcool_world.transports.http.server import create_http_app
+from spotcool_world.transports.http.server import create_http_app, is_dashboard_origin
 
 BASE = "http://10.20.22.190:8081"
 WaitFor = Callable[..., Awaitable[None]]
@@ -318,3 +318,34 @@ async def test_the_app_serves_the_calendar_too() -> None:
     assert schedule.json() == {"scheduleId": "meeting-south", "scheduleItems": []}
     assert (await get(app, "/calendar/rooms/meeting-south.ics")).status_code == 200
     assert (await get(app, "/cameras")).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("origin", "allowed"),
+    [
+        ("http://192.168.1.12:8090", True),  # the dashboard opened from another PC on the LAN
+        ("http://10.0.0.7:8090", True),
+        ("http://172.16.4.2:8090", True),
+        ("http://169.254.10.20:8090", True),
+        ("http://[fe80::1]:8090", True),
+        ("http://[::1]:8090", True),
+        ("http://127.0.0.2:8090", True),
+        ("http://localhost:5173", True),  # the development origins stay
+        ("http://evil.example:8090", False),
+        ("http://8.8.8.8:8090", False),
+        ("http://172.32.0.1:8090", False),
+        ("http://192.168.1.12:9999", False),  # not the dashboard's port
+        ("http://192.168.1.12", False),
+        ("https://192.168.1.12:8090", False),
+        ("http://user@192.168.1.12:8090", False),
+        ("http://192.168.1.12:8090/x", False),
+    ],
+)
+@pytest.mark.asyncio
+async def test_cors_lets_the_dashboard_page_on_a_private_address_read_the_api(
+    origin: str, allowed: bool
+) -> None:
+    app = create_http_app([], dashboard_port=8090)
+    response = await get(app, "/healthz", headers={"Origin": origin})
+    assert response.headers.get("access-control-allow-origin") == (origin if allowed else None)
+    assert is_dashboard_origin("http://192.168.1.12:8090", None) is False  # no dashboard: none

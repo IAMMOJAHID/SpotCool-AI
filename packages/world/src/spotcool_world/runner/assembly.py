@@ -208,7 +208,8 @@ class World(BaseObject):
         )
         self.pipeline = PipelineWorker(pipeline, params=params, name="pipeline")
         """The pipeline's worker."""
-        http = create_http_app([cameras_router(self.cameras), calendar_router(self.store)])
+        routers = [cameras_router(self.cameras), calendar_router(self.store)]
+        http = create_http_app(routers, dashboard_port=settings.dashboard_port)
         dashboard = create_dashboard_app(self.bus, settings.run_dir, dist_dir=DASHBOARD_DIST)
         self.workers: list[BaseWorker] = [
             OccupantWorker(settings, name="occupants"),
@@ -348,7 +349,9 @@ class Replay(BaseObject):
         params = PipelineParams(run_id=run_id, speed=speed)
         self.pipeline = PipelineWorker(pipeline, params=params, name="replay")
         """The replay's worker."""
-        http = create_http_app([cameras_router(self.cameras)])
+        http = create_http_app(
+            [cameras_router(self.cameras)], dashboard_port=settings.dashboard_port
+        )
         self.workers: list[BaseWorker] = _servers(settings, http, self.dashboard)
         """The servers, stopped when the replay ends."""
         self.pipeline.add_event_handler("on_pipeline_finished", self._stop_workers)
