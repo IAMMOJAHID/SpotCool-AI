@@ -5,18 +5,23 @@ import pytest
 from spotcool_contracts import Zone
 from spotcool_contracts.events import KpiData, PlantMeasurementsData, Run, ScenarioStateData
 from spotcool_world.frames import (
+    CancelFrame,
+    EndFrame,
     Frame,
     KpiFrame,
     PlantMeasurementsFrame,
     ScenarioStateFrame,
     TickFrame,
 )
-from spotcool_world.processors import KpiProcessor
+from spotcool_world.pipeline import Pipeline
+from spotcool_world.processors import FrameDirection, KpiProcessor, TelemetryProcessor
 from spotcool_world.processors.kpi import comfort_kh, energy_saved_pct
-from spotcool_world.testing import run_test
+from spotcool_world.services.boptest.catalog import bms_signal
+from spotcool_world.testing import CaptureProcessor, run_test
 
 Summary = Callable[..., PlantMeasurementsData]
 State = Callable[..., ScenarioStateData]
+Raw = Callable[..., dict[str, float]]
 STEP_S = 900.0
 T0 = 199 * 86_400.0 + 8 * 3600  # 08:00
 
@@ -142,3 +147,48 @@ async def test_without_a_scenario_or_a_baseline_nothing_is_scored(make_summary: 
     assert kpis(down) == [
         KpiData(run="spotcool", boptest={}, comfort_where_people_kh=None, provisional=False)
     ]
+
+
+@pytest.mark.asyncio
+async def test_the_final_kpis_come_once_when_a_cancel_follows_the_end(
+    make_summary: Summary,
+) -> None:
+    kpi, out = KpiProcessor(), []  # stop() as the end passes: an EndFrame, then a CancelFrame
+    kpi.link(CaptureProcessor(FrameDirection.DOWNSTREAM, out))
+    frames: list[Frame] = [measured(make_summary("spotcool"), T0), EndFrame(), CancelFrame()]
+    for frame in frames:
+        await kpi.process_frame(frame, FrameDirection.DOWNSTREAM)
+    assert len(kpis(out)) == 1 and not kpis(out)[0].provisional
+    assert out[-2:] == frames[-2:]  # both end frames pass on
+
+
+def lacking_setpoints(raw: dict[str, float]) -> dict[str, float]:
+    """BOPTEST's initial state may lack the ``_u`` setpoints."""
+    for zone in Zone:
+        for point in ("CLG-SP", "HTG-SP"):
+            del raw[bms_signal(f"ZN-{zone.value.upper()}-{point}")]
+    return raw
+
+
+@pytest.mark.asyncio
+async def test_measurements_without_a_summary_are_skipped(make_raw: Raw, make_state: State) -> None:
+    def frame(run: Run, t_s: float, raw: dict[str, float]) -> PlantMeasurementsFrame:
+        return PlantMeasurementsFrame(run=run, raw=raw, sim_time_s=t_s)
+
+    one_kw, two_kw = 1000 / 7, 2000 / 7
+    frames: list[Frame] = [
+        frame("spotcool", T0, lacking_setpoints(make_raw(meter_w=one_kw))),  # initial states
+        frame("baseline", T0, lacking_setpoints(make_raw(meter_w=two_kw))),
+        ScenarioStateFrame(state=make_state({Zone.COR: 2}), sim_time_s=T0),
+        frame("spotcool", T0 + STEP_S, make_raw({Zone.COR: 25.0}, meter_w=one_kw)),
+        frame("baseline", T0 + STEP_S, make_raw(meter_w=two_kw)),
+        tick(0),
+    ]
+    down, up = await run_test(
+        Pipeline([TelemetryProcessor(), KpiProcessor()]), frames_to_send=frames
+    )
+    assert not up
+    spotcool, baseline = kpis(down)
+    assert spotcool.comfort_where_people_kh == pytest.approx(0.25)  # 1 K for a quarter hour
+    assert baseline.comfort_where_people_kh == 0.0
+    assert spotcool.energy_saved_pct == pytest.approx(50.0)  # metered from the initial states

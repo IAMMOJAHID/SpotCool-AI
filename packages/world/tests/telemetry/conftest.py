@@ -195,7 +195,9 @@ def record_world(tmp_path: Path) -> RecordWorld:
 
     Arguments: ``steps`` (default 4), ``start_s`` (default 07:00), ``run_id`` (default
     ``run-1``), ``settings`` (default: ``run_dir`` in the test's tmp dir), ``extra`` processors
-    (placed after the scenario, before the plants) and ``bus``.
+    (placed after the scenario, before the plants), ``before_recorder`` and ``after_recorder``
+    processors (right above and right below the recorder), the ``recorder`` itself, ``bus``,
+    and ``on_worker``, called with the worker before it runs.
     """
 
     async def record(
@@ -205,7 +207,11 @@ def record_world(tmp_path: Path) -> RecordWorld:
         run_id: str = "run-1",
         settings: WorldSettings | None = None,
         extra: Sequence[FrameProcessor] = (),
+        before_recorder: Sequence[FrameProcessor] = (),
+        after_recorder: Sequence[FrameProcessor] = (),
+        recorder: RecorderProcessor | None = None,
         bus: InProcessBus | None = None,
+        on_worker: Callable[[PipelineWorker], None] | None = None,
     ) -> Recorded:
         settings = settings or WorldSettings(run_dir=tmp_path / "runs")
         bus = bus or InProcessBus()
@@ -229,7 +235,9 @@ def record_world(tmp_path: Path) -> RecordWorld:
                 TelemetryProcessor(),
                 KpiProcessor(),
                 EventEmitterProcessor(),
-                RecorderProcessor(settings),
+                *before_recorder,
+                recorder or RecorderProcessor(settings),
+                *after_recorder,
                 BusPublisher(bus),
                 CaptureProcessor(FrameDirection.DOWNSTREAM, frames),
             ]
@@ -238,6 +246,8 @@ def record_world(tmp_path: Path) -> RecordWorld:
             clock=clock, run_id=run_id, scenario="hybrid_tuesday", plant="rc", end_time_s=end_s
         )
         worker = PipelineWorker(pipeline, params=params)
+        if on_worker is not None:
+            on_worker(worker)
         events = bus.subscribe("events", maxsize=100_000)
         try:
             await WorkerRunner(bus=bus, handle_sigint=False).run(worker)

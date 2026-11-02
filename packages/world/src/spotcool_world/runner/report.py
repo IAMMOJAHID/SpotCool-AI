@@ -4,8 +4,9 @@
 (matplotlib, drawn with its Agg backend); this module imports without it.
 
 The series come from the record's raw measurements, through the ``TelemetryProcessor``'s own
-functions, and the people from its ``scenario_state`` events. The KPIs are the final ones in the
-manifest. The report adds recovery times, which the contract's ``KpiData`` has no field for.
+``metered_summary`` (a state lacking a value is left out, its power still counted), and the
+people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The
+report adds recovery times, which the contract's ``KpiData`` has no field for.
 """
 
 import re
@@ -22,7 +23,7 @@ from spotcool_contracts.events import (
 )
 from spotcool_world.clocks import SimClock
 from spotcool_world.processors.kpi import RUNS
-from spotcool_world.processors.telemetry import EnergyMeter, summarize
+from spotcool_world.processors.telemetry import EnergyMeter, metered_summary
 from spotcool_world.scenarios import sim_datetime
 from spotcool_world.serializers.jsonl import (
     EVENTS_FILE,
@@ -128,7 +129,7 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
             if t_s is not None:
                 states.append((t_s, ScenarioStateData.model_validate(record.envelope.data)))
     samples: dict[Run, list[Sample]] = {
-        run: _samples(run, records) for run, records in raws.items() if records
+        run: drawn for run, records in raws.items() if (drawn := _samples(run, records))
     }
     return RecordedRun(manifest, samples, sorted(states, key=lambda entry: entry[0]))
 
@@ -188,11 +189,10 @@ def _samples(run: Run, records: list[RawRecord]) -> list[Sample]:
     samples: list[Sample] = []
     for record in sorted(records, key=lambda r: r.index):
         try:
-            summary = summarize(run, record.raw)
-        except KeyError as exc:
-            raise ValueError(f"{run} record {record.index} lacks {exc}") from None
-        energy = meter.add(record.sim_time_s, summary.total_power_kw)
-        samples.append(Sample(record.sim_time_s, summary.model_copy(update={"energy_kwh": energy})))
+            summary = metered_summary(run, record.raw, record.sim_time_s, meter)
+        except KeyError:
+            continue  # a state lacking a value (such as BOPTEST's initial one) is not drawn
+        samples.append(Sample(record.sim_time_s, summary))
     return samples
 
 

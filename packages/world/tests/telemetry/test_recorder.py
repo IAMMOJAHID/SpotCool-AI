@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import math
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ from spotcool_contracts.events import (
 from spotcool_world import __version__
 from spotcool_world.frames import (
     CancelFrame,
+    EndFrame,
     ErrorFrame,
     Frame,
     PlantMeasurementsFrame,
@@ -39,7 +40,7 @@ from spotcool_world.serializers import (
 from spotcool_world.services import PlantStartParams, WorldSettings
 from spotcool_world.services.replay import ReplayPlant
 from spotcool_world.testing import run_test
-from spotcool_world.workers import WorkerState
+from spotcool_world.workers import PipelineWorker, WorkerState
 
 RecordWorld = Callable[..., Awaitable[Any]]
 STEP_S = 900.0
@@ -51,13 +52,13 @@ def manifest_of(folder: Path) -> RunManifest:
     return RunManifest.model_validate_json((folder / MANIFEST_FILE).read_text("utf-8"))
 
 
-def agent_event(t_s: float) -> EventEnvelope:
+def agent_event(t_s: float, n: int = 0) -> EventEnvelope:
     return EventEnvelope(
         type=EventType.DECISION,
         source=EventSource.AGENT,
         t_ms=1,
         sim_time_s=t_s,
-        data={"zone": "sou", "action": "precool"},
+        data={"zone": "sou", "action": "precool", "n": n},
     )
 
 
@@ -95,6 +96,54 @@ class CancelAtTick(FrameProcessor):
         await self.push_frame(frame, direction)
         if isinstance(frame, TickFrame) and frame.index == self._index:
             await self.push_frame(CancelFrame(reason="operator stop"), FrameDirection.UPSTREAM)
+
+
+class StopAt(FrameProcessor):
+    """Calls the worker's ``stop()`` (an operator's Ctrl+C) as a chosen frame passes.
+
+    With ``events`` it first puts them on the bus, so they wait for the recorder when the
+    cancel lands. With ``pause`` it yields after ``stop()``, so the cancel overtakes the frame.
+    """
+
+    def __init__(
+        self,
+        at: Callable[[Frame], bool],
+        *,
+        events: Sequence[EventEnvelope] = (),
+        pause: bool = False,
+    ) -> None:
+        super().__init__()
+        self._at, self._events, self._pause = at, events, pause
+        self._worker: PipelineWorker | None = None
+
+    def use(self, worker: PipelineWorker) -> None:
+        self._worker = worker
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if self._worker is not None and self._at(frame):
+            for envelope in self._events:
+                await self.bus.publish("events", envelope)
+            await self._worker.stop("operator")
+            if self._pause:
+                await asyncio.sleep(0)
+        await self.push_frame(frame, direction)
+
+
+class CancelWritingAtTick(FrameProcessor):
+    """Cancels the recorder's writing task as a tick passes (white box: the task is gone)."""
+
+    def __init__(self, recorder: RecorderProcessor, index: int) -> None:
+        super().__init__()
+        self._recorder, self._index = recorder, index
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        writing = self._recorder._writing
+        if isinstance(frame, TickFrame) and frame.index == self._index and writing is not None:
+            writing.cancel()
+            await asyncio.wait([writing])
+        await self.push_frame(frame, direction)
 
 
 class BlockAtTick(FrameProcessor):
@@ -243,6 +292,68 @@ async def test_a_cancelled_run_still_gets_its_manifest(record_world: RecordWorld
 
 
 @pytest.mark.asyncio
+async def test_events_waiting_when_a_stop_lands_are_kept(record_world: RecordWorld) -> None:
+    # stop() as tick 1 reaches the recorder: the cancel lands while it takes the waiting events.
+    waiting = [agent_event(START_S + STEP_S, n) for n in range(5)]
+    stop = StopAt(lambda f: isinstance(f, TickFrame) and f.index == 1, events=waiting)
+    run = await record_world(steps=4, before_recorder=[stop], on_worker=stop.use)
+    assert run.worker.state is WorkerState.CANCELLED
+    records = read_records(run.folder / EVENTS_FILE)
+    recorded = [r.envelope for r in records if isinstance(r, EventRecord)]
+    assert recorded == run.published  # every event published before the end, in order
+    assert all(event in recorded for event in waiting)
+    assert manifest_of(run.folder).dropped_events == 0  # and it is true
+
+
+@pytest.mark.parametrize(
+    ("pause", "ended"),
+    [(False, "finished"), (True, "cancelled")],
+    ids=["the-end-reaches-the-recorder-first", "the-cancel-overtakes-the-end"],
+)
+@pytest.mark.asyncio
+async def test_a_stop_as_the_end_passes_still_finishes_and_closes_the_record(
+    pause: bool, ended: str, record_world: RecordWorld
+) -> None:
+    stop = StopAt(lambda f: isinstance(f, EndFrame), pause=pause)
+    run = await record_world(steps=2, before_recorder=[stop], on_worker=stop.use)
+    assert run.worker.state is WorkerState.CANCELLED
+    manifest = manifest_of(run.folder)
+    assert manifest.ended == ended and set(manifest.final_kpis) == {"spotcool", "baseline"}
+    moved = run.folder / "moved.jsonl"
+    (run.folder / EVENTS_FILE).rename(moved)  # Windows refuses to rename a file still open
+    assert [r.envelope for r in read_records(moved) if isinstance(r, EventRecord)] == run.published
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_asked_for_below_the_recorder_keeps_every_record(
+    record_world: RecordWorld,
+) -> None:
+    run = await record_world(steps=4, after_recorder=[CancelAtTick(1)])
+    assert run.worker.state is WorkerState.CANCELLED
+    manifest = manifest_of(run.folder)
+    assert (manifest.ended, manifest.dropped_events) == ("cancelled", 0)
+    records = list(read_records(run.folder / EVENTS_FILE))
+    assert [r.envelope for r in records if isinstance(r, EventRecord)] == run.published
+    assert {r.index for r in records if isinstance(r, RawRecord)} == {0, 1, 2}
+
+
+@pytest.mark.asyncio
+async def test_batches_the_writing_task_left_are_written_at_the_end(
+    record_world: RecordWorld, tmp_path: Path
+) -> None:
+    recorder = RecorderProcessor(WorldSettings(run_dir=tmp_path / "runs"))
+    run = await record_world(
+        steps=4, recorder=recorder, before_recorder=[CancelWritingAtTick(recorder, 1)]
+    )
+    assert run.worker.state is WorkerState.FINISHED and not run.errors
+    records = list(read_records(run.folder / EVENTS_FILE))  # in pipeline order
+    assert [r.envelope for r in records if isinstance(r, EventRecord)] == run.published
+    raws = [(r.run, r.index) for r in records if isinstance(r, RawRecord)]
+    assert sorted(raws) == [(name, k) for name in ("baseline", "spotcool") for k in range(5)]
+    assert manifest_of(run.folder).ended == "finished"
+
+
+@pytest.mark.asyncio
 async def test_an_existing_record_is_never_appended_to(
     record_world: RecordWorld, tmp_path: Path
 ) -> None:
@@ -271,7 +382,7 @@ async def test_a_failed_write_is_fatal_and_leaves_no_manifest(
     def full_disk(writer: object, batch: object) -> None:
         raise OSError("No space left on device")
 
-    monkeypatch.setattr(recorder_module, "_write_batch", full_disk)
+    monkeypatch.setattr(recorder_module, "_write_records", full_disk)
     run = await record_world(steps=3)
     assert run.worker.state is WorkerState.CANCELLED
     assert any(e.fatal and "No space left on device" in e.message for e in run.errors)
@@ -299,16 +410,23 @@ async def test_measurements_that_cannot_be_recorded_are_fatal(
 async def test_secrets_never_reach_the_manifest(record_world: RecordWorld, tmp_path: Path) -> None:
     settings = WorldSettings(
         run_dir=tmp_path / "runs",
-        live_camera_url="http://admin:hunter2@192.168.43.1:8080/shot.jpg",
-        agent_base_url="http://agent:s3cret@127.0.0.1:8002",
+        live_camera_url="http://admin:hunter2@192.168.43.1:8080/shot.jpg?token=t0k&w=1280",
+        agent_base_url="http://127.0.0.1:8002/?api_key=k3y&Auth=s3cret&room=sou",
+        boptest_url="http://api.boptest.net/?keep=1",
     )
     run = await record_world(steps=1, settings=settings)
     text = (run.folder / MANIFEST_FILE).read_text(encoding="utf-8")
-    assert "hunter2" not in text and "s3cret" not in text and "admin" not in text
+    for secret in ("hunter2", "admin", "t0k", "k3y", "s3cret"):
+        assert secret not in text
     shown = manifest_of(run.folder).settings
-    assert shown["live_camera_url"] == "http://<redacted>@192.168.43.1:8080/shot.jpg"
-    assert shown["agent_base_url"] == "http://<redacted>@127.0.0.1:8002"
-    assert shown["boptest_url"] == "http://api.boptest.net"  # nothing to hide
+    assert shown["live_camera_url"] == (
+        "http://<redacted>@192.168.43.1:8080/shot.jpg?token=<redacted>&w=1280"
+    )
+    assert shown["agent_base_url"] == (
+        "http://127.0.0.1:8002/?api_key=<redacted>&Auth=<redacted>&room=sou"
+    )
+    assert shown["boptest_url"] == "http://api.boptest.net/?keep=1"  # "keep" names no secret
+    assert shown["run_dir"] == str(tmp_path / "runs")  # not a URL: left alone
 
     class WithToken(WorldSettings):
         agent_api_token: str | None = None

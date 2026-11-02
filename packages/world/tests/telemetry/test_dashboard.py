@@ -5,13 +5,15 @@ import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 from fastapi import FastAPI
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.typing import Origin
 
 from spotcool_contracts.events import EventEnvelope, EventSource, EventType, TickData
 from spotcool_world.bus import InProcessBus, Subscription
@@ -23,6 +25,7 @@ from spotcool_world.transports.websocket import dashboard
 from spotcool_world.transports.websocket.dashboard import (
     MAX_AGENT_MESSAGE_BYTES,
     MAX_AGENT_MESSAGES_PER_S,
+    MAX_AGENT_STRING,
     create_dashboard_app,
 )
 from spotcool_world.workers.http_server import STOP_TIMEOUT_S, HttpServerWorker
@@ -158,6 +161,7 @@ async def test_the_agent_socket_publishes_a_valid_agent_event(tmp_path: Path, ta
 
 
 BIG = {"blob": "x" * MAX_AGENT_MESSAGE_BYTES}
+LONG = f"longer than {MAX_AGENT_STRING} characters"
 REFUSED: list[tuple[str | bytes, str]] = [
     (json.dumps(agent_message(type="tick")), "not an agent type"),  # a world type
     (json.dumps(agent_message(type="scenario_state")), "not an agent type"),  # ground truth
@@ -167,6 +171,9 @@ REFUSED: list[tuple[str | bytes, str]] = [
     (json.dumps(agent_message(extra=1)), "not an EventEnvelope"),
     (json.dumps(agent_message(data=BIG)), f"larger than {MAX_AGENT_MESSAGE_BYTES} bytes"),
     (json.dumps(agent_message()).encode(), "JSON text message"),  # binary
+    (json.dumps(agent_message(data={"mask": "data:image/png;base64,iVBORw0KGgo="})), "data:"),
+    (json.dumps(agent_message(data={"crops": [{"x": "/9j/" + "A" * MAX_AGENT_STRING}]})), LONG),
+    (json.dumps(agent_message(data={" DATA:image/jpeg;base64,/9j/": 1})), "data:"),  # a key
 ]
 
 
@@ -184,7 +191,8 @@ async def test_the_agent_socket_refuses_invalid_messages_and_carries_on(
             await agent.send(message)
             reply = json.loads(await asyncio.wait_for(agent.recv(), 5))
             assert list(reply) == ["error"] and reason in reply["error"], message[:80]
-        valid = agent_message()
+        shapes = {"boxes": [[1, 2, 3, 4]], "polygon": [[0.1, 0.2], [0.3, 0.4]], "count": 5}
+        valid = agent_message(data={**shapes, "note": "y" * MAX_AGENT_STRING})  # at the limit
         await agent.send(json.dumps(valid))
         assert await asyncio.wait_for(anext(watch), 5) == EventEnvelope.model_validate(valid)
     assert await taken(watch) == []  # only the valid message was published
@@ -192,8 +200,10 @@ async def test_the_agent_socket_refuses_invalid_messages_and_carries_on(
 
 @pytest.mark.asyncio
 async def test_the_agent_socket_takes_at_most_twenty_messages_a_second(
-    tmp_path: Path, taken: Taken
+    tmp_path: Path, taken: Taken, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    now = [100.0]  # the server's clock, frozen: the test sets when messages arrive
+    monkeypatch.setattr(dashboard, "time", SimpleNamespace(perf_counter=lambda: now[0]))
     bus = InProcessBus()
     watch = bus.subscribe("events")
     async with (
@@ -205,9 +215,31 @@ async def test_the_agent_socket_takes_at_most_twenty_messages_a_second(
         replies = [json.loads(await asyncio.wait_for(agent.recv(), 5)) for _ in range(5)]
         assert all("messages a second" in reply["error"] for reply in replies)
         assert len(await taken(watch)) == MAX_AGENT_MESSAGES_PER_S
-        await asyncio.sleep(1.1)  # a second later the window has room again
+        now[0] += 0.999  # still within a second of the first twenty
+        await agent.send(json.dumps(agent_message()))
+        assert "messages a second" in json.loads(await asyncio.wait_for(agent.recv(), 5))["error"]
+        now[0] += 0.001  # a second after them: room again
         await agent.send(json.dumps(agent_message()))
         await asyncio.wait_for(anext(watch), 5)
+    assert await taken(watch) == []
+
+
+@pytest.mark.asyncio
+async def test_the_agent_socket_refuses_browser_pages_from_elsewhere(
+    tmp_path: Path, taken: Taken
+) -> None:
+    bus = InProcessBus()
+    watch = bus.subscribe("events")
+    async with serving(create_dashboard_app(bus, tmp_path)) as (_, base):
+        for origin in ("http://evil.example", "http://localhost.evil.example:5173"):
+            with pytest.raises(InvalidStatus) as refused:
+                await connect(f"{base}/ws/agent", origin=Origin(origin))
+            assert refused.value.response.status_code == 403
+        for origin in ("http://localhost:5173", "http://127.0.0.1:8090"):
+            async with connect(f"{base}/ws/agent", origin=Origin(origin)) as page:
+                await page.send(json.dumps(agent_message()))
+                await asyncio.wait_for(anext(watch), 5)
+    assert await taken(watch) == []
 
 
 @pytest.mark.asyncio

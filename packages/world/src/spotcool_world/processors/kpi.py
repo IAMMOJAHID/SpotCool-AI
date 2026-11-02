@@ -79,12 +79,13 @@ class KpiProcessor(FrameProcessor):
       stamp (``energy_saved_pct``).
     - Every ``PROVISIONAL_EVERY_STEPS`` steps it pushes a provisional ``KpiFrame`` per run,
       stamped ``t``, ahead of the tick; BOPTEST's KPIs are empty until the end.
-    - The plants' own final ``KpiFrame``s (BOPTEST's KPIs) are kept, not passed on. At an
-      ``EndFrame`` or ``CancelFrame`` it pushes one final ``KpiFrame`` per run
+    - The plants' own final ``KpiFrame``s (BOPTEST's KPIs) are kept, not passed on. At the
+      first ``EndFrame`` or ``CancelFrame`` it pushes one final ``KpiFrame`` per run
       (``provisional=False``) that merges them with the scores, then passes the frame on.
 
-    A run's comfort is ``None`` until a step of it could be scored. A ``StartFrame`` starts
-    afresh. Every other frame passes on.
+    Measurements without a summary are skipped: a step is scored only when both runs have one
+    at its stamp. A run's comfort is ``None`` until a step of it could be scored. A
+    ``StartFrame`` starts afresh. Every other frame passes on.
 
     Args:
         name: Display name.
@@ -96,6 +97,7 @@ class KpiProcessor(FrameProcessor):
         self._latest: dict[Run, tuple[float | None, PlantMeasurementsData]] = {}  # stamp, summary
         self._comfort: dict[Run, float] = {}
         self._boptest: dict[Run, dict[str, float | None]] = {}
+        self._ended = False
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         """Track the runs, push KPI frames ahead of ticks and at the end; pass frames on."""
@@ -103,6 +105,7 @@ class KpiProcessor(FrameProcessor):
         if direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, StartFrame):
                 self._state, self._latest, self._comfort, self._boptest = None, {}, {}, {}
+                self._ended = False
             elif isinstance(frame, ScenarioStateFrame):
                 self._state = frame.state
             elif isinstance(frame, PlantMeasurementsFrame) and frame.summary is not None:
@@ -113,7 +116,8 @@ class KpiProcessor(FrameProcessor):
             elif isinstance(frame, TickFrame):
                 for kpi in self._step(frame):
                     await self.push_frame(kpi)
-            elif isinstance(frame, EndFrame | CancelFrame):
+            elif isinstance(frame, EndFrame | CancelFrame) and not self._ended:
+                self._ended = True  # a CancelFrame after the EndFrame (stop() at the end) adds none
                 for kpi in self._kpis(provisional=False, sim_time_s=frame.sim_time_s):
                     await self.push_frame(kpi)
         await self.push_frame(frame, direction)

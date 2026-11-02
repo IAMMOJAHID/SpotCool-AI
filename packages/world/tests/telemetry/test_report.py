@@ -32,6 +32,7 @@ from spotcool_world.serializers import (
     RunManifest,
     RunWriter,
 )
+from spotcool_world.services.boptest.catalog import bms_signal
 
 Raw = Callable[..., dict[str, float]]
 State = Callable[..., ScenarioStateData]
@@ -64,6 +65,7 @@ def write_run(
     south: list[float] = SOUTH,
     core: list[float] = CORE,
     run_id: str = "tiny",
+    missing_at_start: tuple[str, ...] = (),
 ) -> Path:
     folder = run_dir / run_id
     kpis: dict[Run, KpiData] = {
@@ -92,8 +94,10 @@ def write_run(
                 writer.write(EventRecord(envelope=envelope))
             temps = {Zone.SOU: south[index], Zone.COR: core[index]}
             spotcool = make_raw(temps, meter_w=1000 / 7)  # 1 kW
-            writer.write(RawRecord(run="spotcool", index=index, sim_time_s=t_s, raw=spotcool))
             baseline = make_raw(meter_w=2000 / 7)  # 2 kW
+            for key in missing_at_start if index == 0 else ():
+                del spotcool[key], baseline[key]
+            writer.write(RawRecord(run="spotcool", index=index, sim_time_s=t_s, raw=spotcool))
             writer.write(RawRecord(run="baseline", index=index, sim_time_s=t_s, raw=baseline))
         for kpi in kpis.values():
             envelope = EventEnvelope.build(EventType.KPI, EventSource.WORLD, kpi, T0 + 4 * STEP_S)
@@ -146,6 +150,22 @@ def test_a_tiny_run_renders_with_its_kpis_recovery_times_and_charts(
     for chart in (POWER_CHART, ZONES_CHART, OCCUPANCY_CHART):
         assert f"]({chart})" in text
         assert (folder / chart).read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_a_state_without_every_value_is_not_drawn_but_its_power_counts(
+    tmp_path: Path, make_raw: Raw, make_state: State
+) -> None:
+    setpoints = tuple(
+        bms_signal(f"ZN-{zone.value.upper()}-{point}-SP")
+        for zone in Zone
+        for point in ("CLG", "HTG")
+    )
+    write_run(tmp_path, make_raw, make_state, missing_at_start=setpoints)  # as BOPTEST may
+    run = load_run(tmp_path, "tiny")
+    assert [s.t_s for s in run.samples["spotcool"]] == [T0 + k * STEP_S for k in range(1, 5)]
+    assert run.samples["spotcool"][-1].summary.energy_kwh == pytest.approx(1.0)  # from 07:00
+    text = write_report(tmp_path, "tiny").read_text(encoding="utf-8")
+    assert "| HVAC energy (kWh) | 1.0 | 2.0 |" in text and "| South | 07:15 | 5 | 30 | 0 |" in text
 
 
 def test_recovery_reads_temperatures_from_the_arrival_on(

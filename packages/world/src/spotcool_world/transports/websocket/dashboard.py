@@ -9,9 +9,12 @@
 - ``/ws/agent``: publish-only, for Person A's agent. Each message must be one ``EventEnvelope``
   as JSON text, with ``source: "agent"`` and an agent type (``AGENT_TYPES``), at most
   ``MAX_AGENT_MESSAGE_BYTES`` long and at most ``MAX_AGENT_MESSAGES_PER_S`` a second on the
-  connection. A valid one goes on the events topic; an invalid one is dropped and answered
-  with ``{"error": "..."}``. This socket never sends world events, so ground truth cannot
-  reach the agent through it.
+  connection, and carry no image: no string starting ``data:`` and none longer than
+  ``MAX_AGENT_STRING`` (perception sends counts, boxes and polygons; the recorder keeps what is
+  sent). A valid one goes on the events topic; an invalid one is dropped and answered with
+  ``{"error": "..."}``. A browser page from anywhere but this machine is refused (its
+  ``Origin``); programs send no ``Origin``. This socket never sends world events, so ground
+  truth cannot reach the agent through it.
 - ``GET /runs``: the recorded runs; ``GET /runs/{run_id}/events.jsonl``: one run's record.
   A run id must match ``RUN_ID_PATTERN`` (422 otherwise), so it never leaves ``run_dir``.
 - ``GET /healthz``; ``/`` serves the built dashboard (``apps/dashboard/dist``) if it exists.
@@ -25,7 +28,7 @@ import re
 import time
 from collections import deque
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi import Path as PathParam
@@ -47,6 +50,8 @@ MAX_AGENT_MESSAGE_BYTES = 64 * 1024
 """The largest message ``/ws/agent`` accepts, in UTF-8 bytes."""
 MAX_AGENT_MESSAGES_PER_S = 20
 """The most messages ``/ws/agent`` takes from one connection in any second."""
+MAX_AGENT_STRING = 8192
+"""The longest string an agent event may hold, in characters: longer ones are media."""
 AGENT_TYPES = frozenset(
     {EventType.PERCEPTION, EventType.DECISION, EventType.EXPLANATION, EventType.CHAT}
 )
@@ -106,6 +111,10 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
     @app.websocket("/ws/agent")
     async def agent(websocket: WebSocket) -> None:
         """Publishes each valid agent event on the bus; answers an invalid one with an error."""
+        origin = websocket.headers.get("origin")
+        if origin is not None and not re.fullmatch(LOCAL_ORIGINS, origin):
+            await websocket.close(code=1008)  # before the handshake: the page gets a 403
+            return
         await websocket.accept()
         admitted: deque[float] = deque()  # when the messages of the last second arrived
         try:
@@ -180,4 +189,27 @@ def _agent_event(text: str | None, admitted: deque[float]) -> EventEnvelope | st
     if envelope.type not in AGENT_TYPES:
         allowed = ", ".join(sorted(kind.value for kind in AGENT_TYPES))
         return f"type {envelope.type.value!r} is not an agent type; use one of {allowed}"
+    if (media := _media(envelope.data)) is not None:
+        return f"data holds {media}; send counts, boxes and polygons, never images (Law 6)"
     return envelope
+
+
+def _media(data: Any) -> str | None:
+    """What in ``data`` looks like an image or a recording, or ``None``.
+
+    A string (key or value, at any depth) that starts with ``data:`` (a data URI) or is longer
+    than ``MAX_AGENT_STRING`` characters.
+    """
+    pending = [data]
+    while pending:  # a stack, not recursion: the nesting depth is the sender's choice
+        value = pending.pop()
+        if isinstance(value, str):
+            if value.lstrip()[:5].lower() == "data:":
+                return "a data: URI"
+            if len(value) > MAX_AGENT_STRING:
+                return f"a string longer than {MAX_AGENT_STRING} characters"
+        elif isinstance(value, dict):
+            pending += [*value.keys(), *value.values()]
+        elif isinstance(value, list):
+            pending += value
+    return None

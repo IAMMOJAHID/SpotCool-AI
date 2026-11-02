@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 
+from loguru import logger
+
 from spotcool_contracts import Zone, load_point_map
 from spotcool_contracts.events import PlantMeasurementsData, Run, ZoneMeasurement
 from spotcool_contracts.points import Conversion, PointSpec
@@ -139,13 +141,41 @@ class EnergyMeter:
         return self.kwh
 
 
+def metered_summary(
+    run: Run, raw: Mapping[str, float], t_s: float | None, meter: EnergyMeter
+) -> PlantMeasurementsData:
+    """``summarize`` with the run's energy, after ``meter`` has counted ``raw``'s power.
+
+    The meter counts every stamped ``raw`` that has all seven meters, even one the summary
+    cannot be built from, so a run's energy starts at its first frame with the meters.
+
+    Args:
+        run: Which run produced ``raw``.
+        raw: The run's outputs, in BOPTEST names and units.
+        t_s: The stamp of ``raw``; an unstamped one adds no energy.
+        meter: The run's energy meter.
+
+    Raises:
+        KeyError: If ``raw`` lacks a value the summary needs (BOPTEST leaves out values it
+            reports as null, such as setpoints in an initial state).
+    """
+    try:
+        power = sum(power_kw(raw).values())
+    except KeyError:
+        energy = meter.kwh
+    else:
+        energy = meter.kwh if t_s is None else meter.add(t_s, power)
+    return summarize(run, raw, energy)
+
+
 class TelemetryProcessor(FrameProcessor):
     """Fills every ``PlantMeasurementsFrame``'s ``summary``: the run's state in BMS units.
 
-    The summary (``summarize``) carries the run's cumulative energy, integrated by an
-    ``EnergyMeter`` over the frames' stamps from the run's initial state (its first frame after
-    a ``StartFrame``) on. A frame lacking a value the summary needs keeps ``summary=None`` and
-    is reported as a non-fatal error. A ``StartFrame`` resets every meter. Every frame passes on.
+    The summary (``metered_summary``) carries the run's cumulative energy, integrated by an
+    ``EnergyMeter`` over the frames' stamps from the run's first frame with the seven meters
+    (normally its initial state, the first frame after a ``StartFrame``) on. A frame lacking a
+    value the summary needs keeps ``summary=None``; that is logged once per run. A
+    ``StartFrame`` starts afresh. Every frame passes on.
 
     Args:
         name: Display name.
@@ -154,26 +184,26 @@ class TelemetryProcessor(FrameProcessor):
     def __init__(self, *, name: str | None = None) -> None:
         super().__init__(name=name)
         self._meters: dict[Run, EnergyMeter] = {}
+        self._incomplete: set[Run] = set()  # runs whose missing values were logged
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         """Summarize plant measurements; pass every frame on."""
         await super().process_frame(frame, direction)
         if direction is FrameDirection.DOWNSTREAM:
             if isinstance(frame, StartFrame):
-                self._meters = {}
+                self._meters, self._incomplete = {}, set()
             elif isinstance(frame, PlantMeasurementsFrame):
-                await self._summarize(frame)
+                self._summarize(frame)
         await self.push_frame(frame, direction)
 
-    async def _summarize(self, frame: PlantMeasurementsFrame) -> None:
-        try:
-            summary = summarize(frame.run, frame.raw)
-        except KeyError as exc:
-            await self.push_error(
-                f"{frame.run} measurements at {frame.sim_time_s} s lack {exc}; no summary"
-            )
-            return
+    def _summarize(self, frame: PlantMeasurementsFrame) -> None:
         meter = self._meters.setdefault(frame.run, EnergyMeter())
-        t_s = frame.sim_time_s
-        energy = meter.kwh if t_s is None else meter.add(t_s, summary.total_power_kw)
-        frame.summary = summary.model_copy(update={"energy_kwh": energy})
+        try:
+            frame.summary = metered_summary(frame.run, frame.raw, frame.sim_time_s, meter)
+        except KeyError as exc:
+            if frame.run not in self._incomplete:
+                self._incomplete.add(frame.run)
+                logger.warning(
+                    f"{self.name}: {frame.run} measurements at {frame.sim_time_s} s lack {exc}; "
+                    "frames without every value get no summary (logged once per run)"
+                )

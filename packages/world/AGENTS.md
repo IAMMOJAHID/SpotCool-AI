@@ -409,11 +409,14 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   EventEmitterProcessor -> RecorderProcessor -> BusPublisher(bus)`. The KPI processor needs the
   telemetry's summaries. The recorder goes after the emitter, before or after `BusPublisher`:
   lockstep publishes a frame's events before the next frame reaches the recorder.
-- **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`summarize`): every
-  zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
+- **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`metered_summary`):
+  every zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
   (`power_kw`, BOPTEST's ElectricPower basis), their total, and the run's energy: the trapezoid
-  rule over the stamps from the run's initial state (`EnergyMeter`). A frame lacking a value
-  keeps no summary (a non-fatal error).
+  rule over the stamps (`EnergyMeter`), from the run's first frame with all seven meters
+  (normally its initial state). BOPTEST leaves out values it reports as null, such as the `_u`
+  setpoints of an initial state: a frame lacking a value keeps no summary, its power still
+  counts if it has the meters, and that is logged once per run. The KPIs and the report skip
+  such frames.
 - **`KpiProcessor`** scores both runs at each tick, once both runs' measurements stamped `t`
   (the end of the step) have passed.
   - Comfort where people were (K h, `comfort_kh`): the people of the latest
@@ -421,15 +424,19 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     baseline's applied setpoints at `t`; both runs get the same people and band.
   - Energy saved (%): both runs' cumulative energy at the same stamp, on the SpotCool run only.
   - A provisional `KpiFrame` per run every 4 steps, ahead of the tick, with `boptest` empty.
-  - At `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the plant's own
-    final one (BOPTEST's KPIs); the plants' frames are not passed on.
+  - At the first `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the
+    plant's own final one (BOPTEST's KPIs); the plants' frames are not passed on.
   - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
     computes them.
 - **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
   (`frame_events`), ahead of the frame: tick (clock and day of year), run status, scenario
   state, plant measurements (the summary), BMS write, KPI, VRF state, camera scene, calendar,
   complaint cue (`data` only: the audio file name stays in the world), error, and one metrics
-  event per sample. Within a tick the `tick` event comes last.
+  event per sample.
+  - **Within a tick the `tick` event comes last** (for WP7): the tick stamped `T` follows the
+    step's results stamped `T + step` (measurements, metrics, KPIs), because derived frames
+    travel ahead of their tick. So `sim_time_s` is not monotonic inside a tick; order by
+    arrival, or treat each `tick` event as the close of its step.
   - `ErrorFrame`s travel upstream, so the errors of processors above the emitter never reach
     it. Turn them into events with `frame_events(error)` in the pipeline worker's
     `on_pipeline_error`, which runs as a background task: a fatal one may arrive after the
@@ -441,16 +448,22 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   - `events.jsonl` (`serializers/jsonl.py`, the format `ReplayPlant` reads): every envelope on
     the topic as an event record and every `PlantMeasurementsFrame` as a `RawRecord` (`index`
     0: the initial state), in pipeline order. It subscribes in `setup()` (100 000 messages)
-    and takes the waiting events on every frame; a background task writes and flushes each
-    tick's records.
-  - `manifest.json` (`RunManifest`), at the `EndFrame` or `CancelFrame`: the run id, when it
-    started (UTC), how it ended and why, the settings (credentials in URLs and fields named like
-    secrets redacted), the git sha, both versions, the scenario's name and file sha256, the
-    plant and step, the start and end sim times, the final KPIs, and `dropped_events` (0 in a
-    valid record, a warning otherwise).
+    and, on every frame, moves the waiting events into the tick's batch one by one, so a
+    cancel never loses one it has taken. A background task writes and flushes each tick's
+    batch in a worker thread.
+  - `manifest.json` (`RunManifest`): the run id, when it started (UTC), how it ended and why,
+    the settings (redacted: fields named like secrets, a URL's user name and password, and its
+    `token`, `key`, `secret`, `password` and `auth` query parameters), the git sha, both
+    versions, the scenario's name and file sha256, the plant and step, the start and end sim
+    times, the final KPIs, and `dropped_events` (0 in a valid record, a warning otherwise).
+  - The first `EndFrame` or `CancelFrame` finishes the record as one task, which the frame
+    awaits through `asyncio.shield`: `stop()` while the `EndFrame` passes cannot cut it short,
+    and a later end frame waits for the same task. `ended` names the end frame that reached
+    the recorder first. The task writes what the writing task left if that task is gone.
   - Every recording failure is fatal: a run id outside `RUN_ID_PATTERN`, a directory that
     already holds a record (never appended to), a failed write (no manifest then). A run that
-    never reaches its end frame keeps its flushed records, without a manifest.
+    never reaches an end frame keeps its flushed records, without a manifest; `cleanup()`
+    closes the file.
   - Events published after the end frame has passed the recorder are not recorded: a delivery
     still in flight, the occupant worker's "not sent" results at its `stop()`.
   - Records are JSON: no image or audio bytes (`tests/telemetry/test_recorder.py` checks).
@@ -461,8 +474,12 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     ignored.
   - `/ws/agent`: publish-only. One `EventEnvelope` per JSON text message, `source: "agent"`,
     type perception, decision, explanation or chat, at most 64 KB and 20 messages a second per
-    connection; an invalid message is dropped and answered with `{"error": "..."}`. It never
-    sends world events.
+    connection, and no image: no string starting `data:` and none over 8192 characters
+    (perception sends counts, boxes and polygons; Law 6, since the recorder keeps what is
+    sent). An invalid message is dropped and answered with `{"error": "..."}`. A browser page
+    whose `Origin` is not `http://127.0.0.1:*` or `http://localhost:*` is refused (403), so a
+    web page cannot publish fake agent events; programs send no `Origin`. It never sends world
+    events.
   - `GET /runs` (`{"runs": [...]}`); `GET /runs/{run_id}/events.jsonl` (422 for an id outside
     `RUN_ID_PATTERN`, 404 for an unknown run); `GET /healthz`; `/` serves `apps/dashboard/dist`
     if it exists when the app is made. CORS as in `create_http_app`.

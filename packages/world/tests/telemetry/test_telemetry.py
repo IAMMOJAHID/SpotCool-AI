@@ -1,10 +1,11 @@
 from collections.abc import Callable
 
 import pytest
+from loguru import logger
 
 from spotcool_contracts import Zone
 from spotcool_contracts.events import Run
-from spotcool_world.frames import ErrorFrame, PlantMeasurementsFrame, StartFrame
+from spotcool_world.frames import PlantMeasurementsFrame, StartFrame
 from spotcool_world.processors import TelemetryProcessor
 from spotcool_world.processors.telemetry import EnergyMeter, power_kw, summarize
 from spotcool_world.services.boptest.catalog import bms_signal, load_catalog
@@ -120,12 +121,44 @@ async def test_a_start_frame_resets_the_meters(make_raw: Raw) -> None:
     assert again.summary is not None and again.summary.energy_kwh == 0.0
 
 
+def without_setpoints(raw: dict[str, float]) -> dict[str, float]:
+    """``raw`` as BOPTEST may report an initial state: no ``_u`` setpoint values."""
+    for zone in Zone:
+        for point in ("CLG-SP", "HTG-SP"):
+            del raw[bms_signal(f"ZN-{zone.value.upper()}-{point}")]
+    return raw
+
+
 @pytest.mark.asyncio
-async def test_measurements_without_a_needed_value_keep_no_summary(make_raw: Raw) -> None:
-    raw = make_raw()
-    del raw[bms_signal("ZN-COR-T")]
-    frame = measured("spotcool", 900.0, raw)
-    down, up = await run_test(TelemetryProcessor(), frames_to_send=[frame])
-    assert down == [frame] and frame.summary is None
-    assert len(up) == 1 and isinstance(up[0], ErrorFrame)
-    assert not up[0].fatal and "hvac_reaZonCor_TZon_y" in up[0].message
+async def test_measurements_without_every_value_get_no_summary_and_are_logged_once(
+    make_raw: Raw,
+) -> None:
+    frames = [measured("spotcool", t_s, without_setpoints(make_raw())) for t_s in (0.0, 900.0)]
+    warnings: list[str] = []
+    sink = logger.add(lambda message: warnings.append(str(message)), level="WARNING")
+    try:
+        down, up = await run_test(TelemetryProcessor(), frames_to_send=frames)
+    finally:
+        logger.remove(sink)
+    assert down == frames and all(frame.summary is None for frame in frames)
+    assert up == []  # never an error frame: the run goes on
+    assert len(warnings) == 1 and "hvac_oveZonSupCor_TZonCooSet_u" in warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_energy_starts_at_the_first_frame_with_the_meters(make_raw: Raw) -> None:
+    one_kw = 1000 / 7
+    no_setpoints = measured("spotcool", 0.0, without_setpoints(make_raw(meter_w=one_kw)))
+    no_meter = make_raw(meter_w=one_kw)
+    del no_meter["chi_reaPChi_y"]
+    frames = [
+        no_setpoints,  # no summary, but its power counts
+        measured("baseline", 0.0, no_meter),  # no summary, and no power to count
+        measured("spotcool", 900.0, make_raw(meter_w=one_kw)),
+        measured("baseline", 900.0, make_raw(meter_w=one_kw)),
+    ]
+    await run_test(TelemetryProcessor(), frames_to_send=frames)
+    assert no_setpoints.summary is None and frames[1].summary is None
+    assert frames[2].summary is not None and frames[3].summary is not None
+    assert frames[2].summary.energy_kwh == pytest.approx(0.25)  # from 0 s on
+    assert frames[3].summary.energy_kwh == 0.0  # its meter starts at 900 s
