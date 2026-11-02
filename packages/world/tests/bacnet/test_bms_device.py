@@ -17,6 +17,7 @@ from bacpypes3.constructeddata import Any as AnyValue
 from bacpypes3.ipv4.app import NormalApplication
 from bacpypes3.pdu import Address
 from bacpypes3.primitivedata import Null, ObjectIdentifier, Real
+from loguru import logger
 
 from spotcool_contracts import load_point_map
 from spotcool_contracts.events import Run, ScenarioStateData, ZoneScene
@@ -37,7 +38,7 @@ from spotcool_world.processors import FrameDirection, FrameProcessor, PlantProce
 from spotcool_world.services import WorldSettings, create_plant
 from spotcool_world.services.boptest.catalog import MANAGED_INPUTS, bms_signal, zone_damper
 from spotcool_world.testing import run_test
-from spotcool_world.transports.bacnet.bms import BacnetBmsTransport
+from spotcool_world.transports.bacnet.bms import BacnetBmsTransport, is_local_ipv4
 
 pytestmark = pytest.mark.bacnet
 
@@ -441,39 +442,52 @@ async def test_a_bad_address_is_refused(address: str) -> None:
         await BacnetBmsTransport(address=address).start()
 
 
+@pytest.mark.parametrize(
+    ("present", "errors", "back"),
+    [
+        ("YNYYYY", 0, 0),  # a blip of one tick
+        ("YNNNYY", 1, 1),  # lost, then a reconnect to the same network
+        ("NNYNNY", 2, 2),  # lost, back, lost again
+    ],
+    ids=["blip", "lost-then-back", "lost-twice"],
+)
 @pytest.mark.asyncio
-async def test_an_address_the_pc_lost_is_reported_once_and_the_run_goes_on(
-    ports: tuple[int, int],
+async def test_an_address_the_pc_lost_is_reported_once_until_it_is_back(
+    ports: tuple[int, int], present: str, errors: int, back: int
 ) -> None:
+    answers = iter(present)  # Y: the PC has the address on that tick
     checked: list[str] = []
-    network = {"same": True}
 
     def has_address(ip: str) -> bool:
         checked.append(ip)
-        return network["same"]
+        return next(answers) == "Y"
 
-    async def change_network() -> None:
-        network["same"] = False  # Windows joined another saved Wi-Fi network
-
+    infos: list[str] = []
+    sink = logger.add(lambda message: infos.append(message.record["message"]), level="INFO")
     bms = BacnetBmsTransport(address=HOST, port=ports[0], has_address=has_address)
     await bms.start()
     try:
         down, up = await run_test(
-            Pipeline([Actions({1: change_network}), bms.input(), bms.output()]),
-            frames_to_send=[tick(index) for index in range(4)],
+            Pipeline([bms.input(), bms.output()]),
+            frames_to_send=[tick(index) for index in range(len(present))],
             params=PipelineParams(clock=SimClock(T0, STEP_S), run_id="t"),
         )
     finally:
         await bms.stop()
-    assert [(f.fatal, f.message) for f in only(up, ErrorFrame)] == [
-        (
-            False,
-            f"the PC's network changed: the BMS at {HOST}:{ports[0]} is unreachable; restart "
-            "the run on one network",
-        )
-    ]
-    assert len(only(down, TickFrame)) == 4  # every tick went on
-    assert checked == [HOST, HOST]  # once a tick until it was lost
+        logger.remove(sink)
+    lost = (
+        f"the PC's network changed: the BMS at {HOST}:{ports[0]} is unreachable; restart the "
+        "run on one network"
+    )
+    assert [(f.fatal, f.message) for f in only(up, ErrorFrame)] == [(False, lost)] * errors
+    assert sum(f"the PC's address {HOST} is back" in line for line in infos) == back
+    assert len(only(down, TickFrame)) == len(present)  # every tick went on
+    assert checked == [HOST] * len(present)  # once a tick
+
+
+def test_an_address_is_local_while_a_socket_can_bind_it() -> None:
+    assert is_local_ipv4(HOST)
+    assert not is_local_ipv4("192.0.2.1")  # TEST-NET-1: never this PC's
 
 
 @pytest.mark.asyncio

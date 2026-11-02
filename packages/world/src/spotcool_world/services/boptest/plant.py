@@ -34,6 +34,7 @@ from loguru import logger
 from spotcool_world.services.boptest.catalog import MANAGED_INPUTS, load_catalog
 from spotcool_world.services.boptest.client import (
     ADVANCE_TIMEOUT_S,
+    QUICK_TIMEOUT_S,
     STOP_RETRY_S,
     BoptestClient,
     BoptestError,
@@ -52,7 +53,7 @@ RECOVERY_S = 300.0
 """Longest wall time a step waits for its state, from its advance's first failure."""
 RECOVERY_BACKOFF_S = 1.0
 """Longest delay before a recovering step's second try; it doubles with each try, up to 30 s."""
-_TUNNEL_STATUSES = frozenset({502, 503, 504})  # a proxy between us and BOPTEST lost it
+_TRANSIENT_STATUSES = frozenset({429, 502, 503, 504})  # throttled, or a proxy lost BOPTEST
 
 
 class BoptestPlant(PlantService):
@@ -190,18 +191,22 @@ class BoptestPlant(PlantService):
         """Advance one step, sending every managed input explicitly.
 
         An advance that fails on the connection (no answer, or HTTP 502, 503 or 504 from a
-        proxy) is recovered within ``RECOVERY_S`` of the failure (no try starts later, and a
-        resend's timeout ends by then; a read of the results under way takes at most
-        ``QUICK_TIMEOUT_S`` more), and counted in ``connection_recoveries``. The step ends at
-        ``t_next``, the last state's time plus the step:
+        proxy) or is throttled (HTTP 429) is recovered within ``RECOVERY_S`` of the failure,
+        and counted in ``connection_recoveries``: no try starts later, and each one's timeout
+        ends by then. The step ends at ``t_next``, the last state's time plus the step:
 
-        - An advance that never reached BOPTEST (no connection) is resent.
+        - An advance that never reached BOPTEST (no connection), or that it refused (429), is
+          resent.
         - Any other may have reached it, and BOPTEST finishes an advance it got. If its stored
           results reach ``t_next``, the step ran: its state is read back from them
           (``BoptestClient.state_at``). If they do not, in an answer that arrives at least
           ``ADVANCE_TIMEOUT_S`` after the advance was sent, BOPTEST never got it, and it is
           resent; the same inputs make the same step, since inputs latch. Otherwise the
-          results are read again, with backoff.
+          results are read again, with backoff (a read throttled with 429 too).
+
+        Every answer's time is checked: one more than half a step past ``t_next`` means
+        BOPTEST applied a step twice (an advance that turned up late), and fails the step. The
+        step means follow a recovered step as any other, with a step's usual read.
 
         Args:
             overrides: Input name (``..._u``) to value; ``None`` or leaving a managed input out
@@ -213,8 +218,9 @@ class BoptestPlant(PlantService):
 
         Raises:
             ValueError: If an override is not an input of the test case (nothing is sent).
-            BoptestError: If BOPTEST fails to advance (it refuses the step, or gives no state
-                for it within ``RECOVERY_S``), or the scenario period is over.
+            BoptestError: If BOPTEST fails to advance (it refuses the step, gives no state for
+                it within ``RECOVERY_S``, or applied a step twice), or the scenario period is
+                over.
         """
         testid = self._require_testid()
         self._catalog.check_overrides(overrides)
@@ -225,9 +231,11 @@ class BoptestPlant(PlantService):
             if value is not None:
                 inputs[name] = value
             inputs[name.removesuffix("_u") + "_activate"] = 0.0 if value is None else 1.0
+        start_s = self._time_s
         state = await self._advance(testid, inputs)
         if not state:
             raise BoptestError("advance: the BOPTEST scenario period is over", status=200)
+        self._one_step(testid, start_s, state.get("time"))
         self._time_s = state.get("time")
         await self._mean_power(testid, state)
         return state
@@ -259,9 +267,21 @@ class BoptestPlant(PlantService):
         try:
             return await self._client.advance(testid, inputs)
         except BoptestError as exc:
-            if start_s is None or not _connection_lost(exc):
+            if start_s is None or not _transient(exc):
                 raise
             return await self._recover(testid, inputs, start_s, exc, sent_s)
+
+    def _one_step(self, testid: str, start_s: float | None, end_s: float | None) -> None:
+        """Fail if BOPTEST is at ``end_s``, more than one step on from ``start_s``.
+
+        Half a step's margin lets a step that the scenario's end cut short pass.
+        """
+        if start_s is not None and end_s is not None and end_s > start_s + 1.5 * self.step_s:
+            raise BoptestError(
+                f"test {testid} is at {end_s:.0f} s, past the step's end at "
+                f"{start_s + self.step_s:.0f} s: it advanced more than once",
+                status=200,
+            )
 
     async def _recover(
         self,
@@ -281,38 +301,43 @@ class BoptestPlant(PlantService):
         first, last = lost, lost
         reads = resends = tries = 0
         probe = self._catalog.electric_power[:1]  # a meter: a number at every stored time
+
+        def left_s(cap_s: float) -> float:
+            """A call's timeout: its usual one, but never past the deadline."""
+            return min(cap_s, max(deadline - self._clock(), 1e-3))
+
         while True:
             try:
-                resend = lost.unsent
+                resend = _unsent(lost)
                 if not resend:
                     reads += 1
                     # Up to a step past this one's end, so a step applied twice would show.
-                    stored = await self._client.results(testid, probe, start_s, final_s + step_s)
+                    stored = await self._client.results(
+                        testid, probe, start_s, final_s + step_s, timeout_s=left_s(QUICK_TIMEOUT_S)
+                    )
                     end_s = (stored.get("time") or [start_s])[-1]
-                    if end_s > final_s + step_s / 2:
-                        raise BoptestError(
-                            f"test {testid} is at {end_s:.0f} s, past the step's end at "
-                            f"{final_s:.0f} s: it advanced more than once",
-                            status=200,
-                        )
+                    self._one_step(testid, start_s, end_s)
                     if end_s > start_s:  # the step ran: BOPTEST's stored state at its end
-                        state = await self._client.state_at(testid, self._state_names, end_s)
+                        state = await self._client.state_at(
+                            testid, self._state_names, end_s, timeout_s=left_s(QUICK_TIMEOUT_S)
+                        )
                         how = "read back from BOPTEST's stored results"
                         return self._recovered(testid, final_s, first, state, how)
                     resend = self._clock() - sent_s >= ADVANCE_TIMEOUT_S
                 if resend:
                     resends += 1
                     sent_s = self._clock()
-                    timeout_s = min(ADVANCE_TIMEOUT_S, max(deadline - sent_s, 1.0))
                     try:
-                        state = await self._client.advance(testid, inputs, timeout_s=timeout_s)
+                        state = await self._client.advance(
+                            testid, inputs, timeout_s=left_s(ADVANCE_TIMEOUT_S)
+                        )
                     except BoptestError as exc:
                         lost = exc
                         raise
                     how = "resent, as BOPTEST never got it"
                     return self._recovered(testid, final_s, first, state, how)
             except BoptestError as exc:
-                if not _connection_lost(exc):
+                if not _transient(exc):
                     raise
                 last = exc
             tries += 1
@@ -371,9 +396,14 @@ class BoptestPlant(PlantService):
                     logger.warning(f"BOPTEST: keep-alive of test {testid} failed: {exc}")
 
 
-def _connection_lost(exc: BoptestError) -> bool:
-    """Whether a call failed on the connection, not in BOPTEST: no answer, or a proxy's 5xx."""
-    return exc.status is None or exc.status in _TUNNEL_STATUSES
+def _transient(exc: BoptestError) -> bool:
+    """Whether a call may succeed later: no answer, a proxy's 5xx, or HTTP 429 (throttled)."""
+    return exc.status is None or exc.status in _TRANSIENT_STATUSES
+
+
+def _unsent(exc: BoptestError) -> bool:
+    """Whether an advance certainly ran nowhere: it never reached BOPTEST, or was throttled."""
+    return exc.unsent or exc.status == 429
 
 
 def step_means(samples: Mapping[str, Sequence[float]], names: Sequence[str]) -> dict[str, float]:

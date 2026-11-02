@@ -7,6 +7,7 @@ into the test's tmp dir. No network beyond loopback, no BOPTEST, no footage.
 import asyncio
 import os
 import socket
+import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -100,20 +101,25 @@ def make_settings(tmp_path: Path) -> Callable[..., WorldSettings]:
 class FakeBoptestClient:
     """``BoptestClient`` for one test, with an RC plant's physics; ``stop`` takes ``stop_s``.
 
-    ``events`` records ``select``, ``stop sent``, ``stop done`` and ``closed``, in order. The
-    first ``results_failures`` results calls fail, and the next ``lost_answers`` advances step
-    the plant but lose their answer.
+    ``events`` records ``select``, ``stop sent``, ``stop done`` and ``closed``, in order, and
+    ``stop_sent_s`` when the stop was sent (``time.perf_counter``). The first
+    ``results_failures`` results calls fail, and the next ``lost_answers`` advances step the
+    plant but lose their answer.
 
     Args:
         base_url: The service URL, as the plant's provider passes it.
         stop_s: How long a stop request takes.
+        kpis_s: How long the KPIs take.
     """
 
-    def __init__(self, base_url: str, stop_s: float) -> None:
+    def __init__(self, base_url: str, stop_s: float, kpis_s: float = 0.0) -> None:
         self.base_url = base_url
         self.stop_s = stop_s
+        self.kpis_s = kpis_s
         self.events: list[str] = []
         self.stop_sent = asyncio.Event()
+        self.stop_sent_s: float | None = None
+        self.kpis_asked = asyncio.Event()
         self.idle_s = 0.0
         self.results_failures = 0
         self.lost_answers = 0
@@ -144,7 +150,13 @@ class FakeBoptestClient:
         return dict(self._state)
 
     async def results(
-        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+        self,
+        testid: str,
+        point_names: Sequence[str],
+        start_time_s: float,
+        final_time_s: float,
+        *,
+        timeout_s: float | None = None,
     ) -> dict[str, list[float]]:
         if self.results_failures:
             self.results_failures -= 1
@@ -154,7 +166,12 @@ class FakeBoptestClient:
         return samples | {"time": [start_time_s, min(final_time_s, self._state["time"])]}
 
     async def state_at(
-        self, testid: str, point_names: Sequence[str], time_s: float
+        self,
+        testid: str,
+        point_names: Sequence[str],
+        time_s: float,
+        *,
+        timeout_s: float | None = None,
     ) -> dict[str, float]:
         assert time_s == self._state["time"]  # the latest stored time
         return {name: self._state[name] for name in point_names if name in self._state} | {
@@ -162,6 +179,8 @@ class FakeBoptestClient:
         }
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
+        self.kpis_asked.set()
+        await asyncio.sleep(self.kpis_s)
         return await self._rc.kpis()
 
     async def keep_alive(self, testid: str) -> None:
@@ -169,6 +188,7 @@ class FakeBoptestClient:
 
     async def stop(self, testid: str) -> None:
         self.events.append("stop sent")
+        self.stop_sent_s = time.perf_counter()
         self.stop_sent.set()
         await asyncio.sleep(self.stop_s)
         self.events.append("stop done")
@@ -179,15 +199,17 @@ class FakeBoptestClient:
 
 @dataclass
 class FakeBoptest:
-    """The fake BOPTEST clients the world's plants were given, and how long a stop takes.
+    """The fake BOPTEST clients the world's plants were given, and how long their calls take.
 
     Parameters:
         clients: The clients, in the order the plants were made (spotcool, then baseline).
         stop_s: How long the next clients' stop requests take.
+        kpis_s: How long the next clients' KPIs take.
     """
 
     clients: list[FakeBoptestClient] = field(default_factory=list)
     stop_s: float = 0.0
+    kpis_s: float = 0.0
 
 
 @pytest.fixture
@@ -198,7 +220,7 @@ def fake_boptest(monkeypatch: pytest.MonkeyPatch) -> FakeBoptest:
     fake = FakeBoptest()
 
     def make(base_url: str, testcase: str) -> BoptestPlant:
-        fake.clients.append(FakeBoptestClient(base_url, fake.stop_s))
+        fake.clients.append(FakeBoptestClient(base_url, fake.stop_s, fake.kpis_s))
         return BoptestPlant(cast(BoptestClient, fake.clients[-1]), testcase)
 
     monkeypatch.setattr(local, "LocalBoptestPlant", make)

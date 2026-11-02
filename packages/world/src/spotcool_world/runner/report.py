@@ -231,7 +231,8 @@ def quote_blockers(run: RecordedRun) -> list[str]:
     elif manifest.plant not in BOPTEST_PLANTS:
         blockers.append(f"The plant is {manifest.plant}, not BOPTEST (local or hosted).")
     if manifest.ended != "finished":
-        blockers.append(f"The run did not finish: it was {manifest.ended} ({manifest.end_reason}).")
+        how = "it failed" if manifest.ended == "failed" else f"it was {manifest.ended}"
+        blockers.append(f"The run did not finish: {how} ({manifest.end_reason}).")
     if manifest.dropped_events:
         blockers.append(f"The recorder dropped {manifest.dropped_events} events.")
     for name in RUNS:

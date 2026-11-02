@@ -94,6 +94,9 @@ COV_INCREMENT = 0.1
 WATCHDOG_PERIOD_S = 1.0
 """Wall seconds between heartbeat checks while the device runs; every tick also checks."""
 
+ADDRESS_LOST_TICKS = 2
+"""Ticks in a row without its bound address before the BMS reports it lost; one is a blip."""
+
 VENDOR_ID = 999
 """BACpypes3's own vendor identifier; the point map names no vendor."""
 
@@ -258,9 +261,9 @@ class BacnetBmsTransport(BaseTransport):
     ``start()`` binds the UDP socket and serves the device in a background task, which also
     checks the heartbeat every ``WATCHDOG_PERIOD_S``; ``stop()`` cancels the task and closes the
     socket. ``input()`` and ``output()`` work without ``start()``, only without a network.
-    While it runs, each tick checks that the bound address is still one of the PC's; the first
-    time it is not (the PC changed networks, so nobody can reach the BMS), ``input()`` reports a
-    non-fatal error.
+    While it runs, each tick checks that the bound address is still one of the PC's. When it has
+    been gone for ``ADDRESS_LOST_TICKS`` ticks in a row (the PC changed networks, so nobody can
+    reach the BMS), ``input()`` reports a non-fatal error, once until the address is back.
 
     Network commands are WriteProperty or WritePropertyMultiple of a present value; they follow
     ``CommandPolicy``, and writes to any other property are refused. Every command, accepted or
@@ -311,7 +314,7 @@ class BacnetBmsTransport(BaseTransport):
         self._policy = policy or CommandPolicy()
         self._watchdog = HeartbeatWatchdog(clock=clock)
         self._has_address = has_address
-        self._address_lost = False  # reported once per start()
+        self._ticks_without_address = 0
         self._occupied_hours = occupied_hours
         self._points = {spec.name: _new_point(spec) for spec in self._map.points}
         self._zones = {zone: self._new_zone(zone) for zone in Zone}
@@ -375,7 +378,7 @@ class BacnetBmsTransport(BaseTransport):
         except BaseException:
             await self._close()
             raise
-        self._bound, self._address_lost = _endpoint(local), False
+        self._bound, self._ticks_without_address = _endpoint(local), 0
         self.create_task(self._serve(), "bacnet-device")
         logger.info(
             f"{self.name}: BACnet device {self._map.device_name} ({self._map.device_instance}),"
@@ -568,12 +571,22 @@ class BacnetBmsTransport(BaseTransport):
                 )
 
     def _lost_address(self) -> str | None:
-        """The error to report the first time the bound address is no longer this PC's."""
-        if self._bound is None or self._address_lost:
+        """Check the bound address; return the error to report when it has just been lost.
+
+        It is lost after ``ADDRESS_LOST_TICKS`` ticks in a row without it, and reported once
+        until it is back (logged), so a reconnect to the same network clears it.
+        """
+        if self._bound is None:
             return None
-        if self._has_address(self._bound.rpartition(":")[0]):
+        ip = self._bound.rpartition(":")[0]
+        if self._has_address(ip):
+            if self._ticks_without_address >= ADDRESS_LOST_TICKS:
+                logger.info(f"{self.name}: the PC's address {ip} is back")
+            self._ticks_without_address = 0
             return None
-        self._address_lost = True
+        self._ticks_without_address += 1
+        if self._ticks_without_address != ADDRESS_LOST_TICKS:
+            return None
         return (
             f"the PC's network changed: the BMS at {self._bound} is unreachable; restart the "
             "run on one network"
@@ -680,8 +693,8 @@ class BacnetBmsTransport(BaseTransport):
 class _BmsInput(FrameProcessor):
     """``BacnetBmsTransport.input()``: the network's commands into the pipeline, every tick.
 
-    The first tick that finds the BMS's bound address gone from the PC (its network changed)
-    reports a non-fatal error.
+    A tick that finds the BMS's bound address gone from the PC for ``ADDRESS_LOST_TICKS`` ticks
+    in a row (its network changed) reports a non-fatal error.
 
     Args:
         bms: The transport.

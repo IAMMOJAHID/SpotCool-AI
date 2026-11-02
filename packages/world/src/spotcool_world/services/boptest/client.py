@@ -8,8 +8,8 @@ Rules it enforces (checked against BOPTEST master ``a29024f`` and the hosted v0.
   ``stop`` answers a plain-text ``OK``, so it is not parsed.
 - ``advance`` is never retried here: an advance whose answer was lost may have run, and a
   retry would step the test twice (``BoptestPlant`` recovers such a step from the stored
-  results). ``results`` and ``state_at`` change nothing, so they are retried on any transient
-  failure.
+  results). ``results``, ``state_at`` and ``kpis`` change nothing, so they are retried on any
+  transient failure.
 - ``select`` uses ``select-async`` and polls ``status``, so the test id is known at once and a
   test that queues too long (the hosted queue has passed 900 s) can always be stopped. The
   POST is retried only when it provably created nothing (no connection, or HTTP 429): a
@@ -38,6 +38,8 @@ ADVANCE_TIMEOUT_S = 120.0
 """Timeout of one ``advance``, and of the KPI calculation."""
 STOP_RETRY_S = 60.0
 """How long ``stop`` keeps trying through connection failures, its attempts included."""
+KPI_RETRY_S = 60.0
+"""How long after its first attempt ``kpis`` may start a retry."""
 _BACKOFF_CAP_S = 30.0
 
 _T = TypeVar("_T")
@@ -261,19 +263,27 @@ class BoptestClient:
         return _state(payload, "advance")
 
     async def results(
-        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+        self,
+        testid: str,
+        point_names: Sequence[str],
+        start_time_s: float,
+        final_time_s: float,
+        *,
+        timeout_s: float | None = None,
     ) -> dict[str, list[float]]:
         """Stored trajectories of some points between two times (``PUT /results``).
 
         BOPTEST stores every point each 30 simulated seconds and at each step's end. Any
-        transient failure is retried with backoff. ``QUICK_TIMEOUT_S`` bounds the whole call:
-        each attempt's timeout is capped at the time left, and no retry starts after it.
+        transient failure is retried with backoff. ``timeout_s`` bounds the whole call: each
+        attempt's timeout is capped at the time left, and no retry starts after it.
 
         Args:
             testid: The test.
             point_names: Outputs (``_y``) or inputs (``_u``) to read.
             start_time_s: First simulation time, included.
             final_time_s: Last simulation time, included.
+            timeout_s: The whole call's budget, retries included; ``QUICK_TIMEOUT_S`` by
+                default.
 
         Returns:
             Each point's samples and, under ``time``, their times, oldest first.
@@ -282,7 +292,7 @@ class BoptestClient:
             BoptestError: If BOPTEST fails, or a series is not all numbers (a NaN arrives as
                 null).
         """
-        stored = await self._stored(testid, point_names, start_time_s, final_time_s)
+        stored = await self._stored(testid, point_names, start_time_s, final_time_s, timeout_s)
         series: dict[str, list[float]] = {}
         for name, values in stored.items():
             if not isinstance(values, list) or not all(isinstance(v, int | float) for v in values):
@@ -291,39 +301,59 @@ class BoptestClient:
         return series
 
     async def state_at(
-        self, testid: str, point_names: Sequence[str], time_s: float
+        self,
+        testid: str,
+        point_names: Sequence[str],
+        time_s: float,
+        *,
+        timeout_s: float | None = None,
     ) -> dict[str, float]:
         """Stored values of some points at one time: what an advance that ended then answered.
 
         Reads ``PUT /results`` over ``[time_s, time_s]``, retried like ``results``. BOPTEST
-        filters its stored samples without interpolating, so the values are its own. A value
-        it reports as null is left out, as ``advance`` leaves it out.
+        filters its stored samples without interpolating, so the values are its own. When it
+        stored more than one sample at ``time_s`` (an event at the step's end), the last is
+        the one ``advance`` answered. A value it reports as null is left out, as ``advance``
+        leaves it out.
 
         Args:
             testid: The test.
             point_names: Outputs (``_y``) and inputs (``_u``, ``_activate``) to read.
             time_s: A simulation time BOPTEST has stored.
+            timeout_s: The whole call's budget, retries included; ``QUICK_TIMEOUT_S`` by
+                default.
 
         Returns:
             Each point's value and, under ``time``, ``time_s``.
 
         Raises:
-            BoptestError: If BOPTEST fails, or holds no single sample at ``time_s``.
+            BoptestError: If BOPTEST fails, or holds no sample at ``time_s``.
         """
-        stored = await self._stored(testid, point_names, time_s, time_s)
-        if stored.get("time") != [time_s]:
-            times = str(stored.get("time"))[:200]
-            raise BoptestError(f"results: no single sample at {time_s} s, got {times}", status=200)
-        last = {name: v[-1] for name, v in stored.items() if isinstance(v, list) and len(v) == 1}
+        stored = await self._stored(testid, point_names, time_s, time_s, timeout_s)
+        times = stored.get("time")
+        if not isinstance(times, list) or not times or any(t != time_s for t in times):
+            raise BoptestError(
+                f"results: no sample at {time_s} s, got {str(times)[:200]}", status=200
+            )
+        last = {k: v[-1] for k, v in stored.items() if isinstance(v, list) and len(v) == len(times)}
         return _state(last, "results")
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
         """The test's KPIs since it was initialized (``ener_tot``, ``tdis_tot``, ...).
 
+        The call changes nothing, so no answer and HTTP 429/5xx are retried with backoff; no
+        retry starts more than ``KPI_RETRY_S`` after the call. Each attempt may take
+        ``ADVANCE_TIMEOUT_S``, the KPI calculation's own timeout.
+
         Args:
             testid: The test.
         """
-        payload = await self._payload("GET", f"kpi/{testid}", timeout_s=ADVANCE_TIMEOUT_S)
+        payload = await self._retrying(
+            lambda: self._payload("GET", f"kpi/{testid}", timeout_s=ADVANCE_TIMEOUT_S),
+            self._clock() + KPI_RETRY_S,
+            retry=lambda exc: exc.retryable,
+            attempts=None,
+        )
         return {
             name: float(value) if isinstance(value, int | float) else None
             for name, value in _mapping(payload, "kpi").items()
@@ -395,7 +425,12 @@ class BoptestClient:
         await self._http.aclose()
 
     async def _stored(
-        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+        self,
+        testid: str,
+        point_names: Sequence[str],
+        start_time_s: float,
+        final_time_s: float,
+        timeout_s: float | None,
     ) -> Mapping[str, Any]:
         """``PUT /results``'s payload, retried like ``results``."""
         body = {
@@ -403,7 +438,7 @@ class BoptestClient:
             "start_time": start_time_s,
             "final_time": final_time_s,
         }
-        deadline = self._clock() + QUICK_TIMEOUT_S
+        deadline = self._clock() + (QUICK_TIMEOUT_S if timeout_s is None else timeout_s)
 
         def attempt() -> Awaitable[Any]:
             left_s = max(deadline - self._clock(), 1e-3)

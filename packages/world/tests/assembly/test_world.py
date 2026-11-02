@@ -319,6 +319,63 @@ async def test_a_second_ctrl_c_never_cuts_a_boptest_stop_request(
     await asyncio.gather(*leftovers, return_exceptions=True)
 
 
+def sent_together(fake_boptest: Any) -> bool:
+    """Whether both plants' stop requests went out at once, not one after the other (1 s)."""
+    first, second = (client.stop_sent_s for client in fake_boptest.clients)
+    return first is not None and second is not None and abs(first - second) < 0.5
+
+
+@pytest.mark.asyncio
+async def test_a_ctrl_c_stops_both_slow_boptest_tests_at_once(
+    make_settings: MakeSettings, fake_boptest: Any
+) -> None:
+    fake_boptest.stop_s = 1.0
+    world = World(make_settings(plant="boptest-local", speed=18_000.0), run_id="graceful")
+    events = world.bus.subscribe(EVENTS_TOPIC, maxsize=100_000)
+
+    async def press_ctrl_c() -> None:
+        async for envelope in events:
+            if envelope.type is EventType.TICK and envelope.data["index"] == 2:
+                signal.raise_signal(signal.SIGINT)
+                return
+
+    await asyncio.wait_for(asyncio.gather(world.run(), press_ctrl_c()), 30)
+    events.close()
+    assert manifest(world).ended == "cancelled"
+    assert sent_together(fake_boptest)
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_second_ctrl_c_stops_both_slow_boptest_tests_at_once(
+    make_settings: MakeSettings, fake_boptest: Any
+) -> None:
+    fake_boptest.stop_s, fake_boptest.kpis_s = 1.0, 30.0  # the final KPIs hang: no stop sent yet
+    world = World(make_settings(plant="boptest-local", speed=18_000.0), run_id="forced")
+    events = world.bus.subscribe(EVENTS_TOPIC, maxsize=100_000)
+
+    async def press_ctrl_c_twice() -> None:
+        async for envelope in events:
+            if envelope.type is EventType.TICK and envelope.data["index"] == 2:
+                break
+        signal.raise_signal(signal.SIGINT)
+        await until(lambda: all(c.kpis_asked.is_set() for c in fake_boptest.clients))
+        signal.raise_signal(signal.SIGINT)  # cancels the KPIs: cleanup() stops the plants
+
+    started = time.perf_counter()
+    await asyncio.wait_for(asyncio.gather(world.run(), press_ctrl_c_twice()), 30)
+    events.close()
+    assert time.perf_counter() - started < 20.0  # never waited for the KPIs
+    assert sent_together(fake_boptest)
+    for client in fake_boptest.clients:
+        assert client.events[:4] == ["select", "stop sent", "stop done", "closed"]
+    assert_all_stopped(world, forced=True)
+    leftovers = leftover_tasks()  # uvicorn's lifespan tasks, as above
+    for task in leftovers:
+        task.cancel()
+    await asyncio.gather(*leftovers, return_exceptions=True)
+
+
 class BrokenPlant(RcPlant):
     """An RC plant whose every step fails."""
 

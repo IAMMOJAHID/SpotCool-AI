@@ -185,7 +185,9 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   it). **Always stop BOPTEST tests** in `PlantService.stop()`: the hosted service is shared and
   free. `BoptestClient.stop` retries no answer and HTTP 429/5xx with backoff for up to
   `STOP_RETRY_S` (60 s); a test it still cannot stop is logged as a warning with the command
-  that stops it (`curl -X PUT <boptest_url>/stop/<testid>`).
+  that stops it (`curl -X PUT <boptest_url>/stop/<testid>`). `BoptestClient.kpis`, read-only,
+  retries the same failures, starting none more than `KPI_RETRY_S` (60 s) after the call, so
+  a forward restarting as the run ends does not lose the final KPIs (the quote's energy).
 - **No tracebacks where audio or frames are in scope.** loguru's default `diagnose=True` prints a
   traceback's local variables, so `logger.exception` (or `opt(exception=...)`) can leak audio or
   camera bytes into the log. Log `type(exc).__name__` and the message instead.
@@ -214,22 +216,27 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 - **A BOPTEST step survives a dropped connection, and is never guessed or applied twice.**
   BOPTEST's web layer finishes an advance it got even when its client is gone, and stores
   every point at each step's end. So when an advance fails on the connection (no answer, or
-  HTTP 502, 503 or 504 from a proxy), `BoptestPlant.step` recovers it; HTTP 400 and 500 are
-  BOPTEST's own answers and fail the step at once. The step ends at `t_next`, the last state's
-  time plus the step.
+  HTTP 502, 503 or 504 from a proxy) or is throttled (429), `BoptestPlant.step` recovers it;
+  HTTP 400 and 500 are BOPTEST's own answers and fail the step at once. The step ends at
+  `t_next`, the last state's time plus the step.
   - An advance that never reached BOPTEST (`ConnectError`, `ConnectTimeout`: the client's
-    `unsent`) is resent: inputs latch, so the same inputs make the same step.
+    `unsent`), or that it refused with 429, is resent: inputs latch, so the same inputs make
+    the same step.
   - Any other may have reached it. The plant reads BOPTEST's stored results (one meter, to a
     step past `t_next`). If they reach `t_next`, the step ran: its state is read back with
     `BoptestClient.state_at` (`PUT /results` over `[t_next, t_next]`, every key an advance
-    answers), then the step means follow as usual. If they stop at the step's start, in an
-    answer received at least `ADVANCE_TIMEOUT_S` (120 s) after the advance was sent,
-    BOPTEST never got it, and it is resent. Otherwise it reads again, with backoff. Results
-    past `t_next` (two steps applied) fail the step.
+    answers; of several samples at `t_next`, the last, as `advance` answers). If they stop at
+    the step's start, in an answer received at least `ADVANCE_TIMEOUT_S` (120 s) after the
+    advance was sent, BOPTEST never got it, and it is resent. Otherwise it reads again, with
+    backoff; a read throttled with 429 is read again too.
+  - Every answer's time is checked, a normal step's included: BOPTEST more than half a step
+    past `t_next` means a step applied twice (an advance that turned up after its resend), and
+    fails the step. A step the scenario's end cut short passes.
   - A step waits at most `RECOVERY_S` (300 s) of wall time from its first failure: no try
-    starts later and a resend's timeout ends by then, though a read under way may take up to
-    30 s more. Then it fails, fatally as before, with a message that says what was tried.
-    Tests inject the plant's and client's `clock` and `sleep`, so none waits in real time.
+    starts later, and each read's and resend's timeout ends by then. Then it fails, fatally as
+    before, with a message that says what was tried. The step means follow a recovered step
+    as any other: a step's usual read, within `QUICK_TIMEOUT_S`. Tests inject the plant's
+    and client's `clock` and `sleep`, so none waits in real time.
   - Every recovery is a warning and one more `PlantService.connection_recoveries` (0 on the
     other plants). `PlantProcessor` records it like a power fallback: a non-fatal error naming
     the run and the step, and a `plant_connection_recoveries` metric
@@ -288,9 +295,11 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   endpoint on 127.0.0.255, which macOS cannot bind.
 - **The PC's address.** The BMS binds its address once, at `start()`. On each tick `input()`
   checks the address is still the PC's (`is_local_ipv4`: a socket can bind it; tests inject
-  `has_address`). The first time it is not, a non-fatal error says `the PC's network changed:
-  the BMS at <ip>:<port> is unreachable; restart the run on one network`. The plants and the
-  recording go on.
+  `has_address`). Once it has been gone for `ADDRESS_LOST_TICKS` (2) ticks in a row (one is a
+  blip), a non-fatal error says `the PC's network changed: the BMS at <ip>:<port> is
+  unreachable; restart the run on one network`, once. When the address is back (a reconnect to
+  the same network), an info line says `the PC's address <ip> is back`, and a later loss is
+  reported again. The plants and the recording go on.
 - **BACpypes3 is pinned to 0.0.110** (the `bacnet` extra). The BMS works around two of its bugs
   (a multi-state value gets the analog COV criteria, so COV subscriptions to it crash; a refused
   WritePropertyMultiple is raised instead of answered) and waits on its private
@@ -632,14 +641,16 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   then the others. The pipeline's `on_pipeline_finished` stops the other workers, so the runner
   returns; its `on_pipeline_error` publishes errors raised above the emitter as `error` events
   (the emitter has made the others events already). After the runner, everything is stopped in
-  reverse order, the plants last.
-- **Ctrl+C** stops the run: the pipeline cancels first, the plants stop (both BOPTEST tests),
-  the recorder writes a `cancelled` manifest with the KPIs so far, then the other workers stop.
-  A second Ctrl+C cancels everything at once. A BOPTEST stop request already sent runs on: the
-  plant keeps it as a task, and its next `stop()`, which `World.run()` makes last, waits up to
-  65 s (`STOP_WAIT_S`: the request's 60 s of retries and a margin) for it before closing the
-  client, so `run()` never returns while one is under way. During a BOPTEST plant start the
-  first Ctrl+C waits for the start (Known limitations).
+  reverse order, the plants last and both at once.
+- **Ctrl+C** stops the run: the pipeline cancels first, the plants stop (both BOPTEST tests, at
+  once), the recorder writes a `cancelled` manifest with the KPIs so far, then the other
+  workers stop. A second Ctrl+C cancels everything at once; `cleanup()` then stops the plants,
+  both at once too (`ParallelPipeline.cleanup` cleans its branches up side by side). A BOPTEST
+  stop request already sent runs on: the plant keeps it as a task, and its next `stop()`,
+  which `World.run()` makes last, waits up to 65 s (`STOP_WAIT_S`: the request's 60 s of
+  retries and a margin) for it before closing the client, so `run()` never returns while one
+  is under way. During a BOPTEST plant start the first Ctrl+C waits for the start (Known
+  limitations).
 - **Speed.** 300, the default, is for development: a step every 3 s, the day in 2.5 minutes.
   Use 60 or slower for integration and filming, because a clip's action needs wall time: the
   14:15 complaint plays 5-15 s into its clip. `--speed 0` runs as fast as possible: the RC day in
@@ -884,6 +895,14 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   path still stops its BOPTEST test: the plant's stop request runs on as a task of its own, and
   its next `stop()` waits for it. Letting the first Ctrl+C interrupt a start needs a change to
   the WP0 worker.
+- **Ctrl+C on a dead BOPTEST connection.** The first Ctrl+C cancels a step still recovering
+  at once (the tick is `TickSource`'s task, which the `CancelFrame` cancels as it passes). The
+  plants' final KPIs and their stops still follow, and on a dead connection each waits its
+  bound: the KPIs retry for up to `KPI_RETRY_S` (60 s, plus an attempt under way, up to
+  120 s), then the stops wait up to `STOP_WAIT_S` (65 s). So the first Ctrl+C can take about
+  four minutes to end such a run; a second one skips the KPIs, and the stops still wait. A
+  frame queued on the worker by hand (tests do) does wait behind a tick in flight, up to
+  `RECOVERY_S` for a recovering step.
 
 ## Windows notes
 
