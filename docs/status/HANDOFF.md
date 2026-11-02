@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-02, about 10:45 IST, by the lead Claude Code session, at a planned context compaction. No agent is running, and every worktree is committed and pushed.
+**Last updated:** 2026-11-02, about 11:00 IST, by the lead Claude Code session, after the context compaction. The WP6.1 reviewer is running; every worktree is committed and pushed.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
-- **WP6.1 (the energy-measurement fix) is built and pushed, but not yet reviewed or merged.**
-- **WP7 (dashboard) is staged.**
+- **WP6.1 (the energy-measurement fix) is built and pushed; its independent review is running.**
+- **WP7 (dashboard) and WP3 (VRF gateway) are staged.**
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -84,9 +84,9 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP4 cameras | Merged `d469ab5` | `e821ad1` kickoff, `b248dff`, `e041637` | `CameraSystem` (sources: own clip, then dataset, then synthetic); snapshot and MJPEG; `HttpServerWorker(app, host, port)`; the live phone proxy; `CameraSceneProcessor`; the privacy test |
 | WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
 | WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
-| **WP6.1 step-mean power** | **Built and pushed; not reviewed; not merged** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
+| **WP6.1 step-mean power** | **Built and pushed; review running** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
 | WP7 dashboard | **Staged** | `269e026` kickoff (branch cut from `42e0409`) | React app; the brief is ready |
-| WP3 VRF gateway | Queued | — | Brief exists (Antigravity-era); needs a kickoff refresh |
+| WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
 | WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
 
@@ -245,7 +245,7 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
 
 1. **WP6.1 gates.** Branch `wp/wp61-step-mean-power`, worktree `C:\Users\hussa\dev\wt\wp61-step-mean-power`, venv `wp61-step-mean-power`.
    1. Its branch CI is **green**: run `41391438090` on `0b1153c`. The lead's re-run passed too: 806 tests with `-W error::RuntimeWarning`, plus ruff, format, pyright and the lock.
-   2. Start an **independent reviewer** agent on `0b1153c`. Focus on:
+   2. **Running since 11:00:** an **independent reviewer** agent on `0b1153c`. Its focus:
       - the BOPTEST `results` request and the time-weighted mean;
       - fallback behaviour and its counting;
       - the RC per-meter means;
@@ -283,14 +283,13 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - each complaint produces two `complaint_cue` events;
      - `replay --wait-viewer` exists;
      - `run_status` now carries status, plant and scenario.
-4. **WP3 VRF gateway.** Refresh the brief in a kickoff commit:
-   - Claude Code builds it;
-   - it reuses WP2's `priority.py` (`PriorityArray`, `CommandPolicy`);
-   - its worker and processor slot into the places marked in `World.__init__`, and its device start and stop go in `World.run()`'s exit stack, like the BMS;
-   - it emits `vrf_state` events, which the dashboard already renders from the fixture;
-   - louvers slew at 15°/s with a 20 Hz worker;
-   - it uses the vendor profiles from contracts;
-   - it pairs with the live phone camera segment.
+4. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
+   - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
+   - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
+   - **Reuse, never copy:** WP2's `PriorityArray` and `CommandPolicy`, and the BACnet/IP server code moves from `bms.py` into a shared `transports/bacnet/server.py`, with the BMS tests unchanged.
+   - **Brand profiles enforced with BACnet's own errors:** `write-access-denied` for an axis the brand lacks, `value-out-of-range` for a state it lacks; releases always accepted.
+   - **Louvers slew at 15°/s** (dt clipped to 0.1 s); room τ = 120 s of wall time toward the setpoint (never below it) or 30 °C ambient; illustrative power.
+   - **No new run mode:** film the take with `run --plant rc --speed 1` and the live camera set. The stub agent doesn't drive the VRF.
 5. **WP10 evals and release.** Kickoff decisions to make:
    - **Stub agent upgrades:**
      - **priority-8 back-off** (stop writing a point an operator holds);
@@ -338,6 +337,12 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`, except 
    - **pre-cool booked rooms** about 30 minutes ahead; without it, South hit 31 °C;
    - for empty zones, set `OCC-SENSOR` Unoccupied plus `CLG-SP` 28 °C;
    - release everything at 19:00.
+9. **The VRF gateway's behaviour is settled** (§6), so A can build against it before WP3 lands:
+   - refusals by brand (`write-access-denied`, `value-out-of-range`);
+   - real time, whatever the simulation's speed;
+   - the address: the BMS's IP on UDP 47810, which a Who-Is on 47808 won't reach;
+   - its `vrf_state` and `bms_write` events.
+10. **The handoff's status tables are current:** the BMS, cameras, complaints, `/ws/agent` and `run` are built.
 
 ## 9. Superseded (don't use)
 
