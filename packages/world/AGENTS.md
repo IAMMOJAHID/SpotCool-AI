@@ -72,12 +72,12 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; VRF WP3, WebSocket WP6 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
-| **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records done (WP1); dashboard JSON WP6 |
+| **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
 | **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | WP10 |
-| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `video` |
+| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `report`, `video` |
 
 ### One tick of the world (target pipeline)
 
@@ -94,9 +94,8 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-`TickSource`, `ScenarioProcessor`, `ParallelPipeline`, `PlantProcessor`, `CameraSceneProcessor`,
-`FramePublisher`, `BusPublisher` and the BMS's `input()` and `output()` exist so far; the other
-processors are later work packages.
+Every processor in this pipeline exists. WP11 assembles them into `spotcool-world run`; the VRF
+gateway arrives with WP3.
 
 ### Lifecycle
 
@@ -508,16 +507,16 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
 | Path | Contents |
 |---|---|
 | `src/spotcool_world/frames/` | Frame classes |
-| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `FramePublisher`, `BusPublisher`; future processors |
-| `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) |
+| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `TelemetryProcessor`, `KpiProcessor`, `EventEmitterProcessor`, `RecorderProcessor`, `FramePublisher`, `BusPublisher` |
+| `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) and `RunManifest` |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
 | `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port); the VRF worker arrives with WP3 |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
-| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI |
+| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI, `report.py` (run reports) |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
-| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` |
+| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` (`create_dashboard_app`: `/ws/events`, `/ws/agent`, `/runs`) |
 | `src/spotcool_world/devices/` | Equipment models (`vrf/`) |
 | `src/spotcool_world/scenarios/` | Scenario DSL, linter, compiler, library |
 | `src/spotcool_world/adapters/` | Unit conversion; Haystack and vendor maps later |
