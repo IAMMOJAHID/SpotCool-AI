@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-02, about 11:00 IST, by the lead Claude Code session, after the context compaction. The WP6.1 reviewer is running; every worktree is committed and pushed.
+**Last updated:** 2026-11-02, about 12:20 IST, by the lead Claude Code session. The WP7 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
-- **WP6.1 (the energy-measurement fix) is built and pushed; its independent review is running.**
-- **WP7 (dashboard) and WP3 (VRF gateway) are staged.**
+- **WP6.1 (the energy-measurement fix) is merged**, and the **BOPTEST checkpoint passed** (§7): the first full BOPTEST day with the BMS and the stub agent.
+- **WP7 (dashboard) is building.** WP1.2 (BOPTEST survives a dropped connection) and WP3 (VRF gateway) are staged.
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -75,7 +75,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 | WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP11 `56430cb` (trunk CI `41377191119`). Later merges are this handoff only. | 789 package tests and 45 script tests |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP6.1 `6159284` (trunk CI `41398321768`). | 820 package tests (plus 6 live) and 45 script tests |
 | WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
 | WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
 | WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
@@ -84,8 +84,9 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP4 cameras | Merged `d469ab5` | `e821ad1` kickoff, `b248dff`, `e041637` | `CameraSystem` (sources: own clip, then dataset, then synthetic); snapshot and MJPEG; `HttpServerWorker(app, host, port)`; the live phone proxy; `CameraSceneProcessor`; the privacy test |
 | WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
 | WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
-| **WP6.1 step-mean power** | **Reviewed: approve after fixes; fix round running** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
-| WP7 dashboard | **Staged** | `269e026` kickoff (branch cut from `42e0409`) | React app; the brief is ready |
+| WP6.1 step-mean power | Merged `6159284` | `ac8008e` kickoff, `0b1153c` build, `43af1ed` review fixes, `2fab314` docs | Power meters as step means; the report's quote verdict `quote_blockers` (§7) |
+| **WP1.2 BOPTEST dropped connection** | **Staged** | `08e5e2e` kickoff, `5a49d31` amendment (branch cut from `6159284`) | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
+| **WP7 dashboard** | **Building** (agent `aabfde3ea4ebbc64b`, since about 12:00) | `269e026` kickoff, `3b03d39` amendment, `10ed6cd` trunk sync | React app |
 | WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
 | WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
@@ -98,7 +99,9 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
   - WP11: 2 high, 1 medium, 5 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → **WP6.1** (review) → the BOPTEST checkpoint → **WP7** → WP3 → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → **WP7** (building) → WP1.2 → WP3 → WP10 → WP9.
+
+**Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
 **Why WP7 comes before WP3:** the dashboard is the video's main visual and part of the plan's Nov 2 checkpoint. The VRF louvers are part 2 of the video.
 
@@ -107,7 +110,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | When | Checkpoint | State |
 |---|---|---|
 | Nov 2, 18:00 | `hybrid_tuesday` on RC end to end with the stub agent, plus the dashboard live | The world part is **done** (WP11). The dashboard (WP7) is pending. |
-| Nov 2, 22:00 | The same on BOPTEST | §8 step 2 |
+| Nov 2, 22:00 | The same on BOPTEST | **Done at 12:11** with the stub agent: `checkpoint-boptest-stub-s60-3` (§7) |
 | Nov 3 | Integrate with A's agent; 21:00 first automated take | |
 | Nov 4 | Final takes, QA, submit by 21:00 | |
 
@@ -117,7 +120,9 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 - **GitHub Codespace `spotcool-boptest-qxxjjj94x672rp`** (repo `ibpsa/project1-boptest`, master; 2-core; 2 workers; images built).
   - It's **stopped**. Restart it in §8 step 2. Its quota is the free 120 core-hours a month; stop it when idle.
   - **Restart:** `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision && docker compose ps'`
-  - **Forward** (background job): `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp`. Then `curl http://127.0.0.1:8000/version` should report `1.0.0-dev`.
+  - **Forward** (background job, in a restart loop): `while :; do gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp; sleep 3; done`. Then `curl http://127.0.0.1:8000/version` should report `1.0.0-dev`.
+  - **If compose says "Cannot connect to the Docker daemon"** right after boot, wait a few seconds and run it again.
+  - **The PC stays on one network for the whole run.** A network change kills the tunnel, and the BMS keeps its old address.
   - **In the world:** `--plant boptest-local` with `boptest_local_url: http://127.0.0.1:8000`. For live tests: `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000`.
   - **If the worker build fails on PyPI timeouts:** in `service/worker/Dockerfile`, use `pip install --default-timeout=120 --retries 10`.
 - **Measured facts** (Nov 1; details in `docs/workpackages/README.md` → "Facts"):
@@ -228,6 +233,13 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of about 7 %), ASHRAE 90.1 §6.5.3.8 (the airflow clause is verified).
 
 **Our own simulation numbers:**
+- **BOPTEST, `hybrid_tuesday`, stub agent, paced (speed 60), Nov 2 12:11** (`runs/checkpoint-boptest-stub-s60-3` in the main checkout; the verdict is blocked only by the stub agent):
+  - SpotCool 227.0 kWh against the baseline's 287.8 kWh: **21.14 % saved**, by BOPTEST's own `ener_tot` and by the world's integration alike (difference 0.000 %, no fallbacks). **Quote it only as the policy's upper bound with perfect perception**, labelled so.
+  - Comfort where people were: 1.37 against 0.33 K·h.
+  - BOPTEST's own `tdis_tot` is 10.30 against 0.15 K·h per zone, and `idis_tot` 30.5 against 0 ppm·h per zone. BOPTEST's schedule counts every zone as occupied all day, so these include zones the scenario leaves empty. Explain them; never show them bare (WP7 amendment, WP10 honesty note).
+  - `cost_tot` and `emis_tot` fall by about 21 %. Peak demand (`pele_tot`) is unchanged.
+  - BACnet: 68 stub writes accepted, 0 rejected.
+  - Runs `checkpoint-boptest-stub-s60` and `-2` died when the laptop switched Wi-Fi networks mid-run (WP1.2). They're kept as evidence; never quote them.
 - **BOPTEST, all zones empty all day** (upper bounds; say "in simulation"): setpoint-only −29 %, with standby airflow shut-off −81 %.
 - **RC, `hybrid_tuesday`, stub agent, after the WP6.1 fix:**
   - SpotCool 118.06 kWh against the baseline's 142.02 kWh: **16.87 % saved**. The cross-check difference is 0.000 %; the plant's own `ener_tot` gives the same.
@@ -245,64 +257,39 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
 
 ## 8. Next actions, in order
 
-1. **WP6.1 gates.** Branch `wp/wp61-step-mean-power`, worktree `C:\Users\hussa\dev\wt\wp61-step-mean-power`, venv `wp61-step-mean-power`.
-   1. Its branch CI is **green**: run `41391438090` on `0b1153c`. The lead's re-run passed too: 806 tests with `-W error::RuntimeWarning`, plus ruff, format, pyright and the lock.
-   2. **Reviewed** (agent `a05b0b2b8cb4d5dcf`, about 20 min): **approve after fixes**, with 1 high, 2 medium and 3 low findings. The measurement itself is right: BOPTEST's own `get_results` through `step_means` and `EnergyMeter` reproduces BOPTEST's `get_energy` to −0.00008 %. The REST shape, the 30 s window (31 samples with both ends), the `ener_tot` scope and the RC means were checked against the clone. **The findings are all about the report's "figure to quote" verdict:**
-      - **High:** ±2 % per run doesn't bound the saving (up to about 3.6 pp). Two failed `results` calls produced 8.42 % called quotable, where the plants' own energy gives 7.07 %.
-      - **Medium:** `power_fallbacks` never reaches the recording.
-      - **Medium:** the verdict ignores the run: a stub agent, a cancelled run, dropped events and RC (where the check is circular) were all called quotable.
-      - **Low:** the saving row is read from the manifest, not the energy rows; the tolerances are 2 % on identities that hold to 1e-9; the `results` deadline doesn't cap each attempt.
-   3. **Fix round running since about 11:45:** the builder `ae6ae39590ba8953d` was resumed with the lead's decisions:
-      - **A. Quote the plants' own saving** (`ener_tot` × area, both runs). The world's step-mean integration is the check, and the report shows both savings.
-      - **B. `CROSS_CHECK_PCT` = 0.1 %.** Healthy runs match to about 1e-6. The builder confirms in the clone that `/kpi` doesn't round `ener_tot`.
-      - **C. One verdict function, `quote_blockers(run)`,** used by the report and `run`'s printout. It blocks when:
-        - the plant isn't BOPTEST;
-        - the run didn't finish;
-        - events were dropped;
-        - a run, a plant energy or the saving is missing;
-        - any fallback happened;
-        - either run is over 0.1 % off its plant's own;
-        - the run was unpaced (speed 0);
-        - a **stub agent** ran it: "quote it only as an upper bound with perfect perception, labelled so".
-      - **D. Fallbacks surface:** a non-fatal `push_error` plus a metrics sample per run, and a report row.
-      - **E. The `results` deadline** bounds the whole call.
-      - **F. The three known follow-ups:**
-        - the BMS `HVAC-ENERGY` point uses rectangles;
-        - the `PlantService.step()` docstring states the step-mean rule;
-        - `run`'s printout shows each plant's own energy and the verdict.
-      - **G. Tests:** RC tolerances at 1e-9, a saving that's off while both runs pass 2 %, a fallback reaching the report, and one test per blocker.
-   4. **Lead:** sync `world/main` into the branch, run the checks, and add a docs commit. Its contents:
-      - **Person A handoff:** the BMS power points AI 501–507 and 510 now report the **mean power over the last step**, not an instantaneous sample.
-      - **AGENTS.md:** the status cells.
-   5. Push, wait for green CI, merge, check the merged tree is identical, push, confirm the trunk's CI, and update this handoff.
-2. **The BOPTEST checkpoint** (the lead does it, after WP6.1 merges).
-   1. Restart the Codespace and forward port 8000 (§3).
-   2. Run `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live` (including `-k meters_add_up`).
-   3. Run `uv run spotcool-world run --plant boptest-local --stub-agent --speed 60`. That's 48 steps at about 15 s each, plus about 5 minutes of warm-up.
-   4. **Verify:**
-      - the log shows no `no power means` and no `off its plant's own` warnings;
-      - `spotcool-world report <run_id>` shows both cross-check differences within 0.1 %, no fallbacks, and a verdict whose only blocker is the stub agent;
-      - the BMS and BOPTEST work together (never verified before);
-      - the stub's writes are accepted.
-   5. **Record** the KPIs here (§7). This is the first quotable number.
-   6. **Stop the Codespace:** `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
+1. **Done: WP6.1 merged** (`6159284`; branch CI `41398113867`, trunk CI `41398321768`). Review: approve after fixes (agent `a05b0b2b8cb4d5dcf`). Fix round `43af1ed` (agent `ae6ae39590ba8953d`): the plants' own saving is the one quoted, a 0.1 % cross-check, and the verdict `quote_blockers`. Lead docs `2fab314`.
+2. **Done: the BOPTEST checkpoint.**
+   - All 6 live tests passed, including `the_meters_add_up_to_the_plants_own_energy`.
+   - The third paced run finished: §7.
+   - **Runs 1 and 2 died when Windows moved the laptop to another saved Wi-Fi network** (192.168.234.x to 192.168.1.x). The tunnel dropped mid-`/advance`, the BMS kept its old address, and `stop()` couldn't reach BOPTEST. The lead stopped the 4 orphaned tests by hand.
+   - **Lessons, now in WP1.2:**
+     - the forward runs in a restart loop;
+     - Docker in the Codespace may need a few seconds after boot before `docker compose up` works;
+     - the PC stays on one network for a whole run.
 3. **WP7 dashboard.** Branch `wp/wp7-dashboard` (kickoff `269e026`), worktree `C:\Users\hussa\dev\wt\wp7-dashboard`.
-   1. Sync `world/main` into it. Expect a conflict near the Person A handoff's §9 bullets, between the CORS bullet and the `/ws/agent` bullet; keep both.
-   2. Then run the full gate flow. The brief is ready. **Facts it relies on:**
+   1. **Building since about 12:00:** agent `aabfde3ea4ebbc64b`. After a 429, resume it with `SendMessage`.
+      - Synced to the trunk at `10ed6cd`.
+      - **Brief amendments:**
+        - `3b03d39`: power drawn as steps, and the VRF panel's rules;
+        - by message at 12:15: video mode never shows BOPTEST's `tdis_tot`/`idis_tot`, and operator view groups and captions BOPTEST's own KPIs.
+   2. Then the rest of the gate flow. **Facts it relies on:**
      - the dashboard is served by WP6's app at `/` from `apps/dashboard/dist`;
      - stub events carry `stub: true`;
      - the `tick` event comes after its step's results;
      - each complaint produces two `complaint_cue` events;
      - `replay --wait-viewer` exists;
      - `run_status` now carries status, plant and scenario.
-4. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
+4. **WP1.2: BOPTEST survives a dropped connection.**
+   - Branch `wp/wp12-boptest-resilience`, worktree `C:\Users\hussa\dev\wt\wp12-boptest-resilience`. Kickoff `08e5e2e`, amendment `5a49d31`.
+   - Create its venv (`uv sync --all-packages --all-extras`), then run the full gate flow. Afterwards, re-run the paced BOPTEST checkpoint over the supervised forward.
+5. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
    - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
    - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
    - **Reuse, never copy:** WP2's `PriorityArray` and `CommandPolicy`, and the BACnet/IP server code moves from `bms.py` into a shared `transports/bacnet/server.py`, with the BMS tests unchanged.
    - **Brand profiles enforced with BACnet's own errors:** `write-access-denied` for an axis the brand lacks, `value-out-of-range` for a state it lacks; releases always accepted.
    - **Louvers slew at 15°/s** (dt clipped to 0.1 s); room τ = 120 s of wall time toward the setpoint (never below it) or 30 °C ambient; illustrative power.
    - **No new run mode:** film the take with `run --plant rc --speed 1` and the live camera set. The stub agent doesn't drive the VRF.
-5. **WP10 evals and release.** Kickoff decisions to make:
+6. **WP10 evals and release.** Kickoff decisions to make:
    - **Stub agent upgrades:**
      - **priority-8 back-off** (stop writing a point an operator holds);
      - **deterministic write timing,** e.g. writes per tick awaited inside the tick, so runs reproduce at any speed.
@@ -311,17 +298,21 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - `all_hands_day` saving about 0;
      - `empty_friday`.
    - **Checks:** priority 8 always beats 10; a valid run has `ended == "finished"` and `dropped_events == 0`; `stub_agent` is recorded.
-   - **Release docs:** README, CREDITS and licences, the honesty note, a security scan.
+   - **Release docs:** README, CREDITS and licences, the honesty note, a security scan. The honesty note must also explain BOPTEST's `tdis_tot` and `idis_tot`: its schedule counts every zone as occupied all day.
    - **The root docs** (the root `CLAUDE.md`, `AGENTS.md` and README are stale for B's world): rewrite them, coordinated with A.
    - **CI:** add `scripts` to pytest's `testpaths`, and decide whether the dashboard gets CI.
    - **Optional WP1.1:** an RC slow mass node.
-6. **WP9 video.**
+7. **WP9 video.**
    - Storyboard and narration.
    - HyperFrames motion graphics.
    - **OBS takes:** the dashboard in `?mode=video`, then `spotcool-world replay <run_id> --wait-viewer 60` at the chosen speed.
    - Captions (an SRT from the narration), music, then edit in Shotcut.
    - QA: every number has its source, `CREDITS.md`, and the honesty note stated.
-7. **User actions.**
+8. **User actions.**
+   - **Network, before any BOPTEST or agent run:**
+     - keep the laptop on one network for the whole run;
+     - set the other saved Wi-Fi profiles to manual connect: `netsh wlan set profileparameter name="<profile>" connectionmode=manual`;
+     - choose the demo network; the phone camera must be on it too.
    - **Filming** (Nov 2 morning; `docs/footage/shot_list.md`, **14 rows**, including the new `eas_few`: D and E at the East desks).
      - Afterwards: `uv run python scripts/footage/normalize.py`, then `scripts/footage/extract_audio.py raw/south_complaint.m4a ...`, then `uv run spotcool-world lint --clips C:/Users/hussa/dev/footage/clips`.
      - If fewer people were filmed, the lead updates the people counts in the scenario YAMLs.
