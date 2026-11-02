@@ -3,7 +3,7 @@ import base64
 from PIL import Image
 from io import BytesIO
 from collections import deque
-from app.mvp_pipeline import process_window
+from app.mvp_pipeline import process_frames
 import asyncio
 
 
@@ -141,14 +141,14 @@ async def process_video(video_path: str):
                 if len(b64_frames) == 4:
 
                     # Run your existing pipeline
-                    result, telemetry,  id = await process_window(
+                    result, telemetry, response_id = await process_frames(
                         b64_frames,
-                        current_control_state=current_control_state,
-                        current_manipulated_state=manipulated_variables,
-                        turn_history=turn_history
+                        current_control_variables=current_control_state,
+                        current_manipulated_variables=manipulated_variables,
+                        turn_history=turn_history,
                     )
 
-                    last_response_id = id
+                    last_response_id = response_id
                     print(
                         f"\nTime: {current_time:.1f}s"
                     )

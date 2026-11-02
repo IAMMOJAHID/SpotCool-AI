@@ -1,100 +1,105 @@
 # SpotCool-AI
 
-SpotCool's window-processing pipeline runs as a RabbitMQ worker. RabbitMQ accepts
-jobs on `spotcool.jobs`; workers publish durable result records to
-`spotcool.results`. Multiple worker containers can consume jobs concurrently.
+SpotCool processes video clips through a RabbitMQ worker. Each job contains a
+video path and a half-open clip range (`clip_start_seconds` inclusive,
+`clip_end_seconds` exclusive); video frames are decoded and sampled by the
+worker rather than copied into RabbitMQ messages. The worker saves a complete
+JSON record for every turn and publishes its path with the model response ID.
 
 ## Run with Docker Compose
 
-1. Copy `.env.example` to `.env` and set `META_API_KEY` to a valid Meta AI API
-   key. Change the example RabbitMQ password before starting.
-2. Start RabbitMQ and one worker:
+1. Copy `.env.example` to `.env`. Set `META_API_KEY` and change the example
+   RabbitMQ password.
+2. Set `VIDEO_HOST_DIRECTORY` to a host directory that contains the video
+   (for example `C:/videos` on Windows). This directory is mounted read-only
+   inside the worker at `VIDEO_WORKER_DIRECTORY` (default `/videos`).
+3. Start RabbitMQ and one worker:
 
-   ```sh
+   ```powershell
    docker compose up --build -d
    ```
 
-3. Scale processing workers as needed:
+4. Scale processing workers as needed:
 
-   ```sh
+   ```powershell
    docker compose up --build --scale worker=3 -d
    ```
 
-4. Follow worker logs with `docker compose logs -f worker`.
+5. Follow worker logs with `docker compose logs -f worker`.
 
-RabbitMQ's management UI is at <http://localhost:15672>. Its username and
-password are `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` from `.env`.
-The AMQP port is `5672`.
-
-The worker calls the existing four-argument `process_window` function with
-`b64_frames`, `current_control_state`, `current_manipulated_state`, and
-`turn_history`. Set `WORKER_CONCURRENCY` to control each worker's RabbitMQ
-prefetch/concurrency. A job is acknowledged after a result is published; a
-processing error is returned as a `failed` result. Jobs and results are
-persistent. Since a worker may publish a result and disconnect before
-acknowledging the job, clients should de-duplicate results by `job_id`.
+The worker's `app` directory is mounted into the container, so turn records
+written under `app/turn_details` persist on the host. RabbitMQ's management UI
+is at <http://localhost:15672>; its credentials are
+`RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` from `.env`.
 
 ## Process a local video
 
-The client samples one frame every two seconds and groups samples into
-consecutive one-minute clips. Each clip becomes a separate RabbitMQ job and is
-submitted only after the previous clip's result arrives. A full minute
-typically contains 30 JPEG frames; the final clip can be shorter. The returned
-control delta updates the state sent with the next clip, and the most recent
-three telemetry/delta pairs are carried forward as turn history.
-
-Run the client from the project environment:
+Put the video under `VIDEO_HOST_DIRECTORY` and submit its host path. The client
+maps it to the worker-mounted path, divides it into clips of
+`CLIP_DURATION_SECONDS`, and waits for each result before submitting the next
+clip. The `saved_file_path` returned by one turn is sent as
+`previous_turn_state_file_path` on the next turn. The worker reads prior
+manipulated variables and recent turn history from that JSON file.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe rabbitmq_client.py "C:\videos\room.mp4" --timeout 300
+.\.venv\Scripts\python.exe rabbitmq_client.py "C:\videos\room.mp4"
 ```
 
-For each clip, the client creates and publishes a payload like this to
-`spotcool.jobs` (the JPEG strings are abbreviated here):
+Each job published to `spotcool.jobs` has this shape:
 
 ```json
 {
   "job_id": "unique-id-for-this-clip",
-  "clip_index": 0,
+  "video_path": "/videos/room.mp4",
   "clip_start_seconds": 0,
-  "b64_frames": ["<base64 JPEG>", "<base64 JPEG>"],
-  "current_control_state": {"target_temperature_c": 30},
-  "current_manipulated_state": {"temperature_c": 24.0},
-  "turn_history": []
+  "clip_end_seconds": 60,
+  "previous_turn_state_file_path": null,
+  "current_control_variables": {
+    "target_temperature_c": 30,
+    "target_humidity_pct": 35
+  }
 }
 ```
 
-The client sets the AMQP `correlation_id` to `job_id` and waits for the matching
-message directly on the durable `spotcool.results` queue. It acknowledges the
-matching result and prints each clip's control update. Results belonging to
-other jobs are left unacknowledged while the client searches, then requeued so
-they remain available. The client uses the RabbitMQ connection settings in
-`.env`; outside Docker it connects to `localhost:5672`.
-
-`spotcool.results` is a shared competing-consumer queue. For multiple
-simultaneous video clients, use a single result-dispatching consumer to route
-messages by `job_id`; otherwise clients can temporarily reserve unrelated
-results while waiting for their own.
-
-A successful response has this shape:
+The successful RabbitMQ result contains the correlation `job_id`, model
+`response_id`, and path to the saved turn details. It intentionally does not
+include control variables or telemetry; both can be read from the JSON file.
 
 ```json
 {
-  "job_id": "b6c7d31a-2f35-4d61-9a52-17e1204f8d3f",
+  "job_id": "unique-id-for-this-clip",
   "status": "completed",
-  "result": {
-    "temperature_c": 24.0
-  },
-  "telemetry": {
-    "persons": [],
-    "doors": [],
-    "semantics": {}
-  },
-  "response_id": "..."
+  "response_id": "...",
+  "saved_file_path": "/app/turn_details/turn_<id>.json"
 }
 ```
 
-For unsuccessful processing, `status` is `failed` and `error` includes an
+For unsuccessful processing, `status` is `failed` and `error` includes the
 exception type and message. A separate consumer can read `spotcool.results`
-using the same `job_id` / `correlation_id` to reconcile timed-out submissions.
+using the same `job_id` / AMQP `correlation_id` to reconcile timed-out
+submissions.
+
+## Configuration
+
+All runtime settings are read from environment variables (the defaults below
+are also listed in `.env.example`):
+
+| Variable | Purpose |
+| --- | --- |
+| `META_API_KEY`, `META_API_BASE_URL` | API credentials and endpoint |
+| `SAM_MODEL`, `SCENE_MODEL`, `DECISION_MODEL` | Model identifiers |
+| `SAM_PERSON_CONCEPT`, `SAM_SECONDARY_CONCEPT`, `SCENE_ANALYSIS_PROMPT`, `CONTROL_SYSTEM_INSTRUCTIONS`, `DECISION_REASONING_EFFORT` | Analysis prompts and inference behavior |
+| `TARGET_CONTROL_VARIABLES` | JSON object describing desired environmental values |
+| `INITIAL_CONTROL_VARIABLES` | JSON object describing the building/room state submitted with each job |
+| `INITIAL_MANIPULATED_VARIABLES` | JSON object used before a first prior-turn file exists |
+| `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST`, `RABBITMQ_RECONNECT_INTERVAL_SECONDS` | AMQP connection settings |
+| `JOB_QUEUE_NAME`, `RESULT_QUEUE_NAME`, `WORKER_CONCURRENCY`, `LOG_LEVEL` | Worker and queue settings |
+| `JOB_TIMEOUT_SECONDS`, `CLIP_DURATION_SECONDS` | Client job timeout and video clip size |
+| `FRAME_SAMPLE_INTERVAL_SECONDS`, `MAX_FRAMES_PER_CLIP`, `JPEG_QUALITY` | Worker frame sampling/encoding |
+| `TURN_HISTORY_LENGTH`, `TURN_DETAILS_DIRECTORY` | Prior-turn context and JSON output location |
+| `VIDEO_PATH`, `VIDEO_HOST_DIRECTORY`, `VIDEO_WORKER_DIRECTORY` | Optional default input path and host/container video mapping |
+
+JSON environment variables must contain valid JSON objects. The target setpoints
+are worker configuration; the current building/room values are sent with every
+job and may be changed independently by the job producer.
