@@ -100,7 +100,7 @@ def test_run_replay_and_report_with_a_config_file(
     config.write_text(
         f"run_dir: {runs.as_posix()}\nhttp_host: 127.0.0.1\nhttp_port: {ports.http_port}\n"
         f"dashboard_port: {ports.dashboard_port}\nbms_address: 127.0.0.1\n"
-        f"bms_port: {ports.bms_port}\n",
+        f"bms_port: {ports.bms_port}\nvrf_port: {ports.vrf_port}\n",
         encoding="utf-8",
     )
     env = clean_environment()
@@ -114,6 +114,7 @@ def test_run_replay_and_report_with_a_config_file(
     assert f"  cameras       http://127.0.0.1:{ports.http_port}/cameras\n" in out
     assert f"  event stream  ws://127.0.0.1:{ports.dashboard_port}/ws/events\n" in out
     assert f"  BMS           127.0.0.1:{ports.bms_port} (BACnet/IP)\n" in out
+    assert f"  VRF           127.0.0.1:{ports.vrf_port} (BACnet/IP)\n" in out
     assert "run cli-run finished (end time reached)" in out
     assert f"\n  {STUB_AGENT_NOTE}\n" in out
     for run in ("spotcool", "baseline"):  # the RC plant's own energy is the same sum
@@ -175,7 +176,15 @@ def test_a_run_ended_by_a_fatal_error_is_failed_in_its_record_and_printout(
     monkeypatch.setattr(rc_module, "RcPlant", BrokenPlant)
     monkeypatch.setattr(cli_module, "configure_logging", lambda level: None)  # keep pytest's
     settings = make_settings()
-    for name in ("run_dir", "http_host", "http_port", "dashboard_port", "bms_address", "bms_port"):
+    for name in (
+        "run_dir",
+        "http_host",
+        "http_port",
+        "dashboard_port",
+        "bms_address",
+        "bms_port",
+        "vrf_port",
+    ):
         monkeypatch.setenv(f"SPOTCOOL_WORLD_{name.upper()}", str(getattr(settings, name)))
     assert main(["run", "--scenario", two_hours, "--speed", "0", "--run-id", "broken"]) == 1
     path = settings.run_dir / "broken" / MANIFEST_FILE

@@ -72,7 +72,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1), power meters as step means (WP6.1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6), replaying the run so far to each new viewer (WP7); VRF WP3 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6), replaying the run so far to each new viewer (WP7); VRF gateway done (WP3), beside the pipeline in wall time |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
@@ -96,7 +96,7 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
 
 Every processor in this pipeline exists, and `runner/assembly.py` (`World`) assembles them into
 `spotcool-world run`, with `RunStatusProcessor` right after the `TickSource`. The VRF gateway
-arrives with WP3.
+is not in it: it lives in wall time beside the pipeline (The VRF gateway).
 
 ### Lifecycle
 
@@ -250,7 +250,10 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 only from `load_point_map("office_bms")`: 51 objects with the map's names, units and state texts.
 Commandable points carry a real priority array, relinquish default and current command priority;
 every object answers COV. The rules are pure, unit-tested modules: `priority.py`
-(`PriorityArray`, `CommandPolicy`) and `bms_logic.py` (`ZoneStandby`, `HeartbeatWatchdog`).
+(`PriorityArray`, `CommandPolicy`) and `bms_logic.py` (`ZoneStandby`, `HeartbeatWatchdog`). The
+BACnet/IP server code it shares with the VRF gateway is `server.py`: the points and their
+objects, the application that names each write's client, the write rules both devices share
+(`screen_write`), the write records (`record_write`) and the socket (`open_application`).
 
 - **Lifecycle.** `await bms.start()` before the run binds the socket and serves the device in a
   background task, which also checks the heartbeat every second; `await bms.stop()` closes it.
@@ -300,10 +303,10 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   unreachable; restart the run on one network`, once. When the address is back (a reconnect to
   the same network), an info line says `the PC's address <ip> is back`, and a later loss is
   reported again. The plants and the recording go on.
-- **BACpypes3 is pinned to 0.0.110** (the `bacnet` extra). The BMS works around two of its bugs
-  (a multi-state value gets the analog COV criteria, so COV subscriptions to it crash; a refused
-  WritePropertyMultiple is raised instead of answered) and waits on its private
-  `server._transport_tasks` in `start()`. Re-check all three before unpinning.
+- **BACpypes3 is pinned to 0.0.110** (the `bacnet` extra). `server.py` works around two of its
+  bugs (a multi-state value gets the analog COV criteria, so COV subscriptions to it crash; a
+  refused WritePropertyMultiple is raised instead of answered) and waits on its private
+  `server._transport_tasks` in `open_application`. Re-check all three before unpinning.
 
 ### Checking the BMS with YABE (manual)
 
@@ -340,6 +343,96 @@ Windows. Menu names are those of current YABE; older builds say "Add device" and
       property". The device's console logs every write as accepted or rejected, with the reason.
 5. COV: drag `ZN-COR-T` from the Objects tree into the Subscriptions panel; it updates every
    step.
+
+## The VRF gateway
+
+`transports/bacnet/vrf.py`'s `BacnetVrfGateway` is VRF-Gateway-MeetingRoom (device 2001, UDP
+47810): the BACnet gateway of the South meeting room's VRF indoor unit, built from
+`load_point_map("vrf_gateway")` (10 objects) and behaving like the real gateway of the brand
+`vrf_profile` names (`load_vrf_profiles()`: `mitsubishi`, `daikin` or `lg`). Person A's agent
+aims its louvers at a person on the live phone camera; the dashboard's AC panel animates it.
+
+- **Wall time, outside the pipeline.** It is a live device for the phone-camera take: a write
+  takes effect on the unit at once, and the louvers move at 15 deg/s whatever `--speed` is. It
+  adds no processor, and its power never enters the plants' energy, the KPIs or a quote.
+- **The unit** (`devices/vrf/model.py`, `VrfUnit`) is pure: `advance(dt_s)` moves it on, with
+  `dt_s` clipped to 0.1 s so a stall never makes a jump, and its command attributes take the
+  commands in force.
+  - A louver position is the profile's angle (vertical 0 to -60 deg, horizontal -40 to 40);
+    the angle slews toward it at 15 deg/s at most, so 0 to -60 deg takes 4 s. `Swing` sweeps
+    the axis's range, reversing at each end. LG's vertical louver, which has swing but no
+    positions, sweeps 0 to -60 deg (`SWING_ONLY_RANGE_DEG`, illustrative). Both louvers start
+    at 0 deg.
+  - Off: the louvers hold, swing stops and the room drifts toward ambient.
+  - The room is first order, tau = 120 s of wall time, starting at ambient, 30 degC. Cool, Dry
+    and Auto cool it toward the setpoint, never below it; Fan mode and off let it drift toward
+    ambient.
+  - Power: a compressor term, 0.5 kW per K of room above the setpoint times the fan's level,
+    capped at 2.2 kW, plus the fan (30-80 W) while the unit is on. Every constant is
+    illustrative: VRF power is never quoted as a saving.
+  - It starts at the gateway's relinquish defaults: On, Cool, 24 degC, fan Auto, both louvers
+    Pos3.
+- **Commands** follow the BMS's rules (`CommandPolicy`: priorities 8-16, the agent at 10, the
+  operator at 8 wins, NULL releases, values off range or off the grid refused, never clamped),
+  then the brand's (`brand_refusal`), each refusal with BACnet's own error and a reason that
+  names the brand:
+  - a louver axis the brand does not expose (`IDU-VANE-H` on Daikin and LG):
+    write-access-denied, "Daikin's gateway exposes no horizontal louver";
+  - a louver state or fan speed the brand lacks (Pos1-Pos5 on LG): value-out-of-range;
+  - a release is always accepted. A louver whose state in force the brand lacks (LG's
+    relinquish default, Pos3) holds its angle with swing off.
+- **Points.** `IDU-ROOM-T`, `IDU-PWR` and the louver angles show the unit, refreshed on every
+  tick. The angle of an axis the brand does not expose reads Reliability no-sensor (status
+  flags fault), and `vrf_state` carries `None` for that axis's state and angle.
+- **Events.** Every write, accepted or refused, is published at once as a `bms_write` event
+  with `device: "VRF-Gateway-MeetingRoom"` (`frame_events` of a `BmsWriteFrame` on
+  `EVENTS_TOPIC`), stamped with the shared `SimClock`'s time. `VrfWorker`
+  (`workers/vrf_worker.py`) ticks the unit at 20 Hz of wall time (injectable `clock` and
+  `sleep`; a late tick skips the ones it missed) and publishes `vrf_state`: at the start, at
+  most 5 times a second while the payload changes (compared after its rounding: angles to
+  0.1 deg, temperatures to 0.01 degC, power to 0.001 kW), and every 5 s otherwise, so a
+  dashboard that connects late catches up within 5 s. Both land in the recording. A tick that
+  fails is logged (its type and message; again only when the message changes, and once when
+  ticks succeed again) and the worker ticks on: a VRF fault never ends the run.
+- **Network.** The BMS's address (`bms_address`, resolved as the BMS resolves it) on
+  `vrf_port`. A Who-Is sent to 47808 does not reach it: address it directly. The stub agent
+  does not drive it. For the phone-camera take, run the world at any speed with
+  `SPOTCOOL_WORLD_LIVE_CAMERA_URL` set (`spotcool-world run --plant rc --speed 1`), and stop it
+  after the take.
+
+### Checking the VRF with YABE (manual)
+
+1. Start the world on loopback, with the brand to check (the default is `mitsubishi`). It
+   prints `VRF 127.0.0.1:47810 (BACnet/IP)`:
+
+   ```bash
+   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi \
+     uv run spotcool-world run --plant rc --speed 1
+   ```
+
+2. In YABE, add a channel with Local endpoint `127.0.0.1` (type it in), Start, then Functions >
+   IP Services > Add Remote Bacnet/IP node: `2001 - 127.0.0.1:47810`, as the BMS's loopback
+   workaround does (Windows notes). From another PC, use this PC's address instead, with the
+   firewall rule.
+3. Click the device: the Objects tree lists 11 entries, the 10 points and the device. Drag
+   `IDU-VANE-V-ANGLE` (ANALOG_INPUT:9) and `IDU-VANE-H-ANGLE` (ANALOG_INPUT:10) into the
+   Subscriptions panel.
+4. Set Options > Settings > DefaultWritePriority to 10. On `IDU-VANE-V` (MULTI_STATE_VALUE:5)
+   write Present Value 5 (Pos5): the vertical angle slews from -30 to -60 over 2 s. Write 6
+   (Swing): it sweeps 0 to -60 and back. On `IDU-VANE-H` (MULTI_STATE_VALUE:6) write 1: the
+   horizontal angle slews to -40 in under 3 s.
+5. The operator: press Ctrl+Alt+8 and write 1 on `IDU-VANE-V`: the angle slews to 0 and
+   Current Command Priority is 8; a write at 10 now changes only slot 10. Clear the field
+   (NULL) at 8: the agent's value at 10 is back.
+6. Fan and setpoint: at 10, write `IDU-FAN` (MULTI_STATE_VALUE:4) 4 (High) and `IDU-SP`
+   (ANALOG_VALUE:2) 27: `IDU-ROOM-T` levels off at 27 and `IDU-PWR` falls. 26.3 or 35 is
+   refused ("Couldn't write property"), and so is any write at priority 5.
+7. Brands: restart with `SPOTCOOL_WORLD_VRF_PROFILE=daikin`. A write to `IDU-VANE-H` is
+   refused, the console logs "Daikin's gateway exposes no horizontal louver", and
+   `IDU-VANE-H-ANGLE` reads Reliability no-sensor. With `lg`, `IDU-VANE-V` takes only 6
+   (Swing); clearing it holds the louver where it is.
+8. The dashboard's AC panel (`http://127.0.0.1:8090/`) shows the brand and both louvers moving
+   with each write, and its BACnet log lists every write with the VRF's device name.
 
 ## Scenarios, calendar and occupants
 
@@ -617,17 +710,18 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
     the cancel's reason (contracts 0.1.1).
   - Beside it, on one `InProcessBus`: the occupants, the HTTP server (cameras and calendar,
     `http_host:http_port`), the dashboard server (`http_host:dashboard_port`, which serves
-    `apps/dashboard/dist` at `/` once it is built) and, with `stub_agent`, the stub agent.
+    `apps/dashboard/dist` at `/` once it is built), the VRF worker and, with `stub_agent`, the
+    stub agent.
   - Both plants come from `create_plant`. The RC plant's occupant heat follows the scenario
     (`scenario_occupancy`: the people of the step under way, nobody during the warm-up);
     BOPTEST keeps its own fixed schedule (the report's honesty note).
-  - WP3 adds the VRF gateway at the two places marked in `World`: its `input()` after
-    `bms.input()`, its worker beside the others.
+  - The VRF gateway (`World.vrf`, on the BMS's address and `vrf_port`) and its `VrfWorker`,
+    one of `World.workers`, live beside the pipeline in wall time (The VRF gateway).
 - **Run ids.** A run id names the run's directory in `run_dir`; one that already holds a record
   is refused before anything starts. The default is the date, time and scenario, and a stub run's
   ends in `-stub`.
 - **Output.** At start-up it prints the URLs: the dashboard, its event stream, the camera
-  catalog, the calendar and the BMS's address and port. A server on a wildcard host (`0.0.0.0`,
+  catalog, the calendar, and the BMS's and the VRF's addresses and ports. A server on a wildcard host (`0.0.0.0`,
   `::`) shows this PC's LAN address, then its loopback one. At the end, from the recording: the
   run id, how it ended (as the manifest says: `finished`, `failed` or `cancelled`), each plant
   run's energy (the step-mean integration, its plant's own and
@@ -636,8 +730,9 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   `SPOTCOOL_WORLD_RUN_DIR=<dir>` and `--config <file>`. The exit code is 0 when the pipeline
   finished, 1 otherwise; invalid settings
   (such as `bms_address: localhost` or `log_level: VERBOSE`) print `run failed: ...` and exit 1.
-- **Lifecycle.** Before the runner, the BMS starts (`bms_address`, `bms_port`), then the cameras,
-  and the calendar store follows `WORLD_FRAMES_TOPIC`. One `WorkerRunner` runs the pipeline,
+- **Lifecycle.** Before the runner, the BMS starts (`bms_address`, `bms_port`), then the VRF
+  gateway (`bms_address`, `vrf_port`), then the cameras, and the calendar store follows
+  `WORLD_FRAMES_TOPIC`. One `WorkerRunner` runs the pipeline,
   then the others. The pipeline's `on_pipeline_finished` stops the other workers, so the runner
   returns; its `on_pipeline_error` publishes errors raised above the emitter as `error` events
   (the emitter has made the others events already). After the runner, everything is stopped in
@@ -655,9 +750,10 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   Use 60 or slower for integration and filming, because a clip's action needs wall time: the
   14:15 complaint plays 5-15 s into its clip. `--speed 0` runs as fast as possible: the RC day in
   about 2 s.
-- **Ports.** UDP `bms_port` (47808) on the primary IPv4 address, TCP `http_port` (8081) and
-  `dashboard_port` (8090) on `http_host` (0.0.0.0). A port another program holds fails the run:
-  the BMS's before anything starts (`BMS UDP <address>:<port> is in use ...`), a server's as
+- **Ports.** UDP `bms_port` (47808) and `vrf_port` (47810) on the primary IPv4 address, TCP
+  `http_port` (8081) and `dashboard_port` (8090) on `http_host` (0.0.0.0). A port another
+  program holds fails the run: the BMS's or the VRF's before anything starts (`BMS UDP
+  <address>:<port> is in use ...`, `VRF UDP ...`), a server's as
   soon as the runner starts (the run is then cancelled, after the plants' start). For a run on
   this PC only, with no firewall prompt, set `SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1` and
   `SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1`. For A's agent or a browser on another PC, allow the
@@ -781,15 +877,15 @@ truth.
 | `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `RunStatusProcessor`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `TelemetryProcessor`, `KpiProcessor`, `EventEmitterProcessor`, `RecorderProcessor`, `FramePublisher`, `BusPublisher` |
 | `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) and `RunManifest` |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
-| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port); the VRF worker arrives with WP3 |
+| `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port), `VrfWorker` (the VRF unit in wall time) |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
 | `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI (`run`, `replay`, `report`, `lint`, `probe`), `assembly.py` (`World`, `Replay`), `report.py` (run reports) |
 | `src/spotcool_world/stub_agent/` | `StubAgentWorker`: a BACnet client with openly perfect perception, for runs without Person A's agent |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
-| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` (`create_dashboard_app`: `/ws/events`, `/ws/agent`, `/runs`) |
-| `src/spotcool_world/devices/` | Equipment models (`vrf/`) |
+| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS, the VRF gateway and the server code they share), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` (`create_dashboard_app`: `/ws/events`, `/ws/agent`, `/runs`) |
+| `src/spotcool_world/devices/` | Equipment models: `vrf/` (`VrfUnit`) |
 | `src/spotcool_world/scenarios/` | Scenario DSL, linter, compiler, library |
 | `src/spotcool_world/adapters/` | Unit conversion; Haystack and vendor maps later |
 | `src/spotcool_world/utils/` | `BaseObject` (names, tasks, events), `TaskManager`, `SeenIds` |
@@ -903,6 +999,11 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   four minutes to end such a run; a second one skips the KPIs, and the stops still wait. A
   frame queued on the worker by hand (tests do) does wait behind a tick in flight, up to
   `RECOVERY_S` for a recovering step.
+
+- **A replay plays the VRF back per step.** The recording holds every `vrf_state` and VRF
+  `bms_write`, but a replay paces only at `tick` events: a step's VRF events go out together
+  after it, so the louvers jump once a step instead of slewing. The video films the louver
+  segment live, so it never needs a replay.
 
 ## Windows notes
 

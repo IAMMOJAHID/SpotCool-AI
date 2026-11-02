@@ -1,8 +1,9 @@
 """Assembly: the whole world in one run, and the replay of a recorded run.
 
 ``World(settings)`` builds what one ``spotcool-world run`` needs: the pipeline below, the BACnet
-BMS, the cameras, the room calendar, the occupants, the HTTP and dashboard servers on one bus
-and, with ``settings.stub_agent``, the stub agent. ``World.run()`` owns their lifecycle.
+BMS, the meeting-room VRF gateway, the cameras, the room calendar, the occupants, the HTTP and
+dashboard servers on one bus and, with ``settings.stub_agent``, the stub agent. ``World.run()``
+owns their lifecycle. The VRF lives in wall time, outside the pipeline: its worker moves it.
 ``Replay(settings, run_id)`` plays a recorded run back for a video take: its events, the
 dashboard and the cameras, with no physics and no BACnet.
 
@@ -31,6 +32,7 @@ from spotcool_contracts import Zone
 from spotcool_contracts.calendar import ROOMS, SCHEDULE_PATH
 from spotcool_contracts.cameras import CATALOG_PATH
 from spotcool_contracts.events import EventEnvelope, EventType, ScenarioStateData, TickData
+from spotcool_contracts.vrf import load_vrf_profiles
 from spotcool_world.bus import InProcessBus
 from spotcool_world.clocks import SimClock, WallPacer
 from spotcool_world.frames import (
@@ -70,7 +72,9 @@ from spotcool_world.services.camera_service import create_cameras
 from spotcool_world.services.plant_factory import create_plant
 from spotcool_world.services.settings import WorldSettings
 from spotcool_world.stub_agent.worker import StubAgentWorker
-from spotcool_world.transports.bacnet.bms import BacnetBmsTransport, primary_ipv4
+from spotcool_world.transports.bacnet.bms import BacnetBmsTransport
+from spotcool_world.transports.bacnet.server import primary_ipv4
+from spotcool_world.transports.bacnet.vrf import BacnetVrfGateway
 from spotcool_world.transports.http.calendar import CalendarStore, calendar_router
 from spotcool_world.transports.http.cameras import cameras_router
 from spotcool_world.transports.http.server import create_http_app
@@ -79,6 +83,7 @@ from spotcool_world.utils.base_object import BaseObject
 from spotcool_world.workers import BaseWorker, PipelineWorker
 from spotcool_world.workers.http_server import HttpServerWorker
 from spotcool_world.workers.occupant_worker import OccupantWorker
+from spotcool_world.workers.vrf_worker import VrfWorker
 
 DASHBOARD_DIST = Path(__file__).resolve().parents[5] / "apps" / "dashboard" / "dist"
 """The built dashboard in this checkout, which the dashboard server serves at ``/``."""
@@ -124,8 +129,9 @@ class World(BaseObject):
     follows the scenario (``scenario_occupancy``). One ``InProcessBus`` serves the pipeline, the
     workers and the dashboard server. Beside the pipeline run ``workers``: the occupants, the
     HTTP server (cameras and calendar, ``http_host:http_port``), the dashboard server
-    (``http_host:dashboard_port``) and, with ``settings.stub_agent``, the stub agent. Nothing
-    starts before ``run()``.
+    (``http_host:dashboard_port``), the VRF worker and, with ``settings.stub_agent``, the stub
+    agent. The VRF gateway (``settings.vrf_profile``) serves on the BMS's address and
+    ``settings.vrf_port``. Nothing starts before ``run()``.
 
     Args:
         settings: The run's settings.
@@ -165,6 +171,18 @@ class World(BaseObject):
         """The BACnet BMS."""
         self.bms_endpoint = f"{bms_host}:{settings.bms_port}"
         """The ``ip:port`` the BMS serves on."""
+        clock = SimClock(compiled.start_s, settings.step_s)
+        self.vrf = BacnetVrfGateway(
+            load_vrf_profiles()[settings.vrf_profile],
+            self.bus,
+            clock,
+            address=settings.bms_address,
+            port=settings.vrf_port,
+            name="vrf",
+        )
+        """The meeting-room VRF gateway, on the BMS's address."""
+        self.vrf_endpoint = f"{bms_host}:{settings.vrf_port}"
+        """The ``ip:port`` the VRF gateway serves on."""
         self.cameras = create_cameras(settings)
         """The camera system, shared by the pipeline and the HTTP server."""
         self.store = CalendarStore()
@@ -172,7 +190,6 @@ class World(BaseObject):
         occupancy = scenario_occupancy(compiled)
         self.plants = {run: create_plant(settings, run, occupancy=occupancy) for run in RUNS}
         """Both runs' plants, by run."""
-        clock = SimClock(compiled.start_s, settings.step_s)
         recorder, publisher = RecorderProcessor(settings), BusPublisher(self.bus, EVENTS_TOPIC)
         self._below_emitter = {recorder.name, publisher.name}
         pipeline = Pipeline(
@@ -182,7 +199,6 @@ class World(BaseObject):
                 ScenarioProcessor(compiled),
                 FramePublisher(self.bus, (CalendarFrame, ComplaintCueFrame)),
                 self.bms.input(),
-                # WP3: the VRF gateway's input() goes here, so its writes join the tick's frames.
                 ParallelPipeline(
                     *(
                         [PlantProcessor(self.plants[run], run, time_period=settings.time_period)]
@@ -214,7 +230,7 @@ class World(BaseObject):
         self.workers: list[BaseWorker] = [
             OccupantWorker(settings, name="occupants"),
             *_servers(settings, http, dashboard),
-            # WP3: the VRF gateway's worker joins these.
+            VrfWorker(self.vrf, clock, name="vrf"),
         ]
         """The workers beside the pipeline, stopped when the run ends."""
         if settings.stub_agent:
@@ -224,7 +240,7 @@ class World(BaseObject):
         self._ran = False
 
     def urls(self) -> dict[str, str]:
-        """Where the world serves the dashboard, the cameras, the calendar and the BMS."""
+        """Where the world serves the dashboard, the cameras, the calendar, the BMS and the VRF."""
         host, port = self.settings.http_host, self.settings.http_port
         room = next(iter(ROOMS))
         return {
@@ -232,24 +248,26 @@ class World(BaseObject):
             "cameras": _url("http", host, port, CATALOG_PATH),
             "calendar": _url("http", host, port, SCHEDULE_PATH.format(room=room)),
             "BMS": f"{self.bms_endpoint} (BACnet/IP)",
+            "VRF": f"{self.vrf_endpoint} (BACnet/IP)",
         }
 
     async def run(self, *, handle_sigint: bool = True) -> None:
         """Run the world once, to the scenario's end or until it is stopped.
 
-        Before the workers: the BMS starts on the settings' address and port, the cameras start,
-        and the calendar store follows ``WORLD_FRAMES_TOPIC``. Then one ``WorkerRunner`` runs
-        the pipeline and the workers: the first Ctrl+C stops the run gracefully, a second
-        cancels it. The run's end (its ``EndFrame`` or ``CancelFrame``) stops the workers. After
-        them, everything started is stopped again, in reverse order, the plants last and both
-        at once: a plant's ``stop()`` waits, bounded, for a stop request still on its way
-        (``STOP_WAIT_S`` for BOPTEST), so ``run()`` never returns while one is.
+        Before the workers: the BMS starts on the settings' address and port, then the VRF
+        gateway on the same address and ``vrf_port``, the cameras start, and the calendar store
+        follows ``WORLD_FRAMES_TOPIC``. Then one ``WorkerRunner`` runs the pipeline and the
+        workers: the first Ctrl+C stops the run gracefully, a second cancels it. The run's end
+        (its ``EndFrame`` or ``CancelFrame``) stops the workers. After them, everything started
+        is stopped again, in reverse order, the plants last and both at once: a plant's
+        ``stop()`` waits, bounded, for a stop request still on its way (``STOP_WAIT_S`` for
+        BOPTEST), so ``run()`` never returns while one is.
 
         Args:
             handle_sigint: Let the runner handle Ctrl+C (off in tests).
 
         Raises:
-            OSError: If the BMS or a server cannot bind its port.
+            OSError: If the BMS, the VRF gateway or a server cannot bind its port.
             RuntimeError: If the world has run before.
         """
         if self._ran:
@@ -264,6 +282,13 @@ class World(BaseObject):
                     f"BMS UDP {self.bms_endpoint} is in use, or not an address of this PC: {exc}"
                 ) from exc
             stack.push_async_callback(self.bms.stop)
+            try:
+                await self.vrf.start()
+            except OSError as exc:
+                raise OSError(
+                    f"VRF UDP {self.vrf_endpoint} is in use, or not an address of this PC: {exc}"
+                ) from exc
+            stack.push_async_callback(self.vrf.stop)
             await self.cameras.start()
             stack.push_async_callback(self.cameras.stop)
             calendar = self.bus.subscribe(WORLD_FRAMES_TOPIC)
