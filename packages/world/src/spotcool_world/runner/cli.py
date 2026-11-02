@@ -1,8 +1,8 @@
 """``spotcool-world`` command line.
 
 Subcommands so far: ``version``, ``run --dry-run`` (print the resolved settings), ``probe``
-(the go/no-go check of a plant) and ``lint`` (check scenarios). Running a world, ``replay`` and
-``report`` arrive with later work packages.
+(the go/no-go check of a plant), ``lint`` (check scenarios) and ``report`` (a recorded run's
+report). Running a world and ``replay`` arrive with later work packages.
 """
 
 import argparse
@@ -14,6 +14,7 @@ from pathlib import Path
 from spotcool_contracts import CONTRACTS_VERSION
 from spotcool_world import __version__
 from spotcool_world.runner.probe import probe
+from spotcool_world.runner.report import write_report
 from spotcool_world.scenarios import library_names, lint
 from spotcool_world.services.settings import WorldSettings
 
@@ -58,6 +59,11 @@ def _parser() -> argparse.ArgumentParser:
         metavar="S",
         help="step grid in simulation seconds (default: the settings' step_s)",
     )
+    report = commands.add_parser(
+        "report",
+        help="write a recorded run's report.md and PNG charts into its directory (extra report)",
+    )
+    report.add_argument("run_id", help="the run: a directory in the settings' run_dir")
     return parser
 
 
@@ -86,6 +92,22 @@ def _lint(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         warnings += sum(finding.level == "warning" for finding in findings)
     print(f"{len(sources)} scenario(s): {errors} error(s), {warnings} warning(s)")
     return 1 if errors else 0
+
+
+def _report(run_id: str) -> int:
+    """Write the report of a run in the settings' ``run_dir``; 1 if it cannot be written."""
+    try:
+        path = write_report(WorldSettings().run_dir, run_id)
+    except ModuleNotFoundError as exc:
+        if exc.name is None or exc.name.partition(".")[0] != "matplotlib":
+            raise
+        print("report needs the report extra: uv sync --all-packages --extra report")
+        return 1
+    except (OSError, ValueError) as exc:
+        print(f"report failed: {exc}")
+        return 1
+    print(f"wrote {path} and its charts")
+    return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -117,6 +139,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "lint":
         return _lint(parser, args)
+    if args.command == "report":
+        return _report(args.run_id)
     settings = WorldSettings()
     if args.dry_run:
         print(settings.model_dump_json(indent=2))
