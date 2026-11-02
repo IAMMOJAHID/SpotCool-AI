@@ -200,7 +200,17 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
   - LG has swing only.
 
   Read the capability flags and handle the differences.
-- **Slew:** the louvers move at 15°/s between positions, as real ones do.
+- **Refusals by brand:**
+  - a write to an axis the brand doesn't expose (`IDU-VANE-H` on Daikin and LG) is refused with `write-access-denied`;
+  - a state the brand lacks (Pos1–Pos5 on LG) is refused with `value-out-of-range`;
+  - a NULL release is always accepted;
+  - the angle point of an axis the brand doesn't expose has Reliability `no-sensor`.
+- **Slew:** the louvers move at 15°/s between positions, as real ones do. The angle points lag the command: 0° to −60° takes 4 s.
+- **Real time:** the unit runs on the wall clock, whatever the simulation's speed. A write takes effect at once.
+- **Address:** the BMS's IP, on UDP 47810. A Who-Is sent to 47808 won't reach it, so address it directly.
+- **Events:**
+  - `vrf_state` up to 5 times a second while the unit changes, and every 5 s otherwise;
+  - each write to it also appears as a `bms_write` event with `device: "VRF-Gateway-MeetingRoom"`.
 - **Demo moment:** on the live phone camera, a person sits far away, walks up and says "The AC is blowing right on my face." Your agent re-aims the vanes.
 
 ## 7. Cameras (planned, WP4)
