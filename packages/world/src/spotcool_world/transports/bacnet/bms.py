@@ -19,6 +19,7 @@ arrays at once; ``input()`` reads that state at tick time, so the lockstep stays
 """
 
 import asyncio
+import errno
 import functools
 import socket
 import time
@@ -114,6 +115,16 @@ def primary_ipv4() -> str:
             return str(probe.getsockname()[0])
         except OSError:
             return "127.0.0.1"
+
+
+def is_local_ipv4(ip: str) -> bool:
+    """Whether ``ip`` is still one of this machine's addresses: a socket can bind it."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.bind((ip, 0))
+        except OSError as exc:
+            return exc.errno != errno.EADDRNOTAVAIL  # any other failure says nothing of it
+    return True
 
 
 class _Guarded:
@@ -247,6 +258,9 @@ class BacnetBmsTransport(BaseTransport):
     ``start()`` binds the UDP socket and serves the device in a background task, which also
     checks the heartbeat every ``WATCHDOG_PERIOD_S``; ``stop()`` cancels the task and closes the
     socket. ``input()`` and ``output()`` work without ``start()``, only without a network.
+    While it runs, each tick checks that the bound address is still one of the PC's; the first
+    time it is not (the PC changed networks, so nobody can reach the BMS), ``input()`` reports a
+    non-fatal error.
 
     Network commands are WriteProperty or WritePropertyMultiple of a present value; they follow
     ``CommandPolicy``, and writes to any other property are refused. Every command, accepted or
@@ -272,6 +286,8 @@ class BacnetBmsTransport(BaseTransport):
         port: UDP port. Defaults to the point map's, 47808.
         policy: The network command rules.
         clock: Wall clock in seconds for the heartbeat watchdog; inject a fake one in tests.
+        has_address: Whether an IPv4 address is still this machine's, checked on each tick
+            while the device runs; inject a fake one in tests.
         occupied_hours: Hours of the day, ``[start, end)``, the building schedule can be
             occupied; BOPTEST's office by default.
         name: Display name.
@@ -284,6 +300,7 @@ class BacnetBmsTransport(BaseTransport):
         port: int | None = None,
         policy: CommandPolicy | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        has_address: Callable[[str], bool] = is_local_ipv4,
         occupied_hours: tuple[float, float] = OCCUPIED_HOURS,
         name: str | None = None,
     ) -> None:
@@ -293,6 +310,8 @@ class BacnetBmsTransport(BaseTransport):
         self._port = self._map.udp_port if port is None else port
         self._policy = policy or CommandPolicy()
         self._watchdog = HeartbeatWatchdog(clock=clock)
+        self._has_address = has_address
+        self._address_lost = False  # reported once per start()
         self._occupied_hours = occupied_hours
         self._points = {spec.name: _new_point(spec) for spec in self._map.points}
         self._zones = {zone: self._new_zone(zone) for zone in Zone}
@@ -356,7 +375,7 @@ class BacnetBmsTransport(BaseTransport):
         except BaseException:
             await self._close()
             raise
-        self._bound = _endpoint(local)
+        self._bound, self._address_lost = _endpoint(local), False
         self.create_task(self._serve(), "bacnet-device")
         logger.info(
             f"{self.name}: BACnet device {self._map.device_name} ({self._map.device_instance}),"
@@ -548,6 +567,18 @@ class BacnetBmsTransport(BaseTransport):
                     point.spec, AGENT_PRIORITY, None, client, "heartbeat timeout", accepted=True
                 )
 
+    def _lost_address(self) -> str | None:
+        """The error to report the first time the bound address is no longer this PC's."""
+        if self._bound is None or self._address_lost:
+            return None
+        if self._has_address(self._bound.rpartition(":")[0]):
+            return None
+        self._address_lost = True
+        return (
+            f"the PC's network changed: the BMS at {self._bound} is unreachable; restart the "
+            "run on one network"
+        )
+
     def _tick(self, tick: TickFrame) -> list[Frame]:
         """Run the BMS logic for a tick; return the frames to push ahead of it."""
         now_s = tick.sim_time_s
@@ -649,6 +680,9 @@ class BacnetBmsTransport(BaseTransport):
 class _BmsInput(FrameProcessor):
     """``BacnetBmsTransport.input()``: the network's commands into the pipeline, every tick.
 
+    The first tick that finds the BMS's bound address gone from the PC (its network changed)
+    reports a non-fatal error.
+
     Args:
         bms: The transport.
         name: Display name.
@@ -665,6 +699,8 @@ class _BmsInput(FrameProcessor):
             if isinstance(frame, StartFrame):
                 self._bms._started(frame)
             elif isinstance(frame, TickFrame):
+                if (lost := self._bms._lost_address()) is not None:
+                    await self.push_error(lost)  # never fatal: the plants and the record go on
                 for derived in self._bms._tick(frame):
                     await self.push_frame(derived)
             elif isinstance(frame, EndFrame):

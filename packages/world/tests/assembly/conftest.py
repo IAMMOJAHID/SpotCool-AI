@@ -101,7 +101,8 @@ class FakeBoptestClient:
     """``BoptestClient`` for one test, with an RC plant's physics; ``stop`` takes ``stop_s``.
 
     ``events`` records ``select``, ``stop sent``, ``stop done`` and ``closed``, in order. The
-    first ``results_failures`` results calls fail.
+    first ``results_failures`` results calls fail, and the next ``lost_answers`` advances step
+    the plant but lose their answer.
 
     Args:
         base_url: The service URL, as the plant's provider passes it.
@@ -115,6 +116,7 @@ class FakeBoptestClient:
         self.stop_sent = asyncio.Event()
         self.idle_s = 0.0
         self.results_failures = 0
+        self.lost_answers = 0
         self._rc = RcPlant()
         self._state: dict[str, float] = {}
 
@@ -126,13 +128,19 @@ class FakeBoptestClient:
         self, testid: str, start_time_s: float, warmup_s: float
     ) -> dict[str, float]:
         params = PlantStartParams(start_time_s=start_time_s, step_s=900.0, warmup_s=warmup_s)
-        return await self._rc.start(params)
+        self._state = await self._rc.start(params)
+        return dict(self._state)
 
     async def set_step(self, testid: str, step_s: float) -> None:
         assert step_s == 900.0
 
-    async def advance(self, testid: str, inputs: Mapping[str, float]) -> dict[str, float]:
+    async def advance(
+        self, testid: str, inputs: Mapping[str, float], *, timeout_s: float = 120.0
+    ) -> dict[str, float]:
         self._state = await self._rc.step({})  # BOPTEST's own control: the RC plant's schedule
+        if self.lost_answers:
+            self.lost_answers -= 1
+            raise BoptestError(f"POST /advance/{testid}: ReadTimeout after 120 s")
         return dict(self._state)
 
     async def results(
@@ -143,7 +151,15 @@ class FakeBoptestClient:
             raise BoptestError("PUT /results: HTTP 500: results failed", status=500)
         # Each point holds the RC plant's value over the step: its meters' means.
         samples = {name: [self._state[name]] * 2 for name in point_names}
-        return samples | {"time": [start_time_s, final_time_s]}
+        return samples | {"time": [start_time_s, min(final_time_s, self._state["time"])]}
+
+    async def state_at(
+        self, testid: str, point_names: Sequence[str], time_s: float
+    ) -> dict[str, float]:
+        assert time_s == self._state["time"]  # the latest stored time
+        return {name: self._state[name] for name in point_names if name in self._state} | {
+            "time": time_s
+        }
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
         return await self._rc.kpis()

@@ -19,6 +19,7 @@ from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, 
 from spotcool_world.bus import Subscription
 from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.processors.kpi import RUNS
+from spotcool_world.processors.plant_processor import CONNECTION_RECOVERIES_METRIC
 from spotcool_world.runner.assembly import World
 from spotcool_world.runner.report import (
     REPORT_FILE,
@@ -213,6 +214,34 @@ async def test_a_power_fallback_is_recorded_reported_and_blocks_the_quote(
     assert_all_stopped(world)
 
 
+@pytest.mark.asyncio
+async def test_a_lost_advance_answer_is_recovered_recorded_and_still_quotable(
+    make_settings: MakeSettings, two_hours: str, fake_boptest: Any
+) -> None:
+    clean = World(make_settings(plant="boptest-local", scenario=two_hours), run_id="clean")
+    await asyncio.wait_for(clean.run(handle_sigint=False), 60)
+    world = World(make_settings(plant="boptest-local", scenario=two_hours), run_id="dropped")
+    fake_boptest.clients[2].lost_answers = 1  # SpotCool's first step happens; its answer is lost
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+    run = load_run(world.settings.run_dir, world.run_id)
+    assert run.manifest.ended == "finished"
+    events = recorded(world)
+    errors = [e.data for e in events if e.type is EventType.ERROR]
+    assert [(e["where"], e["fatal"]) for e in errors] == [("PlantProcessor(spotcool)", False)]
+    assert "step 0 (07:00-07:15) was recovered after its connection" in errors[0]["message"]
+    recoveries = [
+        (e.data["value"], e.data["labels"])
+        for e in events
+        if e.type is EventType.METRICS and e.data["name"] == CONNECTION_RECOVERIES_METRIC
+    ]
+    assert recoveries == [(1, {"run": "spotcool"})]
+    expected = load_run(clean.settings.run_dir, clean.run_id)
+    assert run.fallbacks == {"spotcool": 0, "baseline": 0}
+    assert quote_blockers(run) == quote_blockers(expected)  # the report is unaffected
+    assert check_energy(run) == check_energy(expected)  # the recovered state is the plant's own
+    assert_all_stopped(world)
+
+
 @pytest.mark.parametrize("plant", ["boptest-local", "boptest-hosted"])
 @pytest.mark.asyncio
 async def test_both_boptest_tests_are_stopped_after_the_run(
@@ -313,9 +342,10 @@ async def test_an_error_above_the_emitter_is_published_once(
         "PlantProcessor(spotcool)",
     ]
     assert all(e.data["fatal"] and "the plant broke" in e.data["message"] for e in errors)
-    assert manifest(world).ended == "cancelled"
     [(status, message)] = statuses(published)[1:]
     assert status == "failed" and message is not None and "the plant broke" in message
+    done = manifest(world)
+    assert done.ended == "failed" and "the plant broke" in done.end_reason  # as the status says
     assert_all_stopped(world)
 
 

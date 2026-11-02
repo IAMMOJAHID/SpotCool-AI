@@ -6,14 +6,17 @@ Rules it enforces (checked against BOPTEST master ``a29024f`` and the hosted v0.
   HTTP 500 to an empty JSON body.
 - Test calls answer ``{status, message, payload}``; any status but 200 raises ``BoptestError``.
   ``stop`` answers a plain-text ``OK``, so it is not parsed.
-- ``advance`` is never retried: an advance whose answer was lost may have run, and a retry
-  would step the test twice. ``results`` changes nothing, so it is retried on any transient
+- ``advance`` is never retried here: an advance whose answer was lost may have run, and a
+  retry would step the test twice (``BoptestPlant`` recovers such a step from the stored
+  results). ``results`` and ``state_at`` change nothing, so they are retried on any transient
   failure.
 - ``select`` uses ``select-async`` and polls ``status``, so the test id is known at once and a
   test that queues too long (the hosted queue has passed 900 s) can always be stopped. The
   POST is retried only when it provably created nothing (no connection, or HTTP 429): a
   duplicate test would hold a worker and starve the next run's select.
-- ``stop`` never raises, and a second Ctrl+C cannot abort it; callers use it on every exit path.
+- ``stop`` rides out a short outage (``STOP_RETRY_S``), never raises, and a second Ctrl+C
+  cannot abort it; callers use it on every exit path.
+- A transport error names the exception, and a timeout the seconds it allowed.
 """
 
 import asyncio
@@ -33,6 +36,8 @@ SIMULATE_TIMEOUT_S = 900.0
 seven days took 283 s on a Codespace)."""
 ADVANCE_TIMEOUT_S = 120.0
 """Timeout of one ``advance``, and of the KPI calculation."""
+STOP_RETRY_S = 60.0
+"""How long ``stop`` keeps trying through connection failures, its attempts included."""
 _BACKOFF_CAP_S = 30.0
 
 _T = TypeVar("_T")
@@ -70,6 +75,8 @@ class BoptestClient:
             poll on no answer or HTTP 429/5xx.
         backoff_s: First retry delay; it doubles with each attempt, with full jitter.
         transport: httpx transport; tests pass an ``httpx.MockTransport``.
+        clock: Wall clock in seconds for the retry deadlines; tests inject a fake one.
+        sleep: Waits between attempts and status polls; tests inject a fake one.
     """
 
     def __init__(
@@ -81,6 +88,8 @@ class BoptestClient:
         retries: int = 5,
         backoff_s: float = 1.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        clock: Callable[[], float] = time.perf_counter,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._http = httpx.AsyncClient(
             base_url=base_url, timeout=QUICK_TIMEOUT_S, transport=transport
@@ -89,6 +98,8 @@ class BoptestClient:
         self._poll_s = poll_s
         self._retries = retries
         self._backoff_s = backoff_s
+        self._clock = clock
+        self._sleep = sleep
         self._calls: deque[tuple[str, float]] = deque(maxlen=256)
         self._last_request_s = time.perf_counter()
         self._in_flight = 0
@@ -133,12 +144,13 @@ class BoptestClient:
         Raises:
             BoptestError: If no test is running in time; a queued test is stopped first.
         """
-        deadline = time.perf_counter() + self._select_wait_s
+        deadline = self._clock() + self._select_wait_s
         try:
             answer = await self._retrying(
                 lambda: self._json("POST", f"testcases/{testcase}/select-async"),
                 deadline,
                 retry=lambda exc: exc.unsent or exc.status == 429,
+                attempts=self._retries,
             )
         except BoptestError as exc:
             if not exc.unsent and (exc.status is None or exc.status >= 500):
@@ -154,16 +166,19 @@ class BoptestClient:
         try:
             while True:
                 status = await self._retrying(
-                    lambda: self.status(testid), deadline, retry=lambda exc: exc.retryable
+                    lambda: self.status(testid),
+                    deadline,
+                    retry=lambda exc: exc.retryable,
+                    attempts=self._retries,
                 )
                 if status == "Running":
                     break
-                if time.perf_counter() >= deadline:
+                if self._clock() >= deadline:
                     raise BoptestError(
                         f"test {testid} still {status} after {self._select_wait_s:.0f} s; is a "
                         "worker free? A local stack runs as many tests as --scale worker=N"
                     )
-                await asyncio.sleep(self._poll_s)
+                await self._sleep(self._poll_s)
         except BaseException:
             await asyncio.shield(self.stop(testid))
             raise
@@ -228,20 +243,21 @@ class BoptestClient:
         """
         await self._payload("PUT", f"step/{testid}", {"step": step_s})
 
-    async def advance(self, testid: str, inputs: Mapping[str, float]) -> dict[str, float]:
+    async def advance(
+        self, testid: str, inputs: Mapping[str, float], *, timeout_s: float = ADVANCE_TIMEOUT_S
+    ) -> dict[str, float]:
         """Advance one step.
 
         Args:
             testid: The test.
             inputs: ``<x>_u`` values and ``<x>_activate`` flags. Inputs latch: BOPTEST keeps
                 applying an override until it is sent ``<x>_activate = 0``.
+            timeout_s: How long to wait for the answer.
 
         Returns:
             The measurements at the end of the step; empty once the scenario period is over.
         """
-        payload = await self._payload(
-            "POST", f"advance/{testid}", inputs, timeout_s=ADVANCE_TIMEOUT_S
-        )
+        payload = await self._payload("POST", f"advance/{testid}", inputs, timeout_s=timeout_s)
         return _state(payload, "advance")
 
     async def results(
@@ -266,24 +282,40 @@ class BoptestClient:
             BoptestError: If BOPTEST fails, or a series is not all numbers (a NaN arrives as
                 null).
         """
-        body = {
-            "point_names": list(point_names),
-            "start_time": start_time_s,
-            "final_time": final_time_s,
-        }
-        deadline = time.perf_counter() + QUICK_TIMEOUT_S
-
-        def attempt() -> Awaitable[Any]:
-            left_s = max(deadline - time.perf_counter(), 1e-3)
-            return self._payload("PUT", f"results/{testid}", body, timeout_s=left_s)
-
-        payload = await self._retrying(attempt, deadline, retry=lambda exc: exc.retryable)
+        stored = await self._stored(testid, point_names, start_time_s, final_time_s)
         series: dict[str, list[float]] = {}
-        for name, values in _mapping(payload, "results").items():
+        for name, values in stored.items():
             if not isinstance(values, list) or not all(isinstance(v, int | float) for v in values):
                 raise BoptestError(f"results: {name} is not a list of numbers", status=200)
             series[name] = [float(value) for value in values]
         return series
+
+    async def state_at(
+        self, testid: str, point_names: Sequence[str], time_s: float
+    ) -> dict[str, float]:
+        """Stored values of some points at one time: what an advance that ended then answered.
+
+        Reads ``PUT /results`` over ``[time_s, time_s]``, retried like ``results``. BOPTEST
+        filters its stored samples without interpolating, so the values are its own. A value
+        it reports as null is left out, as ``advance`` leaves it out.
+
+        Args:
+            testid: The test.
+            point_names: Outputs (``_y``) and inputs (``_u``, ``_activate``) to read.
+            time_s: A simulation time BOPTEST has stored.
+
+        Returns:
+            Each point's value and, under ``time``, ``time_s``.
+
+        Raises:
+            BoptestError: If BOPTEST fails, or holds no single sample at ``time_s``.
+        """
+        stored = await self._stored(testid, point_names, time_s, time_s)
+        if stored.get("time") != [time_s]:
+            times = str(stored.get("time"))[:200]
+            raise BoptestError(f"results: no single sample at {time_s} s, got {times}", status=200)
+        last = {name: v[-1] for name, v in stored.items() if isinstance(v, list) and len(v) == 1}
+        return _state(last, "results")
 
     async def kpis(self, testid: str) -> dict[str, float | None]:
         """The test's KPIs since it was initialized (``ener_tot``, ``tdis_tot``, ...).
@@ -327,13 +359,34 @@ class BoptestClient:
     async def stop(self, testid: str) -> None:
         """Stop a test, queued or running, and free its worker. Never raises; failures are logged.
 
+        No answer and HTTP 429/5xx are retried with backoff for up to ``STOP_RETRY_S`` in all:
+        each attempt's timeout is capped at the time left. A retry that finds the test gone
+        means an earlier request stopped it. A test still running afterwards is logged as a
+        warning with the command that stops it.
+
         Args:
             testid: The test.
         """
+        deadline = self._clock() + STOP_RETRY_S
+        attempts = 0
+
+        def attempt() -> Awaitable[httpx.Response]:
+            nonlocal attempts
+            attempts += 1
+            left_s = min(QUICK_TIMEOUT_S, max(deadline - self._clock(), 1e-3))
+            return self._request("PUT", f"stop/{testid}", timeout_s=left_s)
+
         try:
-            await self._request("PUT", f"stop/{testid}")
+            await self._retrying(attempt, deadline, retry=lambda exc: exc.retryable, attempts=None)
         except BoptestError as exc:
-            logger.warning(f"BOPTEST: could not stop test {testid}: {exc}")
+            if attempts > 1 and exc.status in (400, 404):  # BOPTEST no longer knows the test
+                logger.info(f"BOPTEST: stopped test {testid} (an earlier request got through)")
+                return
+            command = f"curl -X PUT {self._http.base_url.join(f'stop/{testid}')}"
+            logger.warning(
+                f"BOPTEST: could not stop test {testid}: {exc}. It holds a worker until BOPTEST "
+                f"stops it after 15 idle minutes; stop it now with: {command}"
+            )
         else:
             logger.info(f"BOPTEST: stopped test {testid}")
 
@@ -341,26 +394,51 @@ class BoptestClient:
         """Close the connection pool. Safe to call twice."""
         await self._http.aclose()
 
+    async def _stored(
+        self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
+    ) -> Mapping[str, Any]:
+        """``PUT /results``'s payload, retried like ``results``."""
+        body = {
+            "point_names": list(point_names),
+            "start_time": start_time_s,
+            "final_time": final_time_s,
+        }
+        deadline = self._clock() + QUICK_TIMEOUT_S
+
+        def attempt() -> Awaitable[Any]:
+            left_s = max(deadline - self._clock(), 1e-3)
+            return self._payload("PUT", f"results/{testid}", body, timeout_s=left_s)
+
+        payload = await self._retrying(
+            attempt, deadline, retry=lambda exc: exc.retryable, attempts=self._retries
+        )
+        return _mapping(payload, "results")
+
     async def _retrying(
         self,
         call: Callable[[], Awaitable[_T]],
         deadline: float,
         *,
         retry: Callable[[BoptestError], bool],
+        attempts: int | None,
     ) -> _T:
+        """``call()`` until it succeeds, retrying the failures ``retry`` accepts.
+
+        Each retry follows a backoff (``backoff_s``). There are at most ``attempts`` calls in
+        all (``None``: no limit), and no retry whose backoff would end past ``deadline``.
+        """
         attempt = 0
         while True:
             try:
                 return await call()
             except BoptestError as exc:
                 attempt += 1
-                cap = min(_BACKOFF_CAP_S, self._backoff_s * 2 ** (attempt - 1))
-                delay = random.uniform(0.0, cap)
-                late = time.perf_counter() + delay > deadline
-                if not retry(exc) or attempt >= self._retries or late:
+                delay = backoff_s(attempt, self._backoff_s)
+                late = self._clock() + delay > deadline
+                if not retry(exc) or (attempts is not None and attempt >= attempts) or late:
                     raise
                 logger.warning(f"BOPTEST: {exc}; retry {attempt} in {delay:.1f} s")
-                await asyncio.sleep(delay)
+                await self._sleep(delay)
 
     async def _payload(
         self,
@@ -414,9 +492,8 @@ class BoptestClient:
         except httpx.HTTPError as exc:
             # Without a connection the request never reached BOPTEST, so it changed nothing.
             unsent = isinstance(exc, httpx.ConnectError | httpx.ConnectTimeout)
-            raise BoptestError(
-                f"{method} /{path}: {type(exc).__name__}: {exc}", unsent=unsent
-            ) from exc
+            failure = _failure(exc, timeout_s)
+            raise BoptestError(f"{method} /{path}: {failure}", unsent=unsent) from exc
         finally:
             self._in_flight -= 1
             self._last_request_s = time.perf_counter()
@@ -429,6 +506,24 @@ class BoptestClient:
                 status=response.status_code,
             )
         return response
+
+
+def backoff_s(attempt: int, first_s: float) -> float:
+    """The delay before a retry: exponential from ``first_s``, capped at 30 s, full jitter.
+
+    Args:
+        attempt: How many attempts have failed so far.
+        first_s: The longest delay before the first retry.
+    """
+    return random.uniform(0.0, min(_BACKOFF_CAP_S, first_s * 2 ** (attempt - 1)))
+
+
+def _failure(exc: httpx.HTTPError, timeout_s: float) -> str:
+    """What failed on the wire. httpx's timeouts carry no message, so they name the timeout."""
+    name = type(exc).__name__
+    if isinstance(exc, httpx.TimeoutException):
+        return f"{name} after {timeout_s:.3g} s"
+    return f"{name}: {exc}" if str(exc) else name
 
 
 def _call_name(method: str, path: str) -> str:

@@ -4,11 +4,20 @@ The fake behaves like the REST API measured on BOPTEST: test calls answer {statu
 payload}; an empty body sent as JSON gets HTTP 500; an unknown input gets 400; inputs latch
 until _activate = 0; overwritten signals come back under their _u keys; stop answers a plain
 "OK", and a stopped test id then gets 400. PUT /results answers each point's samples every
-30 s from start_time to final_time, as BOPTEST stores them; the meters follow ``power``.
+30 s from start_time up to final_time or the latest time stored, as BOPTEST stores them (the
+meters follow ``power``), and HTTP 500 for a start_time past the store; an unknown point gets
+400.
+
+Connection faults: ``once`` fails a request before it is handled, ``lose`` after it (the
+answer is lost on its way back), ``late_s`` lands the next advance that long after its answer
+was lost, and ``down_until`` refuses every connection until that time on the fake's clock.
 """
 
 import asyncio
 import json
+import math
+import re
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -26,8 +35,13 @@ from spotcool_world.services.boptest.catalog import (
     load_catalog,
     zone_damper,
 )
-from spotcool_world.services.boptest.client import BoptestClient, BoptestError
-from spotcool_world.services.boptest.plant import BoptestPlant, step_means
+from spotcool_world.services.boptest.client import (
+    ADVANCE_TIMEOUT_S,
+    STOP_RETRY_S,
+    BoptestClient,
+    BoptestError,
+)
+from spotcool_world.services.boptest.plant import RECOVERY_S, BoptestPlant, step_means
 
 URL = "http://boptest.test"
 TESTID = "t-1"
@@ -61,12 +75,33 @@ def route_of(request: httpx.Request) -> str:
     return request.url.path.strip("/").split("/")[0]
 
 
-class FakeBoptest:
+class FakeTime:
+    """Wall time that passes only when the code under test sleeps, so no test waits for it."""
+
     def __init__(self) -> None:
+        self.now = 0.0
+
+    def clock(self) -> float:
+        return self.now
+
+    async def sleep(self, delay_s: float) -> None:
+        self.now += delay_s
+        await asyncio.sleep(0)
+
+
+class FakeBoptest:
+    def __init__(self, clock: Callable[[], float] = time.perf_counter) -> None:
+        self.clock = clock
         self.requests: list[httpx.Request] = []
+        self.sent_at: list[float] = []  # the clock's time of each request
         self.queued_polls = 0
         self.fail: dict[str, int] = {}  # route ("advance", "initialize", ...) -> status
         self.once: dict[str, list[int | Exception]] = {}  # route -> one-shot answers, in order
+        self.lose: dict[str, list[int | Exception]] = {}  # route -> handled, then this instead
+        self.late_s: float | None = None
+        self.pending: list[tuple[float, dict[str, Any]]] = []  # late advances: (due, body)
+        self.down_until = -math.inf
+        self.advances = 0  # steps BOPTEST applied
         self.delays: dict[str, float] = {}  # route -> seconds to answer
         self.busy = 0  # requests being answered right now
         self.pings_while_busy = 0
@@ -84,6 +119,9 @@ class FakeBoptest:
     def calls(self, path: str) -> list[httpx.Request]:
         return [r for r in self.requests if r.url.path == path]
 
+    def times(self, path: str) -> list[float]:
+        return [t for r, t in zip(self.requests, self.sent_at, strict=True) if r.url.path == path]
+
     def bodies(self, path: str) -> list[dict[str, Any]]:
         return [json.loads(r.content) if r.content else {} for r in self.calls(path)]
 
@@ -99,6 +137,21 @@ class FakeBoptest:
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
+        self.sent_at.append(self.clock())
+        for due in [late for late in self.pending if late[0] <= self.clock()]:
+            self.pending.remove(due)  # the worker finishes a job its client left
+            self.advance(due[1])
+        if self.clock() < self.down_until:
+            raise httpx.ConnectError("connection refused")
+        response = self.respond(request)
+        if self.lose.get(route_of(request)):
+            lost = self.lose[route_of(request)].pop(0)
+            if isinstance(lost, Exception):
+                raise lost
+            return httpx.Response(lost, text="Bad Gateway")  # from the tunnel, not BOPTEST
+        return response
+
+    def respond(self, request: httpx.Request) -> httpx.Response:
         if request.headers.get("content-type") == "application/json" and not request.content:
             return httpx.Response(500, text="Unexpected end of JSON input")
         path = request.url.path
@@ -139,6 +192,10 @@ class FakeBoptest:
             self.step = body["step"]
             return answer({"step": self.step})
         if route == "advance":
+            if self.late_s is not None:  # BOPTEST got it, and runs it after the answer is lost
+                self.pending.append((self.clock() + self.late_s, body))
+                self.late_s = None
+                raise httpx.ReadTimeout("")
             return self.advance(body)
         if route == "kpi":
             kpis = dict.fromkeys(["cost_tot", "emis_tot", "idis_tot", "pele_tot", "tdis_tot"], 0.1)
@@ -150,9 +207,17 @@ class FakeBoptest:
         if route == "results":
             if self.results is not None:
                 return answer(self.results)
-            start, final = body["start_time"], body["final_time"]
+            start, final = body["start_time"], min(body["final_time"], self.time)
+            if start > final:  # BOPTEST finds no stored time from start_time on
+                return answer(None, 500, "Failed to query simulation results: IndexError")
+            state = self.state()
+            if unknown := [name for name in body["point_names"] if name not in state]:
+                return answer(None, 400, f"Invalid point name {unknown[0]} in point_names.")
             times = [start + 30.0 * k for k in range(int((final - start) // 30) + 1)]
-            samples = {name: [self.power(t_s) for t_s in times] for name in body["point_names"]}
+            samples = {
+                name: [self.power(t_s) if name in METERS else state[name] for t_s in times]
+                for name in body["point_names"]
+            }
             return answer(samples | {"time": times})
         return httpx.Response(404, text="Not Found")
 
@@ -172,6 +237,7 @@ class FakeBoptest:
             elif flag == 0:
                 self.applied.pop(name, None)
         self.time += self.step
+        self.advances += 1
         return answer(self.state())
 
     def state(self) -> dict[str, float | None]:
@@ -185,9 +251,13 @@ class FakeBoptest:
         return state | dict.fromkeys(METERS, self.power(self.time))  # the end of the step's
 
 
-def make_plant(fake: FakeBoptest, *, keepalive_s: float = 300.0) -> BoptestPlant:
-    client = BoptestClient(URL, poll_s=0.0, backoff_s=0.001, transport=fake.transport())
-    return BoptestPlant(client, keepalive_s=keepalive_s)
+def make_plant(
+    fake: FakeBoptest, *, keepalive_s: float = 300.0, wall: FakeTime | None = None
+) -> BoptestPlant:
+    """A plant on the fake; with ``wall``, its retries and recoveries run on fake time."""
+    timing: dict[str, Any] = {} if wall is None else {"clock": wall.clock, "sleep": wall.sleep}
+    client = BoptestClient(URL, poll_s=0.0, backoff_s=0.001, transport=fake.transport(), **timing)
+    return BoptestPlant(client, keepalive_s=keepalive_s, **timing)
 
 
 @pytest.mark.asyncio
@@ -328,18 +398,223 @@ async def test_a_failed_step_raises_and_the_test_is_stopped_once() -> None:
     assert [name for name, _ in plant.client.calls][-1] == "PUT stop"
 
 
-@pytest.mark.asyncio
-async def test_an_advance_without_an_answer_is_not_retried() -> None:
-    fake = FakeBoptest()
-    plant = make_plant(fake)
+ADVANCE = f"/advance/{TESTID}"
+OVERRIDES = {CORE: 301.15, SOUTH_DAMPER: 0.0}
+
+
+async def first_step(fake: FakeBoptest, wall: FakeTime) -> tuple[BoptestPlant, dict[str, float]]:
+    """A plant started on ``fake`` and its first step, with ``OVERRIDES``."""
+    plant = make_plant(fake, wall=wall)
     await plant.start(START)
-    fake.once["advance"] = [httpx.ReadTimeout("no answer")]
-    with pytest.raises(BoptestError, match="ReadTimeout") as raised:
-        await plant.step({})
-    assert raised.value.status is None and not raised.value.unsent
-    assert len(fake.calls(f"/advance/{TESTID}")) == 1  # a retry would step the test twice
+    return plant, await plant.step(OVERRIDES)
+
+
+async def what_advance_answers() -> dict[str, float]:
+    """The first step's state when nothing goes wrong."""
+    plant, state = await first_step(FakeBoptest(), FakeTime())
     await plant.stop()
+    return state
+
+
+def warnings_into(lines: list[str]) -> int:
+    return logger.add(lambda message: lines.append(message.record["message"]), level="WARNING")
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [httpx.ReadTimeout(""), httpx.RemoteProtocolError("Server disconnected"), 502],
+    ids=["read-timeout", "dropped", "tunnel-502"],
+)
+@pytest.mark.asyncio
+async def test_a_step_whose_answer_was_lost_is_read_back_from_the_stored_results(
+    lost: int | Exception,
+) -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.lose["advance"] = [lost]  # BOPTEST stepped, but its answer never came back
+    warnings: list[str] = []
+    sink = warnings_into(warnings)
+    try:
+        plant, state = await first_step(fake, wall)
+    finally:
+        logger.remove(sink)
+    await plant.stop()
+    assert state == await what_advance_answers()  # BOPTEST's own state, exactly
+    assert (fake.advances, len(fake.calls(ADVANCE)), plant.connection_recoveries) == (1, 1, 1)
+    t_next = START.start_time_s + START.step_s
+    probe, read_back = fake.bodies(RESULTS)[:2]
+    assert (probe["start_time"], probe["final_time"]) == (START.start_time_s, t_next + 900)
+    assert (read_back["start_time"], read_back["final_time"]) == (t_next, t_next)
+    assert {"time", *read_back["point_names"]} == fake.state().keys()  # what advance carries
+    assert any(f"step to {t_next:.0f} s lost its connection" in w for w in warnings)
+
+
+@pytest.mark.asyncio
+async def test_an_advance_that_never_got_there_is_resent() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.once["advance"] = [httpx.ConnectError("connection refused")]
+    plant, state = await first_step(fake, wall)
+    await plant.stop()
+    assert state == await what_advance_answers()
+    assert (fake.advances, len(fake.calls(ADVANCE)), plant.connection_recoveries) == (1, 2, 1)
+    calls = [r.url.path for r in fake.requests if r.url.path in (ADVANCE, RESULTS)]
+    assert calls == [ADVANCE, ADVANCE, RESULTS]  # resent at once; then the step's power means
+
+
+@pytest.mark.asyncio
+async def test_an_advance_that_never_arrived_is_resent_only_after_the_advance_timeout() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.once["advance"] = [httpx.ReadTimeout("")]  # lost before BOPTEST got it
+    plant, state = await first_step(fake, wall)
+    await plant.stop()
+    sent, resent = fake.times(ADVANCE)
+    assert resent - sent >= ADVANCE_TIMEOUT_S
+    reads = [t for t in fake.times(RESULTS) if t < resent]
+    assert len(reads) > 1  # read again and again until then, BOPTEST still at the start
+    assert (fake.advances, plant.connection_recoveries) == (1, 1)
+    assert state == await what_advance_answers()
+
+
+@pytest.mark.asyncio
+async def test_an_advance_that_lands_late_is_read_back_not_resent() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.late_s = 5.0  # BOPTEST runs it 5 s after the drop
+    plant, state = await first_step(fake, wall)
+    await plant.stop()
+    assert (fake.advances, len(fake.calls(ADVANCE)), plant.connection_recoveries) == (1, 1, 1)
+    assert 5.0 <= wall.now < ADVANCE_TIMEOUT_S
+    assert state == await what_advance_answers()
+
+
+@pytest.mark.parametrize(
+    ("ambiguous", "tried"),
+    [(False, r"tried 0 reads .* and \d+ resends"), (True, r"tried \d+ reads .* and 0 resends")],
+    ids=["unsent", "ambiguous"],
+)
+@pytest.mark.asyncio
+async def test_an_outage_past_the_recovery_budget_fails_the_step_clearly(
+    ambiguous: bool, tried: str
+) -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    plant = make_plant(fake, wall=wall)
+    await plant.start(START)
+    if ambiguous:  # the advance's answer is lost, then nothing gets through
+        fake.once["advance"] = [httpx.ReadTimeout("")]
+        fake.once["results"] = [httpx.ConnectError("connection refused")] * 10_000
+    else:
+        fake.down_until = math.inf  # the tunnel never comes back
+    with pytest.raises(BoptestError) as raised:
+        await plant.step({})
+    message = str(raised.value)
+    assert f"no state for the step within {RECOVERY_S:.0f} s of its connection failing" in message
+    first = "ReadTimeout after 120 s" if ambiguous else "ConnectError"
+    assert f"failing (POST /advance/{TESTID}: {first}" in message
+    assert re.search(tried, message) and message.endswith("ConnectError: connection refused")
+    assert wall.now < RECOVERY_S + 1  # it waited at most RECOVERY_S, and the last call
+    resends = zip(fake.times(ADVANCE)[1:], fake.calls(ADVANCE)[1:], strict=True)
+    timeouts = [(sent, call.extensions["timeout"]["read"]) for sent, call in resends]
+    assert all(sent + timeout_s <= RECOVERY_S + 1 for sent, timeout_s in timeouts)  # none later
+    assert (fake.advances, plant.connection_recoveries) == (0, 0)
+    fake.once.clear()
+    fake.down_until = -math.inf
+    await plant.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_step_is_never_recovered() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    plant = make_plant(fake, wall=wall)
+    await plant.start(START)
+    fake.once["advance"] = [400]  # BOPTEST answered: nothing to recover
+    with pytest.raises(BoptestError, match="HTTP 400"):
+        await plant.step({})
+    assert (len(fake.calls(ADVANCE)), len(fake.calls(RESULTS)), wall.now) == (1, 0, 0.0)
+    await plant.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_step_applied_twice_is_an_error_not_a_state() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    plant = make_plant(fake, wall=wall)
+    await plant.start(START)
+    fake.step = 2 * START.step_s  # BOPTEST ends up two steps on
+    fake.lose["advance"] = [httpx.ReadTimeout("")]
+    with pytest.raises(BoptestError, match="advanced more than once"):
+        await plant.step({})
+    assert plant.connection_recoveries == 0
+    await plant.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_timeout_names_the_exception_and_the_seconds_it_allowed() -> None:
+    fake = FakeBoptest()
+    fake.once["kpi"] = [httpx.ReadTimeout("")]  # httpx's message is empty
+    client = BoptestClient(URL, transport=fake.transport())
+    with pytest.raises(BoptestError) as raised:
+        await client.kpis(TESTID)
+    await client.aclose()
+    assert str(raised.value) == f"GET /kpi/{TESTID}: ReadTimeout after 120 s"
+    assert raised.value.status is None and not raised.value.unsent
+
+
+def make_client(fake: FakeBoptest, wall: FakeTime) -> BoptestClient:
+    return BoptestClient(
+        URL, transport=fake.transport(), clock=wall.clock, sleep=wall.sleep, backoff_s=1.0
+    )
+
+
+@pytest.mark.asyncio
+async def test_stop_rides_out_a_short_outage() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.down_until = 10.0  # the forward restarts
+    warnings: list[str] = []
+    sink = warnings_into(warnings)
+    try:
+        await make_client(fake, wall).stop(TESTID)
+    finally:
+        logger.remove(sink)
     assert fake.stopped == [TESTID]
+    assert len(fake.calls(f"/stop/{TESTID}")) > 1 and wall.now >= 10.0
+    assert not [w for w in warnings if "could not stop" in w]
+
+
+@pytest.mark.asyncio
+async def test_stop_after_a_longer_outage_logs_how_to_stop_the_test() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.down_until = math.inf
+    warnings: list[str] = []
+    sink = warnings_into(warnings)
+    try:
+        await make_client(fake, wall).stop(TESTID)  # never raises
+    finally:
+        logger.remove(sink)
+    assert fake.stopped == [] and wall.now <= STOP_RETRY_S
+    [warning] = [w for w in warnings if "could not stop" in w]
+    assert f"could not stop test {TESTID}: PUT /stop/{TESTID}: ConnectError" in warning
+    assert warning.endswith(f"stop it now with: curl -X PUT {URL}/stop/{TESTID}")
+
+
+@pytest.mark.asyncio
+async def test_a_retried_stop_that_finds_the_test_gone_has_stopped_it() -> None:
+    wall = FakeTime()
+    fake = FakeBoptest(wall.clock)
+    fake.lose["stop"] = [httpx.ReadTimeout("")]  # stopped, but the answer was lost
+    warnings: list[str] = []
+    sink = warnings_into(warnings)
+    try:
+        await make_client(fake, wall).stop(TESTID)
+    finally:
+        logger.remove(sink)
+    assert fake.stopped == [TESTID] and len(fake.calls(f"/stop/{TESTID}")) == 2
+    assert not [w for w in warnings if "could not stop" in w]
 
 
 @pytest.mark.asyncio
@@ -456,6 +731,7 @@ async def test_version_and_call_log() -> None:
 @pytest.mark.asyncio
 async def test_results_ask_for_points_over_a_window_and_retry_a_transient_failure() -> None:
     fake = FakeBoptest()
+    fake.time = 990.0  # stored up to here
     fake.once["results"] = [503]
     client = BoptestClient(URL, backoff_s=0.001, transport=fake.transport())
     samples = await client.results(TESTID, METERS[:2], 900.0, 960.0)

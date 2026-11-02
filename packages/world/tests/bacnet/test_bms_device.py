@@ -25,6 +25,7 @@ from spotcool_contracts.zones import Zone
 from spotcool_world.clocks import SimClock, WallPacer
 from spotcool_world.frames import (
     BmsWriteFrame,
+    ErrorFrame,
     Frame,
     PlantMeasurementsFrame,
     ScenarioStateFrame,
@@ -438,6 +439,41 @@ async def test_start_fails_at_once_on_a_taken_port_and_stop_frees_it(
 async def test_a_bad_address_is_refused(address: str) -> None:
     with pytest.raises(ValueError, match="invalid BMS address"):
         await BacnetBmsTransport(address=address).start()
+
+
+@pytest.mark.asyncio
+async def test_an_address_the_pc_lost_is_reported_once_and_the_run_goes_on(
+    ports: tuple[int, int],
+) -> None:
+    checked: list[str] = []
+    network = {"same": True}
+
+    def has_address(ip: str) -> bool:
+        checked.append(ip)
+        return network["same"]
+
+    async def change_network() -> None:
+        network["same"] = False  # Windows joined another saved Wi-Fi network
+
+    bms = BacnetBmsTransport(address=HOST, port=ports[0], has_address=has_address)
+    await bms.start()
+    try:
+        down, up = await run_test(
+            Pipeline([Actions({1: change_network}), bms.input(), bms.output()]),
+            frames_to_send=[tick(index) for index in range(4)],
+            params=PipelineParams(clock=SimClock(T0, STEP_S), run_id="t"),
+        )
+    finally:
+        await bms.stop()
+    assert [(f.fatal, f.message) for f in only(up, ErrorFrame)] == [
+        (
+            False,
+            f"the PC's network changed: the BMS at {HOST}:{ports[0]} is unreachable; restart "
+            "the run on one network",
+        )
+    ]
+    assert len(only(down, TickFrame)) == 4  # every tick went on
+    assert checked == [HOST, HOST]  # once a tick until it was lost
 
 
 @pytest.mark.asyncio
