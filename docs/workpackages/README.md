@@ -55,6 +55,7 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 | WP10 | [evals, CI, docs, release](WP10-evals-release.md) | Claude Code | `wp/wp10-evals-release` |
 | WP11 | [world assembly and CLI](WP11-assembly.md) | Claude Code (lead) | `wp/wp11-assembly` |
 | WP6.1 | [step-mean power](WP6.1-step-mean-power.md) | Claude Code | `wp/wp61-step-mean-power` |
+| WP1.2 | [BOPTEST survives a dropped connection](WP1.2-boptest-dropped-connection.md) | Claude Code | `wp/wp12-boptest-resilience` |
 
 ## Starting a WP (copy-paste)
 
