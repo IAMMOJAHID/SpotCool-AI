@@ -72,12 +72,12 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; VRF WP3, WebSocket WP6 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
-| **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records done (WP1); dashboard JSON WP6 |
+| **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
 | **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | WP10 |
-| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `video` |
+| **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `report`, `video` |
 
 ### One tick of the world (target pipeline)
 
@@ -94,9 +94,8 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-`TickSource`, `ScenarioProcessor`, `ParallelPipeline`, `PlantProcessor`, `CameraSceneProcessor`,
-`FramePublisher`, `BusPublisher` and the BMS's `input()` and `output()` exist so far; the other
-processors are later work packages.
+Every processor in this pipeline exists. WP11 assembles them into `spotcool-world run`; the VRF
+gateway arrives with WP3.
 
 ### Lifecycle
 
@@ -108,8 +107,10 @@ processors are later work packages.
    the whole pipeline, then paced, then the clock advances. At `end_time_s` it pushes `EndFrame`.
 4. The worker finishes when an `EndFrame` leaves the bottom of the pipeline
    (`on_pipeline_finished`, state `finished`). It cancels when a `CancelFrame` is queued, sent by
-   `stop()`, pushed up to the top by a processor, or follows a fatal `ErrorFrame` reaching the
-   top. The `CancelFrame` then goes through the whole pipeline (state `cancelled`).
+   `stop()`, pushed up to the top by a processor (only a request: processors do nothing with it
+   on its way up), or follows a fatal `ErrorFrame` reaching the top. The worker then sends the
+   `CancelFrame` down the whole pipeline, and each processor cancels its background tasks as it
+   passes (state `cancelled`).
 5. `cleanup()` runs on every processor; leftover tasks are cancelled.
 
 ### Frames
@@ -141,8 +142,8 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 - **Order inside a tick.** Push derived frames (scenario state, setpoint commands) before you
   pass the tick on, so processors further down already have them when the tick arrives.
 - **Background work goes through `self.create_task(coro, name)`**, never `asyncio.create_task`.
-  Tasks are cancelled on `CancelFrame` and in `cleanup()`. An exception escaping such a task
-  becomes a fatal `ErrorFrame`.
+  Tasks are cancelled on a downstream `CancelFrame` and in `cleanup()`. An exception escaping
+  such a task becomes a fatal `ErrorFrame`.
 - **Errors.** Report with `await self.push_error(message, fatal=...)`; it logs and sends an
   `ErrorFrame` upstream. The worker fires `on_pipeline_error`; a fatal error cancels the run
   (unless `PipelineParams(fatal_error_cancels=False)`). Do not raise from `process_frame` for
@@ -151,7 +152,10 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   (a camera snapshot, a post to the agent, the dashboard) uses `fatal=False`. Use `fatal=True`
   only when the run's results would be wrong, such as a failed plant step. A worker outside
   the pipeline logs a failure, reports it in its result, and carries on.
-- **Ask for a cancel from inside** by pushing a `CancelFrame` upstream.
+- **Ask for a cancel from inside** by pushing a `CancelFrame` upstream. It only asks: nothing
+  is cancelled on its way up, because the task carrying it there (the tick task, or a branch
+  task of a `ParallelPipeline`) must deliver it to the worker. The worker then sends the
+  cancel down, and processors cancel their tasks when the downstream `CancelFrame` passes.
 - **ParallelPipeline output is deterministic.** Each downstream frame goes to every branch at
   once; what the branches emit is pushed on in branch order after all branches finish, then the
   original frame (by id) once, if any branch passed it on. A `StartFrame` is the exception: it
@@ -394,21 +398,125 @@ dataset indexes and `CameraSceneProcessor` need only the core.
     on any address, fails its `run()` at once; Windows needs a check of its own for that
     (`SO_EXCLUSIVEADDRUSE` and a probe of the wildcard address).
 
+## Telemetry, recording and the dashboard feed
+
+These pieces turn the simulation into the numbers the video quotes, the stream the dashboard
+draws and a record any run can be replayed from. The processors need only the core; the
+dashboard server needs the `dashboard` extra and the report the `report` extra (matplotlib).
+
+- **Order.** `... -> CameraSceneProcessor -> TelemetryProcessor -> KpiProcessor ->
+  EventEmitterProcessor -> RecorderProcessor -> BusPublisher(bus)`. The KPI processor needs the
+  telemetry's summaries. The recorder goes after the emitter, before or after `BusPublisher`:
+  lockstep publishes a frame's events before the next frame reaches the recorder.
+- **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`metered_summary`):
+  every zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
+  (`power_kw`, BOPTEST's ElectricPower basis), their total, and the run's energy: the trapezoid
+  rule over the stamps (`EnergyMeter`), from the run's first frame with all seven meters
+  (normally its initial state). BOPTEST leaves out values it reports as null, such as the `_u`
+  setpoints of an initial state: a frame lacking a value keeps no summary, its power still
+  counts if it has the meters, and that is logged once per run. The KPIs and the report skip
+  such frames.
+- **`KpiProcessor`** scores both runs at each tick, once both runs' measurements stamped `t`
+  (the end of the step) have passed.
+  - Comfort where people were (K h, `comfort_kh`): the people of the latest
+    `ScenarioStateFrame` (the step that just ended, never `state_at(t)`), the band of the
+    baseline's applied setpoints at `t`; both runs get the same people and band.
+  - Energy saved (%): both runs' cumulative energy at the same stamp, on the SpotCool run only.
+  - A provisional `KpiFrame` per run every 4 steps, ahead of the tick, with `boptest` empty.
+  - At the first `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the
+    plant's own final one (BOPTEST's KPIs); the plants' frames are not passed on.
+  - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
+    computes them.
+- **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
+  (`frame_events`), ahead of the frame: tick (clock and day of year), run status, scenario
+  state, plant measurements (the summary), BMS write, KPI, VRF state, camera scene, calendar,
+  complaint cue (`data` only: the audio file name stays in the world), error, and one metrics
+  event per sample.
+  - **Within a tick the `tick` event comes last** (for WP7): the tick stamped `T` follows the
+    step's results stamped `T + step` (measurements, metrics, KPIs), because derived frames
+    travel ahead of their tick. So `sim_time_s` is not monotonic inside a tick; order by
+    arrival, or treat each `tick` event as the close of its step.
+  - `ErrorFrame`s travel upstream, so the errors of processors above the emitter never reach
+    it. Turn them into events with `frame_events(error)` in the pipeline worker's
+    `on_pipeline_error`, which runs as a background task: a fatal one may arrive after the
+    recorder has finished (the manifest's `end_reason` then holds its message).
+- **One stream.** The topic `EVENTS_TOPIC` (`"events"`) carries the pipeline's events, the
+  occupant worker's delivery results (a second `complaint_cue` per cue, with `delivered` and
+  `detail`) and the agent's events from `/ws/agent`.
+- **`RecorderProcessor(settings)`** writes `settings.run_dir/<run_id>/`.
+  - `events.jsonl` (`serializers/jsonl.py`, the format `ReplayPlant` reads): every envelope on
+    the topic as an event record and every `PlantMeasurementsFrame` as a `RawRecord` (`index`
+    0: the initial state), in pipeline order. It subscribes in `setup()` (100 000 messages)
+    and, on every frame, moves the waiting events into the tick's batch one by one, so a
+    cancel never loses one it has taken. A background task writes and flushes each tick's
+    batch in a worker thread.
+  - `manifest.json` (`RunManifest`): the run id, when it started (UTC), how it ended and why,
+    the settings (redacted: fields named like secrets, a URL's user name and password, and its
+    `token`, `key`, `secret`, `password` and `auth` query parameters), the git sha, both
+    versions, the scenario's name and file sha256, the plant and step, the start and end sim
+    times, the final KPIs, and `dropped_events` (0 in a valid record, a warning otherwise).
+  - The first `EndFrame` or `CancelFrame` finishes the record as one task, which the frame
+    awaits through `asyncio.shield`: `stop()` while the `EndFrame` passes cannot cut it short,
+    and a later end frame waits for the same task. `ended` names the end frame that reached
+    the recorder first. The task writes what the writing task left if that task is gone.
+  - Every recording failure is fatal: a run id outside `RUN_ID_PATTERN`, a directory that
+    already holds a record (never appended to), a failed write (no manifest then). A run that
+    never reaches an end frame keeps its flushed records, without a manifest; `cleanup()`
+    closes the file.
+  - Events published after the end frame has passed the recorder are not recorded: a delivery
+    still in flight, the occupant worker's "not sent" results at its `stop()`.
+  - Records are JSON: no image or audio bytes (`tests/telemetry/test_recorder.py` checks).
+- **Dashboard server**: `create_dashboard_app(bus, run_dir, dist_dir=None)`
+  (`transports/websocket/dashboard.py`).
+  - `/ws/events`: every envelope as JSON text. Each client gets its own subscription (1000
+    messages, the oldest dropped first), made before its handshake ends; what it sends is
+    ignored.
+  - `/ws/agent`: publish-only. One `EventEnvelope` per JSON text message, `source: "agent"`,
+    type perception, decision, explanation or chat, at most 64 KB and 20 messages a second per
+    connection, and no image: no string starting `data:` and none over 8192 characters
+    (perception sends counts, boxes and polygons; Law 6, since the recorder keeps what is
+    sent). An invalid message is dropped and answered with `{"error": "..."}`. A browser page
+    whose `Origin` is not `http://127.0.0.1:*` or `http://localhost:*` is refused (403), so a
+    web page cannot publish fake agent events; programs send no `Origin`. It never sends world
+    events.
+  - `GET /runs` (`{"runs": [...]}`); `GET /runs/{run_id}/events.jsonl` (422 for an id outside
+    `RUN_ID_PATTERN`, 404 for an unknown run); `GET /healthz`; `/` serves `apps/dashboard/dist`
+    if it exists when the app is made. CORS as in `create_http_app`.
+  - A failing socket ends only its own connection; `HttpServerWorker.stop()` closes them all.
+- **Report**: `spotcool-world report <run_id>` (`runner/report.py`) writes `report.md`,
+  `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under
+  the settings' `run_dir`. The series come from the raw records through the telemetry's
+  functions, the people from the `scenario_state` events, the KPIs from the manifest.
+  - Recovery: for each zone and arrival (people after a step with none), the minutes until the
+    zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
+    on. Arrivals that never recover are listed.
+  - The honesty note closes the report.
+- **Wiring (WP11).**
+  - One `InProcessBus` for `WorkerRunner(bus=...)`, `BusPublisher(bus)` and
+    `create_dashboard_app(bus, settings.run_dir)`. Serve the app with
+    `HttpServerWorker(app, settings.http_host, settings.dashboard_port)` under the runner and
+    stop it from `on_pipeline_finished`.
+  - Set `PipelineParams.scenario` to `settings.scenario` (a library name or a `.yaml` path), so
+    the manifest gets the file's sha256, and keep run ids inside `RUN_ID_PATTERN`.
+- **Example** `09_record_and_report.py` runs `hybrid_tuesday` on two RC plants with a stand-in
+  for the agent (it reads ground truth and puts empty zones on standby), records the run and
+  writes its report, in about 5 s. Keep runs out of the repo: `SPOTCOOL_WORLD_RUN_DIR=<dir>`.
+
 ## Key directories
 
 | Path | Contents |
 |---|---|
 | `src/spotcool_world/frames/` | Frame classes |
-| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `FramePublisher`, `BusPublisher`; future processors |
-| `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) |
+| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `TelemetryProcessor`, `KpiProcessor`, `EventEmitterProcessor`, `RecorderProcessor`, `FramePublisher`, `BusPublisher` |
+| `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) and `RunManifest` |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
 | `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port); the VRF worker arrives with WP3 |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
-| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI |
+| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI, `report.py` (run reports) |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
-| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` |
+| `src/spotcool_world/transports/` | `BaseTransport`; providers in `bacnet/` (the BMS), `http/` (`create_http_app`, the cameras and calendar routers), `websocket/` (`create_dashboard_app`: `/ws/events`, `/ws/agent`, `/runs`) |
 | `src/spotcool_world/devices/` | Equipment models (`vrf/`) |
 | `src/spotcool_world/scenarios/` | Scenario DSL, linter, compiler, library |
 | `src/spotcool_world/adapters/` | Unit conversion; Haystack and vendor maps later |

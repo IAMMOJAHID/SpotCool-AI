@@ -58,8 +58,10 @@ class FrameProcessor(BaseObject):
     """Base class of every processor.
 
     The base ``process_frame`` handles the lifecycle: it records the ``StartFrame`` and cancels
-    the processor's background tasks on ``CancelFrame``. It never pushes; the subclass decides.
-    A processor with no neighbour in a direction drops frames pushed that way.
+    the processor's background tasks on a downstream ``CancelFrame``. An upstream one is only a
+    request on its way to the worker, which then sends the cancel down the whole pipeline. It
+    never pushes; the subclass decides. A processor with no neighbour in a direction drops
+    frames pushed that way.
 
     Args:
         name: Display name. Defaults to ``ClassName#id``.
@@ -141,7 +143,8 @@ class FrameProcessor(BaseObject):
         """
         if isinstance(frame, StartFrame):
             self._start_frame = frame
-        elif isinstance(frame, CancelFrame):
+        elif isinstance(frame, CancelFrame) and direction is FrameDirection.DOWNSTREAM:
+            # Not on the way up: the task carrying the request there may be one of these tasks.
             await self.cancel_tasks()
 
     async def push_frame(
