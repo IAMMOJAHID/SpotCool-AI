@@ -1,0 +1,39 @@
+# Settings of a world run (WorldSettings). Copy this file to world.yaml in the directory you run
+# from, or pass it with `spotcool-world run --config FILE`. Every key is optional; a key left out
+# keeps its default (shown here). SPOTCOOL_WORLD_<KEY> environment variables override this file,
+# and command-line flags override both. Quote times of day: YAML reads 07:00 as a number.
+
+# The building: two runs of one plant, SpotCool's and the baseline's.
+plant: rc                       # rc | boptest-local | boptest-hosted | replay
+boptest_local_url: http://127.0.0.1:8000   # local Docker stack, or the Codespace port-forward
+boptest_url: http://api.boptest.net        # the shared, free hosted service
+testcase: multizone_office_simple_air
+time_period: peak_cool_day
+replay_run: null                # plant `replay`: the recorded run (a directory in run_dir)
+
+# The day: a library scenario (hybrid_tuesday, all_hands_day, empty_friday) or a .yaml file.
+# The run goes from the scenario's start to its end.
+scenario: hybrid_tuesday
+step_s: 900                     # simulation seconds per tick
+speed: 300                      # simulation seconds per wall second; null: as fast as possible.
+                                # 300 for development; 60 or slower for integration and filming
+start_clock: "07:00"
+end_clock: "19:00"
+
+# Where Person A's agent finds the building. 0.0.0.0 and the primary IPv4 address are reachable
+# from other PCs (allow them through the firewall, see AGENTS.md); 127.0.0.1 is this PC only.
+bms_address: null               # BACnet/IP address, e.g. 192.168.1.20/24; null: primary IPv4, /24
+bms_port: 47808
+vrf_port: 47810
+http_host: 0.0.0.0              # the cameras, calendar and dashboard servers
+http_port: 8081                 # cameras and calendar
+dashboard_port: 8090            # dashboard page, /ws/events and /ws/agent
+agent_base_url: http://127.0.0.1:8002   # where the occupants post /chat and /voice
+
+# Files.
+run_dir: runs                   # recorded runs, one directory each
+footage_dir: null               # clips/, audio/ and datasets/; null: synthetic camera frames
+live_camera_url: null           # the phone's snapshot URL, e.g. http://192.168.43.1:8080/shot.jpg
+
+vrf_profile: mitsubishi         # mitsubishi | daikin | lg
+log_level: INFO

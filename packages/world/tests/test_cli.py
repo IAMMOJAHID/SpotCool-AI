@@ -28,10 +28,6 @@ def test_dry_run_prints_resolved_settings(
     assert settings["testcase"] == "multizone_office_simple_air"
 
 
-def test_run_without_dry_run_is_not_ready_yet() -> None:
-    assert main(["run"]) == 2
-
-
 def test_a_subcommand_is_required() -> None:
     with pytest.raises(SystemExit):
         main([])
