@@ -1,4 +1,6 @@
 aio-pika
+av
+numpy
 openai
 opencv-python-headless
 Pillow
