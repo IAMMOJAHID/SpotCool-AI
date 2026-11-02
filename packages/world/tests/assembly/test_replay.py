@@ -1,12 +1,15 @@
 """The replay: a recorded run's events back on the bus, in order and paced, with the cameras."""
 
 import asyncio
+import contextlib
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
+from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed
 
 from spotcool_contracts import ZONES, Zone
 from spotcool_contracts.cameras import CameraSource
@@ -131,3 +134,57 @@ def test_a_replay_needs_a_recorded_run(make_settings: MakeSettings) -> None:
         Replay(make_settings(), "nothing-here", speed=None)
     with pytest.raises(ValueError, match="not a run id"):
         Replay(make_settings(), "../escape", speed=None)
+
+
+async def viewer(port: int) -> ClientConnection:
+    """A dashboard on the replay's ``/ws/events``, once its server is up."""
+    for _ in range(400):
+        try:
+            return await connect(f"ws://127.0.0.1:{port}/ws/events")
+        except OSError:
+            await asyncio.sleep(0.025)
+    raise AssertionError("the dashboard server did not come up")
+
+
+@pytest.mark.asyncio
+async def test_a_replay_waits_for_a_dashboard_before_its_first_event(
+    make_settings: MakeSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = make_settings()
+    recorded = write_record(settings.run_dir / "take-2", steps=5)
+    cameras = [SceneCamera(info.camera_id) for info in ZONES.values()]
+    monkeypatch.setattr(assembly, "create_cameras", lambda _: CameraSystem(cameras))
+    replay = Replay(settings, "take-2", speed=STEP_S / 0.04, wait_viewer_s=30.0)
+    seen = replay.bus.subscribe(EVENTS_TOPIC, maxsize=1000)  # a subscriber, not a viewer
+    running = asyncio.ensure_future(replay.run(handle_sigint=False))
+    await asyncio.sleep(0.5)
+    assert await taken(seen) == []  # waiting: nothing published yet
+    assert replay.dashboard.state.viewers == 0
+    dashboard = await viewer(settings.dashboard_port)
+    first = EventEnvelope.model_validate_json(await asyncio.wait_for(dashboard.recv(), 5))
+    assert first == recorded[0]
+    assert replay.dashboard.state.viewers == 1
+    await asyncio.wait_for(running, 30)
+    with contextlib.suppress(ConnectionClosed):
+        await dashboard.close()
+    assert await taken(seen) == recorded
+    seen.close()
+    assert replay.dashboard.state.viewers == 0
+    assert replay.pipeline.state is WorkerState.FINISHED
+
+
+@pytest.mark.asyncio
+async def test_a_replay_without_a_viewer_starts_when_its_wait_is_over(
+    make_settings: MakeSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = make_settings()
+    recorded = write_record(settings.run_dir / "take-3", steps=2)
+    cameras = [SceneCamera(info.camera_id) for info in ZONES.values()]
+    monkeypatch.setattr(assembly, "create_cameras", lambda _: CameraSystem(cameras))
+    replay = Replay(settings, "take-3", speed=None, wait_viewer_s=0.3)
+    seen = replay.bus.subscribe(EVENTS_TOPIC, maxsize=1000)
+    started = time.perf_counter()
+    await asyncio.wait_for(replay.run(handle_sigint=False), 30)
+    assert time.perf_counter() - started >= 0.3 - 0.05
+    assert await taken(seen) == recorded
+    seen.close()

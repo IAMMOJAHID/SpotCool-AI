@@ -1,4 +1,4 @@
-"""The stub agent's policy: the value each zone's occupancy sensor should hold, and why.
+"""The stub agent's policy: what each zone's occupancy sensor and cooling setpoint hold, and why.
 
 Pure: no sockets, no bus. ``StubAgentWorker`` feeds it the scenario's ground truth and the room
 calendar, and writes what it decides to the BMS.
@@ -22,29 +22,35 @@ PRECOOL_S = 1800.0
 """A booked room's zone is held Occupied from this long before the booking starts."""
 RELEASE_AT_S = 19 * 3600.0
 """Time of day from which every zone is released: the end of the occupied day."""
+EMPTY_SETPOINT_C = 28.0
+"""The cooling setpoint (``ZN-<Z>-CLG-SP``, degC) an empty zone is held at."""
 
 
 @dataclass(frozen=True)
 class Command:
-    """What a zone's occupancy sensor should hold at priority 10.
+    """What a zone's points should hold at priority 10; ``None`` releases a slot (NULL).
 
     Parameters:
-        value: ``OCCUPIED`` or ``UNOCCUPIED``, or ``None`` to release the slot (NULL).
+        sensor: ``ZN-<Z>-OCC-SENSOR``: ``OCCUPIED`` or ``UNOCCUPIED``.
+        setpoint_c: ``ZN-<Z>-CLG-SP`` in degC: ``EMPTY_SETPOINT_C`` while the zone is empty.
         reason: Why, in a few words, for the dashboard.
     """
 
-    value: str | None
+    sensor: str | None
+    setpoint_c: float | None
     reason: str
 
 
 class StubPolicy:
-    """Decides each zone's ``OCC-SENSOR`` from the people in it and the room bookings.
+    """Decides each zone's ``OCC-SENSOR`` and ``CLG-SP`` from its people and the room bookings.
 
-    - A zone with people is Occupied, an empty one Unoccupied (the BMS then runs its own
-      occupied-standby).
-    - A booked room's zone is held Occupied from ``PRECOOL_S`` before the booking to its end
-      (pre-cooling), people or not.
-    - From ``RELEASE_AT_S`` (19:00) every zone is released.
+    - An empty zone is Unoccupied (the BMS then runs its own occupied-standby) with its cooling
+      setpoint at ``EMPTY_SETPOINT_C``.
+    - A zone with people is Occupied with its cooling setpoint released, so the building
+      schedule applies, as in the baseline run.
+    - A booked room's zone is held Occupied, its setpoint released, from ``PRECOOL_S`` before
+      the booking to its end (pre-cooling), people or not.
+    - From ``RELEASE_AT_S`` (19:00) every slot is released.
     """
 
     def __init__(self) -> None:
@@ -71,18 +77,18 @@ class StubPolicy:
         """
         if t_s % SECONDS_PER_DAY >= RELEASE_AT_S:
             return {
-                scene.zone: Command(None, "19:00, the occupied day is over")
+                scene.zone: Command(None, None, "19:00, the occupied day is over")
                 for scene in state.zones
             }
         commands: dict[Zone, Command] = {}
         for scene in state.zones:
             booking = self._booking(scene.zone, t_s)
             if scene.people:
-                commands[scene.zone] = Command(OCCUPIED, f"{scene.people} people in the zone")
+                commands[scene.zone] = Command(OCCUPIED, None, f"{scene.people} people in the zone")
             elif booking is not None:
-                commands[scene.zone] = Command(OCCUPIED, booking)
+                commands[scene.zone] = Command(OCCUPIED, None, booking)
             else:
-                commands[scene.zone] = Command(UNOCCUPIED, "the zone is empty")
+                commands[scene.zone] = Command(UNOCCUPIED, EMPTY_SETPOINT_C, "the zone is empty")
         return commands
 
     def _booking(self, zone: Zone, t_s: float) -> str | None:

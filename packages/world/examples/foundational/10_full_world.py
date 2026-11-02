@@ -6,8 +6,9 @@ cameras, the room calendar, the occupants, the recorder and the dashboard server
 
 The stub agent stands in for Person A's agent. It is a real BACnet/IP client of the BMS on its own
 UDP port, but its perception is the scenario's ground truth, which A's agent never sees: empty
-zones get OCC-SENSOR = Unoccupied at priority 10 (the BMS then puts them on standby), booked
-rooms are pre-cooled, and its heartbeat keeps the BMS's watchdog quiet.
+zones get OCC-SENSOR = Unoccupied and CLG-SP = 28 degC at priority 10 (the BMS then puts them on
+standby), occupied and booked ones the building schedule, and its heartbeat keeps the BMS's
+watchdog quiet. The run is labelled a stub run.
 
 It runs as fast as it can, on 127.0.0.1 only (no firewall prompt), records into a temporary
 folder and prints the KPIs, in about 10 s: the day itself takes 2 s, then the occupants wait for
@@ -27,7 +28,7 @@ from loguru import logger
 
 from spotcool_world.processors.kpi import RUNS
 from spotcool_world.runner.assembly import World
-from spotcool_world.runner.report import load_run
+from spotcool_world.runner.report import STUB_AGENT_NOTE, load_run
 from spotcool_world.services import WorldSettings
 
 
@@ -42,9 +43,11 @@ async def main() -> None:
         run_dir=run_dir,
         http_host="127.0.0.1",
         bms_address="127.0.0.1",
+        stub_agent=True,
     )
-    world = World(settings, stub_agent=True)
+    world = World(settings)
     print(f"run {world.run_id}: {world.compiled.name}, two RC plants, the stub agent")
+    print(f"  {STUB_AGENT_NOTE}")
     for label, url in world.urls().items():
         print(f"  {label:<13} {url}")
     await world.run()

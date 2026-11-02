@@ -30,7 +30,13 @@ from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.scenarios import sim_datetime
 from spotcool_world.stub_agent import worker as worker_module
-from spotcool_world.stub_agent.policy import OCCUPIED, UNOCCUPIED, Command, StubPolicy
+from spotcool_world.stub_agent.policy import (
+    EMPTY_SETPOINT_C,
+    OCCUPIED,
+    UNOCCUPIED,
+    Command,
+    StubPolicy,
+)
 from spotcool_world.stub_agent.worker import StubAgentWorker
 from spotcool_world.workers import WorkerState
 
@@ -38,7 +44,10 @@ DAY_S = 199 * 86_400.0
 DEVICE = "127.0.0.1:47808"
 BMS = ("127.0.0.1", 47808)
 SENSORS = {zone: f"binary-value,{451 + index}" for index, zone in enumerate(Zone)}
+SETPOINTS = {zone: f"analog-value,{201 + index}" for index, zone in enumerate(Zone)}
 HEARTBEAT = "binary-value,901"
+EMPTY = (UNOCCUPIED, EMPTY_SETPOINT_C)  # what an empty zone holds
+PEOPLE = (OCCUPIED, None)  # what a zone with people holds
 
 
 def at(clock: str) -> float:
@@ -69,52 +78,48 @@ def booking(start: str, end: str, subject: str = "Quarterly review") -> Calendar
 # ---- the policy -------------------------------------------------------------------------
 
 
-def values(commands: dict[Zone, Command]) -> dict[str, str | None]:
-    return {zone.value: command.value for zone, command in commands.items()}
+def held(commands: dict[Zone, Command]) -> dict[str, tuple[str | None, float | None]]:
+    return {zone.value: (command.sensor, command.setpoint_c) for zone, command in commands.items()}
 
 
-def test_people_mean_occupied_and_nobody_unoccupied() -> None:
+def test_an_empty_zone_is_unoccupied_at_28_and_a_full_one_follows_the_schedule() -> None:
     commands = StubPolicy().commands(state(cor=4, wes=1), at("10:00"))
-    assert values(commands) == {
-        "cor": OCCUPIED,
-        "nor": UNOCCUPIED,
-        "sou": UNOCCUPIED,
-        "eas": UNOCCUPIED,
-        "wes": OCCUPIED,
+    assert held(commands) == {
+        "cor": PEOPLE,
+        "nor": EMPTY,
+        "sou": EMPTY,
+        "eas": EMPTY,
+        "wes": PEOPLE,
     }
+    assert EMPTY_SETPOINT_C == 28.0
     assert commands[Zone.COR].reason == "4 people in the zone"
     assert commands[Zone.NOR].reason == "the zone is empty"
 
 
-def test_a_booked_room_is_held_occupied_from_30_minutes_before_to_its_end() -> None:
+def test_a_booked_room_is_held_like_a_full_one_from_30_minutes_before_to_its_end() -> None:
     policy = StubPolicy()
     policy.calendar(booking("14:00", "15:00"))
     south = {t: policy.commands(state(), at(t))[Zone.SOU] for t in ("13:15", "13:30", "14:45")}
     south["15:00"] = policy.commands(state(), at("15:00"))[Zone.SOU]
-    assert [command.value for command in south.values()] == [
-        UNOCCUPIED,
-        OCCUPIED,
-        OCCUPIED,
-        UNOCCUPIED,
-    ]
+    assert [(c.sensor, c.setpoint_c) for c in south.values()] == [EMPTY, PEOPLE, PEOPLE, EMPTY]
     assert south["13:30"].reason == "pre-cooling South for 'Quarterly review' at 14:00"
-    assert policy.commands(state(), at("13:30"))[Zone.COR].value == UNOCCUPIED  # its room only
+    assert held(policy.commands(state(), at("13:30")))["cor"] == EMPTY  # its room's zone only
 
 
 def test_a_new_calendar_replaces_the_rooms_bookings() -> None:
     policy = StubPolicy()
     policy.calendar(booking("14:00", "15:00"))
     policy.calendar(CalendarData(room="meeting-south", items=[]))  # cancelled
-    assert policy.commands(state(), at("14:00"))[Zone.SOU].value == UNOCCUPIED
+    assert held(policy.commands(state(), at("14:00")))["sou"] == EMPTY
 
 
-def test_every_zone_is_released_from_19_00() -> None:
+def test_every_slot_is_released_from_19_00() -> None:
     policy = StubPolicy()
     policy.calendar(booking("18:30", "20:00"))
-    assert policy.commands(state(cor=3), at("18:45"))[Zone.COR].value == OCCUPIED
+    assert held(policy.commands(state(cor=3), at("18:45")))["cor"] == PEOPLE
     for t in ("19:00", "21:15"):
         released = policy.commands(state(cor=3), at(t))
-        assert values(released) == dict.fromkeys(("cor", "nor", "sou", "eas", "wes"))
+        assert held(released) == dict.fromkeys(("cor", "nor", "sou", "eas", "wes"), (None, None))
         assert released[Zone.SOU].reason == "19:00, the occupied day is over"
 
 
@@ -126,7 +131,7 @@ class FakeBacnet:
 
     def __init__(self, device: Any, address: Any) -> None:
         self.address: tuple[str, int] = address.addrTuple
-        self.writes: list[tuple[str, str | None]] = []  # object id, present value (None: NULL)
+        self.writes: list[tuple[str, Any]] = []  # object id, present value (None: NULL)
         self.lose: set[str] = set()  # object ids whose next write gets no answer
         self.closed = False
 
@@ -139,7 +144,8 @@ class FakeBacnet:
             raise AbortPDU(reason=AbortReason.noResponse)
         self.writes.append((objid, None if isinstance(value, Null) else value))
 
-    def sensors(self) -> list[tuple[str, str | None]]:
+    def zones(self) -> list[tuple[str, Any]]:
+        """The writes to zone points: every write but the heartbeat's."""
         return [write for write in self.writes if write[0] != HEARTBEAT]
 
     def close(self) -> None:
@@ -206,29 +212,34 @@ class Stub:
         return [e for e in self.events if e.type is kind and e.source is EventSource.AGENT]
 
 
+def empty(zone: Zone) -> list[tuple[str, Any]]:
+    """The writes that empty a zone: Unoccupied, then the setpoint at 28 degC."""
+    return [(SENSORS[zone], "inactive"), (SETPOINTS[zone], EMPTY_SETPOINT_C)]
+
+
 @pytest.mark.asyncio
 async def test_the_stub_writes_each_zone_on_a_change_only(bacnet: list[FakeBacnet]) -> None:
     async with Stub() as stub:
         await stub.world(EventType.SCENARIO_STATE, state(cor=2), "10:00")
-        await until(lambda: len(bacnet) == 1 and len(bacnet[0].sensors()) == 5)
+        await until(lambda: len(bacnet) == 1 and len(bacnet[0].zones()) == 9)
         await stub.world(EventType.SCENARIO_STATE, state(cor=2), "10:15")  # nothing changed
         tick = TickData(index=5, step_s=900.0, clock="10:15", day_of_year=200)
         await stub.world(EventType.TICK, tick, "10:15")  # not for the stub
         await stub.world(EventType.SCENARIO_STATE, state(), "10:30")  # Core empties
-        await until(lambda: len(bacnet[0].sensors()) == 6)
+        await until(lambda: len(bacnet[0].zones()) == 11)
     app = bacnet[0]
     assert app.address == ("127.0.0.1", 0)  # its own port, any free one, on the BMS's address
-    assert app.sensors()[:6] == [
-        (SENSORS[Zone.COR], "active"),  # Occupied
-        (SENSORS[Zone.NOR], "inactive"),  # Unoccupied
-        (SENSORS[Zone.SOU], "inactive"),
-        (SENSORS[Zone.EAS], "inactive"),
-        (SENSORS[Zone.WES], "inactive"),
-        (SENSORS[Zone.COR], "inactive"),
+    assert app.zones()[:11] == [
+        (SENSORS[Zone.COR], "active"),  # Occupied; its setpoint is not held, so not written
+        *empty(Zone.NOR),
+        *empty(Zone.SOU),
+        *empty(Zone.EAS),
+        *empty(Zone.WES),
+        *empty(Zone.COR),
     ]
-    released = app.writes[-6:]  # at stop(): every priority-10 slot it holds, NULL
-    held = [*SENSORS.values(), HEARTBEAT]
-    assert sorted(released) == sorted((oid, None) for oid in held)
+    released = app.writes[-11:]  # at stop(): every priority-10 slot it holds, NULL
+    every = [*SENSORS.values(), *SETPOINTS.values(), HEARTBEAT]
+    assert sorted(released) == sorted((oid, None) for oid in every)
     assert app.closed
     assert stub.worker.state is WorkerState.FINISHED
 
@@ -237,7 +248,7 @@ async def test_the_stub_writes_each_zone_on_a_change_only(bacnet: list[FakeBacne
 async def test_the_stub_says_what_it_sees_and_decides(bacnet: list[FakeBacnet]) -> None:
     async with Stub() as stub:
         await stub.world(EventType.SCENARIO_STATE, state(eas=3), "09:00")
-        await until(lambda: len(bacnet) == 1 and len(bacnet[0].sensors()) == 5)
+        await until(lambda: len(bacnet) == 1 and len(bacnet[0].zones()) == 9)
     perception = stub.published(EventType.PERCEPTION)
     assert [e.data for e in perception] == [
         {"stub": True, "people": {"cor": 0, "nor": 0, "sou": 0, "eas": 3, "wes": 0}}
@@ -245,12 +256,16 @@ async def test_the_stub_says_what_it_sees_and_decides(bacnet: list[FakeBacnet]) 
     decisions = stub.published(EventType.DECISION)
     assert [(e.data["point"], e.data["value"]) for e in decisions] == [
         ("ZN-COR-OCC-SENSOR", "Unoccupied"),
+        ("ZN-COR-CLG-SP", 28.0),
         ("ZN-NOR-OCC-SENSOR", "Unoccupied"),
+        ("ZN-NOR-CLG-SP", 28.0),
         ("ZN-SOU-OCC-SENSOR", "Unoccupied"),
+        ("ZN-SOU-CLG-SP", 28.0),
         ("ZN-EAS-OCC-SENSOR", "Occupied"),
         ("ZN-WES-OCC-SENSOR", "Unoccupied"),
+        ("ZN-WES-CLG-SP", 28.0),
     ]
-    assert decisions[3].data == {
+    assert decisions[6].data == {
         "stub": True,
         "zone": "eas",
         "point": "ZN-EAS-OCC-SENSOR",
@@ -259,10 +274,15 @@ async def test_the_stub_says_what_it_sees_and_decides(bacnet: list[FakeBacnet]) 
         "reason": "3 people in the zone",
     }
     explanations = stub.published(EventType.EXPLANATION)
-    assert explanations[3].data == {
-        "stub": True,
-        "text": "East: 3 people in the zone -> ZN-EAS-OCC-SENSOR Occupied at priority 10",
-    }
+    emptied = "the zone is empty -> ZN-{0}-OCC-SENSOR Unoccupied, ZN-{0}-CLG-SP 28.0 at priority 10"
+    assert [e.data["text"] for e in explanations] == [
+        "Core: " + emptied.format("COR"),
+        "North: " + emptied.format("NOR"),
+        "South: " + emptied.format("SOU"),
+        "East: 3 people in the zone -> ZN-EAS-OCC-SENSOR Occupied at priority 10",
+        "West: " + emptied.format("WES"),
+    ]
+    assert all(e.data["stub"] is True for e in explanations)
     assert all(e.sim_time_s == at("09:00") for e in perception + decisions + explanations)
 
 
@@ -273,15 +293,24 @@ async def test_the_stub_precools_a_booking_and_releases_at_19_00(bacnet: list[Fa
         await stub.world(EventType.CALENDAR, booking("14:00", "15:00"), "13:45")  # ...but booked
         await stub.world(EventType.SCENARIO_STATE, state(cor=4), "15:00")  # the meeting is over
         await stub.world(EventType.SCENARIO_STATE, state(cor=4), "19:00")
-        await until(lambda: len(bacnet) == 1 and len(bacnet[0].sensors()) == 12)
-    sensors = bacnet[0].sensors()
-    assert [value for oid, value in sensors if oid == SENSORS[Zone.SOU]] == [
-        "inactive",
-        "active",  # pre-cooling from 13:30, known at 13:45
-        "inactive",
-        None,  # 19:00
+        await until(lambda: len(bacnet) == 1 and len(bacnet[0].zones()) == 22)
+    writes = bacnet[0].zones()
+    south = [
+        (oid, value) for oid, value in writes if oid in (SENSORS[Zone.SOU], SETPOINTS[Zone.SOU])
     ]
-    assert sensors[7:] == [(oid, None) for oid in SENSORS.values()]  # 19:00: all released
+    assert south == [
+        *empty(Zone.SOU),  # 13:45: empty
+        (SENSORS[Zone.SOU], "active"),  # 13:45, booked: pre-cooling from 13:30
+        (SETPOINTS[Zone.SOU], None),  # the schedule's setpoint while it is held
+        *empty(Zone.SOU),  # 15:00
+        (SENSORS[Zone.SOU], None),  # 19:00: released
+        (SETPOINTS[Zone.SOU], None),
+    ]
+    held_at_19 = [
+        SENSORS[Zone.COR],
+        *(oid for z in Zone if z is not Zone.COR for oid in (SENSORS[z], SETPOINTS[z])),
+    ]
+    assert writes[13:] == [(oid, None) for oid in held_at_19]  # 19:00: every slot released
 
 
 @pytest.mark.asyncio
@@ -301,10 +330,10 @@ async def test_a_write_without_an_answer_is_tried_again_with_the_next_state(
         await until(lambda: len(bacnet) == 1 and len(bacnet[0].writes) == 1)  # the heartbeat
         bacnet[0].lose.add(SENSORS[Zone.COR])
         await stub.world(EventType.SCENARIO_STATE, state(cor=1), "10:00")
-        await until(lambda: len(bacnet[0].sensors()) == 4)  # Core's write was lost
+        await until(lambda: len(bacnet[0].zones()) == 8)  # Core's write was lost
         await stub.world(EventType.SCENARIO_STATE, state(cor=1), "10:15")
-        await until(lambda: len(bacnet[0].sensors()) == 5)
-    assert bacnet[0].sensors()[4] == (SENSORS[Zone.COR], "active")
+        await until(lambda: len(bacnet[0].zones()) == 9)
+    assert bacnet[0].zones()[8] == (SENSORS[Zone.COR], "active")
 
 
 @pytest.mark.asyncio

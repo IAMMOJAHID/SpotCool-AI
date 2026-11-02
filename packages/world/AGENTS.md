@@ -514,30 +514,41 @@ export SPOTCOOL_WORLD_RUN_DIR="C:/Users/hussa/dev/runs"   # keep runs out of the
 uv run spotcool-world run                                   # the settings' plant and scenario, speed 300
 uv run spotcool-world run --plant rc --speed 0 --stub-agent # hybrid_tuesday at full speed, scored by the stub
 uv run spotcool-world run --config world.yaml --scenario all_hands_day --speed 60 --run-id take-3
-uv run spotcool-world replay <run_id> --speed 60            # a recorded run again, for a video take
+uv run spotcool-world replay <run_id> --speed 60 --wait-viewer 60   # a recorded run again, for a video take
 uv run spotcool-world report <run_id>
 uv run python packages/world/examples/foundational/10_full_world.py   # the same run, loopback only
 ```
 
-- **Assembly** (`runner/assembly.py`). `World(settings, run_id=None, stub_agent=False)` builds
-  everything and starts nothing; `World.run()` runs it once.
-  - The pipeline: `TickSource -> ScenarioProcessor -> FramePublisher(CalendarFrame,
-    ComplaintCueFrame) -> bms.input() -> ParallelPipeline[PlantProcessor(spotcool) ||
-    PlantProcessor(baseline)] -> bms.output() -> CameraSceneProcessor -> TelemetryProcessor ->
-    KpiProcessor -> EventEmitterProcessor -> RecorderProcessor -> BusPublisher(EVENTS_TOPIC)`.
-    `PipelineParams.scenario` is `settings.scenario`, so the manifest hashes its file.
+- **Assembly** (`runner/assembly.py`). `World(settings, run_id=None)` builds everything and
+  starts nothing; `World.run()` runs it once.
+  - The pipeline: `TickSource -> RunStatusProcessor -> ScenarioProcessor ->
+    FramePublisher(CalendarFrame, ComplaintCueFrame) -> bms.input() ->
+    ParallelPipeline[PlantProcessor(spotcool) || PlantProcessor(baseline)] -> bms.output() ->
+    CameraSceneProcessor -> TelemetryProcessor -> KpiProcessor -> EventEmitterProcessor ->
+    RecorderProcessor -> BusPublisher(EVENTS_TOPIC)`. `PipelineParams.scenario` is
+    `settings.scenario`, so the manifest hashes its file.
+  - `RunStatusProcessor` (`processors/run_status.py`) gives the dashboard the run's status as
+    `run_status` events: `running` after the start, then `finished` before the `EndFrame`, or
+    `failed` before a `CancelFrame`, with the fatal error's message or `cancelled: <reason>`
+    (the contract's statuses have no `cancelled`).
   - Beside it, on one `InProcessBus`: the occupants, the HTTP server (cameras and calendar,
     `http_host:http_port`), the dashboard server (`http_host:dashboard_port`, which serves
-    `apps/dashboard/dist` at `/` once it is built) and, with `--stub-agent`, the stub agent.
+    `apps/dashboard/dist` at `/` once it is built) and, with `stub_agent`, the stub agent.
   - Both plants come from `create_plant`. The RC plant's occupant heat follows the scenario
     (`scenario_occupancy`: the people of the step under way, nobody during the warm-up);
     BOPTEST keeps its own fixed schedule (the report's honesty note).
   - WP3 adds the VRF gateway at the two places marked in `World`: its `input()` after
     `bms.input()`, its worker beside the others.
+- **Run ids.** A run id names the run's directory in `run_dir`; one that already holds a record
+  is refused before anything starts. The default is the date, time and scenario, and a stub run's
+  ends in `-stub`.
 - **Output.** At start-up it prints the URLs: the dashboard, its event stream, the camera
-  catalog, the calendar and the BMS's address and port. At the end: the run id, how it ended,
-  each plant run's energy, comfort where people were and energy saved, and the report command.
-  The exit code is 0 for a finished run, 1 otherwise.
+  catalog, the calendar and the BMS's address and port. A server on a wildcard host (`0.0.0.0`,
+  `::`) shows this PC's LAN address, then its loopback one. At the end: the run id, how it
+  ended, each plant run's energy, comfort where people were and energy saved, and the report
+  and replay commands. After a `--config` run those carry `SPOTCOOL_WORLD_RUN_DIR=<dir>` and
+  `--config <file>`. The exit code is 0 when the pipeline finished, 1 otherwise; invalid settings
+  (such as `bms_address: localhost` or `log_level: VERBOSE`) print `run failed: ...` and exit 1.
 - **Lifecycle.** Before the runner, the BMS starts (`bms_address`, `bms_port`), then the cameras,
   and the calendar store follows `WORLD_FRAMES_TOPIC`. One `WorkerRunner` runs the pipeline,
   then the others. The pipeline's `on_pipeline_finished` stops the other workers, so the runner
@@ -546,31 +557,36 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   reverse order, the plants last.
 - **Ctrl+C** stops the run: the pipeline cancels first, the plants stop (both BOPTEST tests),
   the recorder writes a `cancelled` manifest with the KPIs so far, then the other workers stop.
-  A second Ctrl+C cancels everything at once; the BOPTEST stop request is shielded. During a
-  BOPTEST plant start the first Ctrl+C waits for the start (Known limitations).
+  A second Ctrl+C cancels everything at once. A BOPTEST stop request already sent runs on: the
+  plant keeps it as a task, and its next `stop()`, which `World.run()` makes last, waits up to
+  15 s (`STOP_WAIT_S`) for it before closing the client, so `run()` never returns while one is
+  under way. During a BOPTEST plant start the first Ctrl+C waits for the start (Known
+  limitations).
 - **Speed.** 300, the default, is for development: a step every 3 s, the day in 2.5 minutes.
   Use 60 or slower for integration and filming, because a clip's action needs wall time: the
   14:15 complaint plays 5-15 s into its clip. `--speed 0` runs as fast as possible: the RC day in
   about 2 s.
 - **Ports.** UDP `bms_port` (47808) on the primary IPv4 address, TCP `http_port` (8081) and
   `dashboard_port` (8090) on `http_host` (0.0.0.0). A port another program holds fails the run:
-  the BMS's before anything starts, a server's as soon as the runner starts (the run is then
-  cancelled, after the plants' start). For a run on this PC only, with no firewall prompt, set
-  `SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1` and `SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1`. For A's agent
-  on another PC, allow the ports through the firewall (Windows notes; the dashboard needs TCP
-  8090 only if a browser on another PC opens it).
+  the BMS's before anything starts (`BMS UDP <address>:<port> is in use ...`), a server's as
+  soon as the runner starts (the run is then cancelled, after the plants' start). For a run on
+  this PC only, with no firewall prompt, set `SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1` and
+  `SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1`. For A's agent or a browser on another PC, allow the
+  ports through the firewall (Windows notes).
 - **Logging.** `run` and `replay` log to stderr at `log_level`, with `diagnose=False` and
   `backtrace=False`, so a traceback never prints local variables that hold audio or frames.
 - **Without A's agent**, nothing answers the occupants' complaints: each is reported
   `delivered: false`. On Windows a refused connection takes about 2 s per attempt, so a run at
   full speed ends about 7 s after the 14:15 complaint, while the occupant worker finishes it.
-- **Replay** (`Replay` in `runner/assembly.py`). `spotcool-world replay <run_id> [--speed S]`
-  (the settings' speed by default) puts the record's events back on a bus, in their recorded
-  order and as recorded (their wall-clock `t_ms` included), and serves the dashboard and the
-  cameras on the usual ports: no physics, no BACnet. Each recorded scenario state goes through a
-  `CameraSceneProcessor`, so the camera wall shows the take's scenes and people. Each step lasts
-  `step_s / speed` after its `tick` event, as in the live run; the servers stop at the record's
-  end. A dashboard that connects late misses the events before it.
+- **Replay** (`Replay` in `runner/assembly.py`). `spotcool-world replay <run_id> [--config FILE]
+  [--speed S] [--wait-viewer SECONDS]` (the settings' speed by default) puts the record's events
+  back on a bus, in their recorded order and as recorded (their wall-clock `t_ms` included), and
+  serves the dashboard and the cameras on the usual ports: no physics, no BACnet. With
+  `--wait-viewer`, it waits up to that long for a first `/ws/events` client (the dashboard
+  app's `state.viewers`) before the first event, so an OBS take starts with the dashboard
+  open. Each recorded scenario state goes through a `CameraSceneProcessor`, so the camera wall
+  shows the take's scenes and people. Each step lasts `step_s / speed` after its `tick` event,
+  as in the live run; the servers stop at the record's end.
 - **The BOPTEST checkpoint** (the lead runs it; not part of the test suite):
   1. Bring the Codespace's stack up and forward its port (a separate terminal for the forward):
 
@@ -590,8 +606,8 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
 
      The start (select, then a 3-day warm-up per test) takes a minute or two; then each step
      takes a BOPTEST round trip. Expect `run boptest-checkpoint finished (end time reached)`,
-     both runs' energy and comfort, and energy saved. The log shows `BOPTEST start: test=<id>`
-     twice and `BOPTEST: stopped test <id>` for both ids.
+     the stub label, both runs' energy and comfort, and energy saved. The log shows
+     `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids.
   4. Ctrl+C: start the same run with `--run-id boptest-ctrl-c`, press Ctrl+C after a few steps
      (after the start has returned). Expect `cancelled (SIGINT)` and both tests stopped in the
      log. Then run step 2 again: it must get a worker at once, which shows no test was left.
@@ -605,26 +621,35 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
 and filmed without A. It is a stub and says so everywhere: A's agent must never read ground
 truth.
 
+- **Turning it on.** `spotcool-world run --stub-agent`, or the setting `stub_agent`
+  (`SPOTCOOL_WORLD_STUB_AGENT=true`), which the manifest records. A stub run's id ends in
+  `-stub`, and its printout and the top of its report say `STUB_AGENT_NOTE`: "(stub agent:
+  perfect perception from the scenario script, not Person A's agent)".
 - **A real BACnet/IP client.** `StubAgentWorker(device)`, given the BMS's `ip:port`, is a
   BACpypes3 device (`SpotCool-Stub-Agent`, instance 1900) on its own UDP port, any free one on
   the BMS's address, writing over loopback or the LAN exactly as A's agent will.
 - **Perfect perception, openly.** It reads the scenario's ground truth: the `scenario_state` and
   `calendar` events on `"events"`.
-- **Policy** (`stub_agent/policy.py`, pure):
-  - each zone's `ZN-<Z>-OCC-SENSOR` (BV 450+i) at priority 10, Unoccupied when nobody is there
-    and Occupied otherwise, written only on a change (the BMS then runs occupied-standby);
-  - a booked room's zone is held Occupied from 30 minutes before the booking to its end;
-  - from 19:00 every zone's slot is released (NULL); at `stop()` every slot it holds, the
-    heartbeat's included;
+- **Policy** (`stub_agent/policy.py`, pure), at priority 10 and written only on a change:
+  - an empty zone: `ZN-<Z>-OCC-SENSOR` (BV 450+i) Unoccupied and `ZN-<Z>-CLG-SP` (AV 200+i)
+    28.0 degC (the BMS then runs occupied-standby);
+  - a zone with people: `OCC-SENSOR` Occupied and `CLG-SP` released (NULL), so the building
+    schedule applies, as in the baseline run;
+  - a booked room's zone is held like a zone with people from 30 minutes before the booking to
+    its end (pre-cooling);
+  - from 19:00 every slot is released; at `stop()` every slot it holds, the heartbeat's
+    included;
   - `SPOTCOOL-HEARTBEAT` (BV 901) is toggled every 30 s of wall time, On first.
   A write the BMS refuses or never answers is logged and tried again with the next state.
 - **Visibility.** It publishes on `"events"`, with `source: "agent"`, a `perception` event per
-  scenario state and a `decision` and an `explanation` per command. WP7 can rely on their data:
+  scenario state, a `decision` per point written and an `explanation` per zone changed. WP7 can
+  rely on their data:
   - `perception`: `{"stub": true, "people": {"cor": 4, "nor": 2, ...}}`;
-  - `decision`: `{"stub": true, "zone": "sou", "point": "ZN-SOU-OCC-SENSOR", "value":
-    "Occupied" | "Unoccupied" | null, "priority": 10, "reason": "..."}`;
-  - `explanation`: `{"stub": true, "text": "South: ... -> ZN-SOU-OCC-SENSOR Occupied at priority
-    10"}`.
+  - `decision`: `{"stub": true, "zone": "sou", "point": "ZN-SOU-CLG-SP", "value": 28.0,
+    "priority": 10, "reason": "the zone is empty"}`; `value` is a state text, a setpoint in degC,
+    or null for a release;
+  - `explanation`: `{"stub": true, "text": "South: the zone is empty -> ZN-SOU-OCC-SENSOR
+    Unoccupied, ZN-SOU-CLG-SP 28.0 at priority 10"}`.
 
   `stub: true` is how the dashboard labels a stub run.
 - **Lifecycle.** It subscribes when it starts, under the world's runner, and runs until the
@@ -748,8 +773,9 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
 - **Ctrl+C during a plant start.** The first Ctrl+C queues a `CancelFrame`, which takes effect
   only after the `StartFrame`, and so the plant's `start()`, returns. On BOPTEST that can be
   minutes: the select and the warm-up. A second Ctrl+C cancels the start at once, and the start
-  path still stops its BOPTEST test (the stop request is shielded). Letting the first Ctrl+C
-  interrupt a start needs a change to the WP0 worker.
+  path still stops its BOPTEST test: the plant's stop request runs on as a task of its own, and
+  its next `stop()` waits for it. Letting the first Ctrl+C interrupt a start needs a change to
+  the WP0 worker.
 
 ## Windows notes
 
@@ -777,14 +803,14 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   Add Remote Bacnet/IP node: `1001 - 127.0.0.1:47809`. No Who-Is broadcast is needed.
 - A port already in use fails `BacnetBmsTransport.start()` with `[WinError 10048] Only one usage
   of each socket address`: another BACnet program (or YABE in exclusive-socket mode) holds it.
-- **The firewall blocks the HTTP server (cameras, calendar) from other PCs**, such as A's agent.
-  Allow TCP 8081 once, in an elevated PowerShell (add `Public` to `-Profile` if Windows calls the
-  network public, as it usually does a phone's hotspot; undo with
-  `Remove-NetFirewallRule -DisplayName "SpotCool HTTP"`). The phone needs no rule: the world
-  polls it.
+- **The firewall blocks the HTTP servers from other PCs**: A's agent and a browser there. Allow
+  TCP 8081 (cameras and calendar) and 8090 (the dashboard) once, in an elevated PowerShell (add
+  `Public` to `-Profile` if Windows calls the network public, as it usually does a phone's
+  hotspot; undo with `Remove-NetFirewallRule -DisplayName "SpotCool HTTP"`). The phone needs no
+  rule: the world polls it.
 
   ```powershell
-  New-NetFirewallRule -DisplayName "SpotCool HTTP" -Direction Inbound -Protocol TCP -LocalPort 8081 -Action Allow -Profile Domain,Private
+  New-NetFirewallRule -DisplayName "SpotCool HTTP" -Direction Inbound -Protocol TCP -LocalPort 8081,8090 -Action Allow -Profile Domain,Private
   ```
 
 - **The live phone camera (manual).**

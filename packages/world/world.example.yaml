@@ -29,6 +29,7 @@ http_host: 0.0.0.0              # the cameras, calendar and dashboard servers
 http_port: 8081                 # cameras and calendar
 dashboard_port: 8090            # dashboard page, /ws/events and /ws/agent
 agent_base_url: http://127.0.0.1:8002   # where the occupants post /chat and /voice
+stub_agent: false               # true: the stub agent (ground truth, labelled) drives the BMS
 
 # Files.
 run_dir: runs                   # recorded runs, one directory each

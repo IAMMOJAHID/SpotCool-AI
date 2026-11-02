@@ -6,7 +6,8 @@
 The series come from the record's raw measurements, through the ``TelemetryProcessor``'s own
 ``metered_summary`` (a state lacking a value is left out, its power still counted), and the
 people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The
-report adds recovery times, which the contract's ``KpiData`` has no field for.
+report adds recovery times, which the contract's ``KpiData`` has no field for. A stub run's
+report (``stub_agent`` in the manifest's settings) opens with ``STUB_AGENT_NOTE``.
 """
 
 import re
@@ -44,6 +45,8 @@ HONESTY_NOTE = (
     "`all_hands_day` scenario bracket this."
 )
 """The report's honesty note, word for word."""
+STUB_AGENT_NOTE = "(stub agent: perfect perception from the scenario script, not Person A's agent)"
+"""How a stub run is labelled: at the top of its report and in ``spotcool-world run``'s output."""
 POWER_CHART = "power_energy.png"
 ZONES_CHART = "zone_temperatures.png"
 OCCUPANCY_CHART = "occupancy.png"
@@ -219,6 +222,7 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
     lines = [
         f"# Run {manifest.run_id}: {manifest.scenario} on the {manifest.plant} plant",
         "",
+        *([f"**{STUB_AGENT_NOTE}**", ""] if manifest.settings.get("stub_agent") else []),
         f"- Simulated {sim_datetime(manifest.start_time_s):%Y-%m-%d}, "
         f"{SimClock.clock_text(manifest.start_time_s)} to {SimClock.clock_text(manifest.end_time_s)}"
         f" in {manifest.step_s / 60:g}-minute steps; {ended}.",

@@ -2,13 +2,14 @@
 
 ``World(settings)`` builds what one ``spotcool-world run`` needs: the pipeline below, the BACnet
 BMS, the cameras, the room calendar, the occupants, the HTTP and dashboard servers on one bus
-and, when asked, the stub agent. ``World.run()`` owns their lifecycle. ``Replay(settings,
-run_id)`` plays a recorded run back for a video take: its events, the dashboard and the
-cameras, with no physics and no BACnet.
+and, with ``settings.stub_agent``, the stub agent. ``World.run()`` owns their lifecycle.
+``Replay(settings, run_id)`` plays a recorded run back for a video take: its events, the
+dashboard and the cameras, with no physics and no BACnet.
 
 One tick of the world::
 
-    TickSource -> ScenarioProcessor -> FramePublisher(calendar, complaint cues) -> bms.input()
+    TickSource -> RunStatusProcessor -> ScenarioProcessor
+     -> FramePublisher(calendar, complaint cues) -> bms.input()
      -> ParallelPipeline[PlantProcessor(spotcool) || PlantProcessor(baseline)] -> bms.output()
      -> CameraSceneProcessor -> TelemetryProcessor -> KpiProcessor
      -> EventEmitterProcessor -> RecorderProcessor -> BusPublisher(events)
@@ -16,12 +17,15 @@ One tick of the world::
 
 import asyncio
 import contextlib
+import ipaddress
+import math
 import re
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import FastAPI
+from loguru import logger
 
 from spotcool_contracts import Zone
 from spotcool_contracts.calendar import ROOMS, SCHEDULE_PATH
@@ -58,6 +62,7 @@ from spotcool_world.processors import (
 )
 from spotcool_world.processors.event_emitter import frame_events
 from spotcool_world.processors.kpi import RUNS
+from spotcool_world.processors.run_status import RunStatusProcessor
 from spotcool_world.runner.runner import WorkerRunner
 from spotcool_world.scenarios import CompiledScenario, compile_scenario, load_scenario
 from spotcool_world.serializers import EVENTS_FILE, RUN_ID_PATTERN, EventRecord, read_records
@@ -79,6 +84,8 @@ DASHBOARD_DIST = Path(__file__).resolve().parents[5] / "apps" / "dashboard" / "d
 """The built dashboard in this checkout, which the dashboard server serves at ``/``."""
 STOPPED = "the run ended"
 """Why the workers beside the pipeline are stopped when the run ends."""
+VIEWER_POLL_S = 0.1
+"""How often a replay that waits for a dashboard checks for one."""
 
 
 def scenario_occupancy(compiled: CompiledScenario) -> Callable[[float], dict[Zone, int]]:
@@ -98,14 +105,15 @@ def scenario_occupancy(compiled: CompiledScenario) -> Callable[[float], dict[Zon
     return occupancy
 
 
-def default_run_id(scenario: str) -> str:
+def default_run_id(scenario: str, *, stub: bool = False) -> str:
     """A run id from the time now and a scenario's name, such as ``20261102-101500-hybrid_tuesday``.
 
     Args:
         scenario: The scenario's name; characters a run id cannot hold become ``-``.
+        stub: The stub agent drives the run: the id ends in ``-stub``.
     """
     safe = re.sub(r"[^A-Za-z0-9_-]+", "-", scenario).strip("-")[:40]
-    return f"{datetime.now():%Y%m%d-%H%M%S}-{safe}".rstrip("-")
+    return f"{datetime.now():%Y%m%d-%H%M%S}-{safe}".rstrip("-") + ("-stub" if stub else "")
 
 
 class World(BaseObject):
@@ -116,48 +124,45 @@ class World(BaseObject):
     follows the scenario (``scenario_occupancy``). One ``InProcessBus`` serves the pipeline, the
     workers and the dashboard server. Beside the pipeline run ``workers``: the occupants, the
     HTTP server (cameras and calendar, ``http_host:http_port``), the dashboard server
-    (``http_host:dashboard_port``) and, when asked, the stub agent. Nothing starts before
-    ``run()``.
+    (``http_host:dashboard_port``) and, with ``settings.stub_agent``, the stub agent. Nothing
+    starts before ``run()``.
 
     Args:
         settings: The run's settings.
-        run_id: The run's directory under ``settings.run_dir`` (``RUN_ID_PATTERN``); by default
-            ``default_run_id`` of the scenario's name.
-        stub_agent: Also run the stub agent (``StubAgentWorker``): a BACnet client with
-            ground-truth perception that stands in for Person A's agent.
+        run_id: The run's directory under ``settings.run_dir`` (``RUN_ID_PATTERN``), which must
+            not hold a recording yet; by default ``default_run_id`` of the scenario's name.
         name: Display name.
 
     Raises:
-        ValueError: If the run id is unsafe, the scenario names no file or has errors, or a URL
-            in the settings is invalid.
+        ValueError: If the run id is unsafe or already holds a recording, ``bms_address`` is not
+            an IPv4 address, the scenario names no file or has errors, or a URL in the settings
+            is invalid.
         OSError: If the scenario file cannot be read.
     """
 
     def __init__(
-        self,
-        settings: WorldSettings,
-        *,
-        run_id: str | None = None,
-        stub_agent: bool = False,
-        name: str | None = None,
+        self, settings: WorldSettings, *, run_id: str | None = None, name: str | None = None
     ) -> None:
         super().__init__(name=name or "world")
         if run_id is not None and not re.fullmatch(RUN_ID_PATTERN, run_id):
             raise ValueError(f"{run_id!r} is not a run id: letters, digits, _ and -")
+        bms_host = _bms_host(settings.bms_address)
         compiled = compile_scenario(
             load_scenario(settings.scenario).scenario, step_s=settings.step_s
         )
+        self.run_id = run_id or default_run_id(compiled.name, stub=settings.stub_agent)
+        """The run's id, its directory under ``settings.run_dir``."""
+        record = settings.run_dir / self.run_id / EVENTS_FILE
+        if record.exists():
+            raise ValueError(f"{record} already holds a recording: give the run another id")
         self.settings = settings
         """The run's settings."""
         self.compiled = compiled
         """The scenario; it sets the run's start and end."""
-        self.run_id = run_id or default_run_id(compiled.name)
-        """The run's id, its directory under ``settings.run_dir``."""
         self.bus = InProcessBus()
         """The bus the pipeline, the workers and the dashboard server share."""
         self.bms = BacnetBmsTransport(address=settings.bms_address, port=settings.bms_port)
         """The BACnet BMS."""
-        bms_host = (settings.bms_address or primary_ipv4()).partition("/")[0]
         self.bms_endpoint = f"{bms_host}:{settings.bms_port}"
         """The ``ip:port`` the BMS serves on."""
         self.cameras = create_cameras(settings)
@@ -173,6 +178,7 @@ class World(BaseObject):
         pipeline = Pipeline(
             [
                 TickSource(clock, WallPacer(settings.speed), compiled.end_s),
+                RunStatusProcessor(self.run_id, settings.plant, compiled.name),
                 ScenarioProcessor(compiled),
                 FramePublisher(self.bus, (CalendarFrame, ComplaintCueFrame)),
                 self.bms.input(),
@@ -202,14 +208,15 @@ class World(BaseObject):
         )
         self.pipeline = PipelineWorker(pipeline, params=params, name="pipeline")
         """The pipeline's worker."""
-        http_routers = [cameras_router(self.cameras), calendar_router(self.store)]
+        http = create_http_app([cameras_router(self.cameras), calendar_router(self.store)])
+        dashboard = create_dashboard_app(self.bus, settings.run_dir, dist_dir=DASHBOARD_DIST)
         self.workers: list[BaseWorker] = [
             OccupantWorker(settings, name="occupants"),
-            *_servers(settings, self.bus, http_routers),
+            *_servers(settings, http, dashboard),
             # WP3: the VRF gateway's worker joins these.
         ]
         """The workers beside the pipeline, stopped when the run ends."""
-        if stub_agent:
+        if settings.stub_agent:
             self.workers.append(StubAgentWorker(self.bms_endpoint, name="stub-agent"))
         self.pipeline.add_event_handler("on_pipeline_finished", self._stop_workers)
         self.pipeline.add_event_handler("on_pipeline_error", self._publish_error)
@@ -217,12 +224,12 @@ class World(BaseObject):
 
     def urls(self) -> dict[str, str]:
         """Where the world serves the dashboard, the cameras, the calendar and the BMS."""
-        http = _base_url(self.settings.http_host, self.settings.http_port)
+        host, port = self.settings.http_host, self.settings.http_port
         room = next(iter(ROOMS))
         return {
             **_dashboard_urls(self.settings),
-            "cameras": f"{http}{CATALOG_PATH}",
-            "calendar": f"{http}{SCHEDULE_PATH.format(room=room)}",
+            "cameras": _url("http", host, port, CATALOG_PATH),
+            "calendar": _url("http", host, port, SCHEDULE_PATH.format(room=room)),
             "BMS": f"{self.bms_endpoint} (BACnet/IP)",
         }
 
@@ -233,8 +240,9 @@ class World(BaseObject):
         and the calendar store follows ``WORLD_FRAMES_TOPIC``. Then one ``WorkerRunner`` runs
         the pipeline and the workers: the first Ctrl+C stops the run gracefully, a second
         cancels it. The run's end (its ``EndFrame`` or ``CancelFrame``) stops the workers. After
-        them, everything started is stopped again, in reverse order, the plants last: the
-        pipeline stops them itself, unless it never ran.
+        them, everything started is stopped again, in reverse order, the plants last: a plant's
+        ``stop()`` waits, bounded, for a stop request still on its way (``STOP_WAIT_S`` for
+        BOPTEST), so ``run()`` never returns while one is.
 
         Args:
             handle_sigint: Let the runner handle Ctrl+C (off in tests).
@@ -249,7 +257,12 @@ class World(BaseObject):
         async with contextlib.AsyncExitStack() as stack:
             for plant in self.plants.values():
                 stack.push_async_callback(plant.stop)
-            await self.bms.start()
+            try:
+                await self.bms.start()
+            except OSError as exc:
+                raise OSError(
+                    f"BMS UDP {self.bms_endpoint} is in use, or not an address of this PC: {exc}"
+                ) from exc
             stack.push_async_callback(self.bms.stop)
             await self.cameras.start()
             stack.push_async_callback(self.cameras.stop)
@@ -279,15 +292,18 @@ class Replay(BaseObject):
 
     The record's events go on a new bus's events topic in their recorded order, and each step
     lasts ``step_s / speed`` wall seconds after its ``tick`` event, as in the live run. The
-    dashboard server serves them (``http_host:dashboard_port``). The camera system shows the
-    recorded scenes and people (``http_host:http_port``): each recorded scenario state goes
-    through a ``CameraSceneProcessor``, the processor that made the record's ``camera_scene``
-    events. The run's end stops the servers.
+    dashboard server serves them (``http_host:dashboard_port``); with ``wait_viewer_s``, the
+    replay waits up to that long for a first ``/ws/events`` client before it starts. The camera
+    system shows the recorded scenes and people (``http_host:http_port``): each recorded
+    scenario state goes through a ``CameraSceneProcessor``, the processor that made the
+    record's ``camera_scene`` events. The run's end stops the servers.
 
     Args:
         settings: ``run_dir`` (where the run is), and the servers' and cameras' settings.
         run_id: The recorded run.
         speed: Simulation seconds per wall second, or ``None`` for as fast as possible.
+        wait_viewer_s: Longest wait for a dashboard to connect before the first event; 0 starts
+            at once.
         name: Display name.
 
     Raises:
@@ -301,6 +317,7 @@ class Replay(BaseObject):
         run_id: str,
         *,
         speed: float | None,
+        wait_viewer_s: float = 0.0,
         name: str | None = None,
     ) -> None:
         super().__init__(name=name or "replay")
@@ -317,27 +334,30 @@ class Replay(BaseObject):
         """The bus the replay publishes on and the dashboard server reads."""
         self.cameras = create_cameras(settings)
         """The camera system."""
+        self.dashboard = create_dashboard_app(self.bus, settings.run_dir, dist_dir=DASHBOARD_DIST)
+        """The dashboard server's app; ``state.viewers`` counts its ``/ws/events`` clients."""
+        source = _RecordSource(
+            self.envelopes,
+            WallPacer(speed),
+            viewers=lambda: self.dashboard.state.viewers,
+            wait_viewer_s=wait_viewer_s,
+        )
         pipeline = Pipeline(
-            [
-                _RecordSource(self.envelopes, WallPacer(speed)),
-                CameraSceneProcessor(self.cameras),
-                BusPublisher(self.bus, EVENTS_TOPIC),
-            ]
+            [source, CameraSceneProcessor(self.cameras), BusPublisher(self.bus, EVENTS_TOPIC)]
         )
         params = PipelineParams(run_id=run_id, speed=speed)
         self.pipeline = PipelineWorker(pipeline, params=params, name="replay")
         """The replay's worker."""
-        self.workers: list[BaseWorker] = _servers(
-            settings, self.bus, [cameras_router(self.cameras)]
-        )
+        http = create_http_app([cameras_router(self.cameras)])
+        self.workers: list[BaseWorker] = _servers(settings, http, self.dashboard)
         """The servers, stopped when the replay ends."""
         self.pipeline.add_event_handler("on_pipeline_finished", self._stop_workers)
         self._ran = False
 
     def urls(self) -> dict[str, str]:
         """Where the replay serves the dashboard and the cameras."""
-        http = _base_url(self.settings.http_host, self.settings.http_port)
-        return {**_dashboard_urls(self.settings), "cameras": f"{http}{CATALOG_PATH}"}
+        host, port = self.settings.http_host, self.settings.http_port
+        return {**_dashboard_urls(self.settings), "cameras": _url("http", host, port, CATALOG_PATH)}
 
     async def run(self, *, handle_sigint: bool = True) -> None:
         """Play the record once, to its end or until stopped; the cameras run meanwhile.
@@ -367,21 +387,32 @@ class Replay(BaseObject):
 class _RecordSource(FrameProcessor):
     """Pushes recorded events as ``EventFrame``s, paced after each ``tick``, then an ``EndFrame``.
 
-    On ``StartFrame`` it starts a background task, like ``TickSource``. A scenario state also goes
-    as a ``ScenarioStateFrame``, just ahead of its event, for the ``CameraSceneProcessor``.
+    On ``StartFrame`` it starts a background task, like ``TickSource``. The task first waits up
+    to ``wait_viewer_s`` for a viewer. A scenario state also goes as a ``ScenarioStateFrame``,
+    just ahead of its event, for the ``CameraSceneProcessor``.
 
     Args:
         envelopes: The recorded events, in order.
         pacer: Paces each step: ``step_s / speed`` wall seconds after its ``tick`` event.
+        viewers: How many dashboards watch now.
+        wait_viewer_s: Longest wait for the first one.
         name: Display name.
     """
 
     def __init__(
-        self, envelopes: Sequence[EventEnvelope], pacer: WallPacer, *, name: str | None = None
+        self,
+        envelopes: Sequence[EventEnvelope],
+        pacer: WallPacer,
+        *,
+        viewers: Callable[[], int],
+        wait_viewer_s: float,
+        name: str | None = None,
     ) -> None:
         super().__init__(name=name)
         self._envelopes = envelopes
         self._pacer = pacer
+        self._viewers = viewers
+        self._wait_viewer_s = wait_viewer_s
         self._task: asyncio.Task[None] | None = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
@@ -392,6 +423,7 @@ class _RecordSource(FrameProcessor):
             self._task = self.create_task(self._replay(), "replay")
 
     async def _replay(self) -> None:
+        await self._wait_for_viewer()
         for envelope in self._envelopes:
             t_s = envelope.sim_time_s
             if envelope.type is EventType.SCENARIO_STATE:
@@ -403,26 +435,59 @@ class _RecordSource(FrameProcessor):
                 await asyncio.sleep(0)  # yield every step, so stop() and cancels get a turn
         await self.push_frame(EndFrame(reason="the record ended"))
 
+    async def _wait_for_viewer(self) -> None:
+        if self._wait_viewer_s <= 0 or self._viewers():
+            return
+        logger.info(f"{self.name}: waiting up to {self._wait_viewer_s:g} s for a dashboard")
+        for _ in range(math.ceil(self._wait_viewer_s / VIEWER_POLL_S)):
+            await asyncio.sleep(VIEWER_POLL_S)
+            if self._viewers():
+                return
+        logger.warning(f"{self.name}: no dashboard after {self._wait_viewer_s:g} s; replaying")
 
-def _servers(
-    settings: WorldSettings, bus: InProcessBus, http_routers: Sequence[APIRouter]
-) -> list[BaseWorker]:
+
+def _bms_host(address: str | None) -> str:
+    """The IPv4 address the BMS binds: ``address`` without its prefix length, or the primary one.
+
+    Raises:
+        ValueError: If ``address`` is not an IPv4 address, with or without a prefix length.
+    """
+    if address is None:
+        return primary_ipv4()
+    try:
+        return str(ipaddress.IPv4Interface(address).ip)
+    except ValueError:
+        raise ValueError(
+            f"bms_address {address!r} is not an IPv4 address such as 192.168.1.20 or "
+            "192.168.1.20/24"
+        ) from None
+
+
+def _servers(settings: WorldSettings, http: FastAPI, dashboard: FastAPI) -> list[BaseWorker]:
     """The HTTP server on ``http_host:http_port`` and the dashboard on ``dashboard_port``."""
-    dashboard = create_dashboard_app(bus, settings.run_dir, dist_dir=DASHBOARD_DIST)
     host = settings.http_host
     return [
-        HttpServerWorker(create_http_app(http_routers), host, settings.http_port, name="http"),
+        HttpServerWorker(http, host, settings.http_port, name="http"),
         HttpServerWorker(dashboard, host, settings.dashboard_port, name="dashboard"),
     ]
 
 
 def _dashboard_urls(settings: WorldSettings) -> dict[str, str]:
     """The dashboard's page and its event stream."""
-    base = _base_url(settings.http_host, settings.dashboard_port)
-    page = f"{base}/" if DASHBOARD_DIST.is_dir() else f"{base}/ (not built: no {DASHBOARD_DIST})"
-    return {"dashboard": page, "event stream": f"ws{base.removeprefix('http')}/ws/events"}
+    host, port = settings.http_host, settings.dashboard_port
+    page = _url("http", host, port, "/")
+    if not DASHBOARD_DIST.is_dir():
+        page += f"  (not built: no {DASHBOARD_DIST})"
+    return {"dashboard": page, "event stream": _url("ws", host, port, "/ws/events")}
 
 
-def _base_url(host: str, port: int) -> str:
-    """``http://host:port``, with this machine's loopback address for a wildcard host."""
-    return f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
+def _url(scheme: str, host: str, port: int, path: str) -> str:
+    """Where a server bound to ``host:port`` serves ``path``.
+
+    A wildcard host (``0.0.0.0``, ``::``) gives this PC's LAN address, then its loopback one.
+    """
+    if host in ("0.0.0.0", "::"):
+        loopback = "127.0.0.1" if host == "0.0.0.0" else "::1"
+        lan, here = _url(scheme, primary_ipv4(), port, path), _url(scheme, loopback, port, path)
+        return f"{lan} (this PC: {here})"
+    return f"{scheme}://{f'[{host}]' if ':' in host else host}:{port}{path}"

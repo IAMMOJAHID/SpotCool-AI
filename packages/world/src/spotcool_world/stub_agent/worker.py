@@ -8,13 +8,17 @@ a real agent must never read, and every event it publishes says ``stub: true``.
 
 What it does (``StubPolicy`` decides, the worker writes):
 
-- Each zone's ``ZN-<Z>-OCC-SENSOR`` (BV 450+i) at priority 10: Unoccupied when the zone is
-  empty, Occupied otherwise, written only on a change. The BMS then runs occupied-standby.
-- Pre-cooling: from the ``calendar`` events, a booked room's zone is held Occupied from 30
-  minutes before the booking to its end.
-- From 19:00 every zone's slot is released (NULL). At ``stop()`` every priority-10 slot it
-  holds is released, the heartbeat's included.
+- An empty zone: ``ZN-<Z>-OCC-SENSOR`` (BV 450+i) Unoccupied and ``ZN-<Z>-CLG-SP`` (AV 200+i)
+  28.0 degC at priority 10. The BMS then runs occupied-standby.
+- A zone with people: ``OCC-SENSOR`` Occupied and ``CLG-SP`` released (NULL), so the building
+  schedule applies, as in the baseline run.
+- Pre-cooling: from the ``calendar`` events, a booked room's zone is held as a zone with people
+  from 30 minutes before the booking to its end.
+- From 19:00, and at ``stop()``, every priority-10 slot it holds is released (at ``stop()`` the
+  heartbeat's too).
 - ``SPOTCOOL-HEARTBEAT`` (BV 901) is toggled every 30 s of wall time.
+
+Every write happens only on a change.
 
 So the dashboard's agent panel and video mode work in stub runs, it publishes on ``"events"``,
 with ``source: "agent"``: a ``perception`` event per scenario state (people per zone) and, per
@@ -22,6 +26,7 @@ command, a ``decision`` and an ``explanation``.
 """
 
 import asyncio
+from typing import Any
 
 from bacpypes3.apdu import ErrorRejectAbortNack
 from bacpypes3.ipv4.app import NormalApplication
@@ -43,7 +48,7 @@ from spotcool_contracts.points import PointSpec
 from spotcool_contracts.priorities import AGENT_PRIORITY, HEARTBEAT_PERIOD_S
 from spotcool_world.bus import Bus, Subscription
 from spotcool_world.processors.event_emitter import EVENTS_TOPIC
-from spotcool_world.stub_agent.policy import Command, StubPolicy
+from spotcool_world.stub_agent.policy import StubPolicy
 from spotcool_world.workers.base_worker import BaseWorker, WorkerState
 
 DEVICE_INSTANCE = 1900
@@ -75,7 +80,7 @@ class Decision(BaseModel):
         stub: Always true.
         zone: The zone commanded.
         point: The BMS point written.
-        value: The state text written, or ``None`` for a release (NULL).
+        value: The state text or the setpoint (degC) written, or ``None`` for a release (NULL).
         priority: The priority slot written.
         reason: Why.
     """
@@ -83,7 +88,7 @@ class Decision(BaseModel):
     stub: bool = True
     zone: Zone
     point: str
-    value: str | None
+    value: str | float | None
     priority: int
     reason: str
 
@@ -125,11 +130,15 @@ class StubAgentWorker(BaseWorker):
         self._heartbeat_s = heartbeat_s
         self._policy = StubPolicy()
         points = load_point_map("office_bms")
-        self._sensors = {
-            zone: points.by_name(f"ZN-{zone.value.upper()}-OCC-SENSOR") for zone in Zone
+        self._points = {
+            zone: (
+                points.by_name(f"ZN-{zone.value.upper()}-OCC-SENSOR"),
+                points.by_name(f"ZN-{zone.value.upper()}-CLG-SP"),
+            )
+            for zone in Zone
         }
         self._heartbeat = points.by_name("SPOTCOOL-HEARTBEAT")
-        self._held: dict[str, str] = {}  # point name -> the value written at priority 10
+        self._held: dict[str, str | float] = {}  # point name -> the value written at priority 10
         self._latest: tuple[ScenarioStateData, float] | None = None  # the latest state, its time
         self._events: Subscription | None = None
         self._stopping = False
@@ -215,29 +224,35 @@ class StubAgentWorker(BaseWorker):
         if self._latest is not None:
             state, state_s = self._latest
             for zone, command in self._policy.commands(state, state_s).items():
-                if self._held.get(self._sensors[zone].name) != command.value:
-                    await self._command(app, bus, zone, command, state_s)
+                sensor, setpoint = self._points[zone]
+                writes = [
+                    (point, value)
+                    for point, value in ((sensor, command.sensor), (setpoint, command.setpoint_c))
+                    if self._held.get(point.name) != value
+                ]
+                if writes:
+                    await self._command(app, bus, zone, command.reason, writes, state_s)
 
     async def _command(
-        self, app: NormalApplication, bus: Bus, zone: Zone, command: Command, t_s: float
+        self,
+        app: NormalApplication,
+        bus: Bus,
+        zone: Zone,
+        reason: str,
+        writes: list[tuple[PointSpec, str | float | None]],
+        t_s: float,
     ) -> None:
-        """Publish the decision and its explanation, then write it."""
-        point = self._sensors[zone]
-        decision = Decision(
-            zone=zone,
-            point=point.name,
-            value=command.value,
-            priority=AGENT_PRIORITY,
-            reason=command.reason,
-        )
-        written = command.value or "released"
-        text = (
-            f"{ZONES[zone].display_name}: {command.reason} -> {point.name} {written} "
-            f"at priority {AGENT_PRIORITY}"
-        )
-        await _publish(bus, EventType.DECISION, decision, t_s)
+        """Publish a decision per write and one explanation, then make the writes."""
+        for point, value in writes:
+            decision = Decision(
+                zone=zone, point=point.name, value=value, priority=AGENT_PRIORITY, reason=reason
+            )
+            await _publish(bus, EventType.DECISION, decision, t_s)
+        done = ", ".join(f"{p.name} {'released' if v is None else v}" for p, v in writes)
+        text = f"{ZONES[zone].display_name}: {reason} -> {done} at priority {AGENT_PRIORITY}"
         await _publish(bus, EventType.EXPLANATION, Explanation(text=text), t_s)
-        await self._write(app, point, command.value)
+        for point, value in writes:
+            await self._write(app, point, value)
 
     async def _beat(self, app: NormalApplication) -> None:
         """Toggle the heartbeat every ``heartbeat_s`` wall seconds, On first (a background task)."""
@@ -250,22 +265,26 @@ class StubAgentWorker(BaseWorker):
 
     async def _release(self, app: NormalApplication) -> None:
         """Release every priority-10 slot the stub holds."""
-        held = [
-            point
-            for point in (*self._sensors.values(), self._heartbeat)
-            if point.name in self._held
-        ]
+        every = [point for pair in self._points.values() for point in pair]
+        held = [point for point in (*every, self._heartbeat) if point.name in self._held]
         if held:
             logger.info(f"{self.name}: releasing {', '.join(point.name for point in held)}")
         for point in held:
             await self._write(app, point, None)
 
-    async def _write(self, app: NormalApplication, point: PointSpec, value: str | None) -> None:
-        """Write a binary point's state at priority 10, or release it (``None``).
+    async def _write(
+        self, app: NormalApplication, point: PointSpec, value: str | float | None
+    ) -> None:
+        """Write a point at priority 10: a binary state or a setpoint; ``None`` releases it.
 
         A write the BMS refuses or never answers is logged, and the point counts as not written.
         """
-        present = Null(()) if value is None else _binary(point, value)
+        if value is None:
+            present: Any = Null(())
+        elif isinstance(value, str):
+            present = _binary(point, value)
+        else:
+            present = value  # BACpypes3 makes it the point's Real
         try:
             await app.write_property(
                 self._address, point.object_id, "present-value", present, priority=AGENT_PRIORITY

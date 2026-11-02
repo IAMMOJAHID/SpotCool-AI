@@ -8,20 +8,20 @@ report). ``run`` and ``replay`` need the world's extras, imported only when they
 
 import argparse
 import asyncio
+import shlex
 import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from pydantic import ValidationError
 from pydantic_settings import SettingsConfigDict
 
 from spotcool_contracts import CONTRACTS_VERSION
 from spotcool_world import __version__
 from spotcool_world.processors.kpi import RUNS
 from spotcool_world.runner.probe import probe
-from spotcool_world.runner.report import load_run, write_report
+from spotcool_world.runner.report import STUB_AGENT_NOTE, load_run, write_report
 from spotcool_world.scenarios import library_names, lint
 from spotcool_world.services.settings import WorldSettings
 from spotcool_world.workers import WorkerState
@@ -86,11 +86,25 @@ def _parser() -> argparse.ArgumentParser:
     )
     replay.add_argument("run_id", help="the run: a directory in the settings' run_dir")
     replay.add_argument(
+        "--config",
+        type=Path,
+        metavar="FILE",
+        help="settings file (default: world.yaml in the current directory, if there is one)",
+    )
+    replay.add_argument(
         "--speed",
         type=float,
         metavar="S",
         help="simulation seconds per wall second; 0 runs as fast as possible "
         "(default: the settings' speed)",
+    )
+    replay.add_argument(
+        "--wait-viewer",
+        type=float,
+        default=0.0,
+        metavar="SECONDS",
+        help="wait up to this long for a dashboard on /ws/events before the first event, "
+        "e.g. for an OBS take (default 0: start at once)",
     )
     check = commands.add_parser(
         "probe", help="start a plant, step it with a 28 degC core override, print KPIs, stop it"
@@ -138,15 +152,30 @@ def configure_logging(level: str) -> None:
 
     Args:
         level: A loguru level, such as ``WorldSettings.log_level``.
+
+    Raises:
+        ValueError: If ``level`` is not a loguru level; the handlers are then left as they are.
     """
+    try:
+        logger.level(level)
+    except ValueError:
+        raise ValueError(f"log_level {level!r} is not a log level, such as INFO or DEBUG") from None
     logger.remove()
     logger.add(sys.stderr, level=level, diagnose=False, backtrace=False)
 
 
-def _settings(config: Path | None, **overrides: Any) -> WorldSettings:
-    """The settings, with ``config`` read in place of ``./world.yaml`` when given."""
+def _settings(
+    parser: argparse.ArgumentParser, config: Path | None, **overrides: Any
+) -> WorldSettings:
+    """The settings, with ``config`` read in place of ``./world.yaml`` when given.
+
+    Raises:
+        ValueError: If a setting is invalid (pydantic's ``ValidationError``).
+    """
     if config is None:
         return WorldSettings(**overrides)
+    if not config.is_file():
+        parser.error(f"--config: {config} is not a file")
 
     class _FromFile(WorldSettings):
         model_config = SettingsConfigDict(yaml_file=config)
@@ -171,9 +200,7 @@ def _missing_extra(command: str, exc: ModuleNotFoundError) -> int:
 
 
 def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
-    """Run the world the arguments describe; 0 if the run finished, else 1."""
-    if args.config is not None and not args.config.is_file():
-        parser.error(f"--config: {args.config} is not a file")
+    """Run the world the arguments describe; 0 if its pipeline finished, else 1."""
     overrides: dict[str, Any] = {}
     if args.plant is not None:
         overrides["plant"] = args.plant
@@ -181,26 +208,24 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         overrides["scenario"] = args.scenario
     if args.speed is not None:
         overrides["speed"] = _speed(parser, args.speed)
+    if args.stub_agent:
+        overrides["stub_agent"] = True
     try:
-        settings = _settings(args.config, **overrides)
-    except ValidationError as exc:
-        print(f"invalid settings: {exc}")
-        return 2
-    if args.dry_run:
-        print(settings.model_dump_json(indent=2))
-        return 0
-    configure_logging(settings.log_level)
-    try:
+        settings = _settings(parser, args.config, **overrides)
+        if args.dry_run:
+            print(settings.model_dump_json(indent=2))
+            return 0
+        configure_logging(settings.log_level)
         from spotcool_world.runner.assembly import World
 
-        world = World(settings, run_id=args.run_id, stub_agent=args.stub_agent)
+        world = World(settings, run_id=args.run_id)
     except ModuleNotFoundError as exc:
         return _missing_extra("run", exc)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError) as exc:  # pydantic's ValidationError included
         print(f"run failed: {exc}")
         return 1
     speed = "as fast as possible" if settings.speed is None else f"speed {settings.speed:g}"
-    agent = ", stub agent (ground-truth perception)" if args.stub_agent else ""
+    agent = ", stub agent (ground-truth perception)" if settings.stub_agent else ""
     print(
         f"spotcool-world run {world.run_id}: {world.compiled.name} on the {settings.plant} plant, "
         f"{speed}{agent}"
@@ -209,13 +234,14 @@ def _run(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     print("Ctrl+C stops the run gracefully; a second Ctrl+C cancels it.", flush=True)
     try:
         asyncio.run(world.run())
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         print(f"run failed: {exc}")
         return 1
     except KeyboardInterrupt:
         print("run interrupted")
         return 130
-    return _print_outcome(settings.run_dir, world.run_id)
+    _print_outcome(settings, world.run_id, args.config)
+    return 0 if world.pipeline.state is WorkerState.FINISHED else 1
 
 
 def _print_urls(urls: dict[str, str]) -> None:
@@ -223,15 +249,22 @@ def _print_urls(urls: dict[str, str]) -> None:
         print(f"  {label:<13} {url}", flush=True)  # shown at start-up, even when piped
 
 
-def _print_outcome(run_dir: Path, run_id: str) -> int:
-    """Print how a run ended, each plant run's energy and KPIs; 0 if it finished, else 1."""
+def _print_outcome(settings: WorldSettings, run_id: str, config: Path | None) -> None:
+    """Print how a run ended, each plant run's energy and KPIs, and its report and replay commands.
+
+    After a run with ``--config``, the commands carry its run directory and file, since they
+    otherwise read the environment and ``./world.yaml``.
+    """
+    run_dir = settings.run_dir
     try:
         recorded = load_run(run_dir, run_id)
     except (OSError, ValueError) as exc:
         print(f"run {run_id} left no complete record: {exc}")
-        return 1
+        return
     manifest = recorded.manifest
     print(f"run {run_id} {manifest.ended} ({manifest.end_reason}); recorded in {run_dir / run_id}")
+    if manifest.settings.get("stub_agent"):
+        print(f"  {STUB_AGENT_NOTE}")
     for run in RUNS:
         samples, kpi = recorded.samples.get(run), manifest.final_kpis.get(run)
         energy = "n/a" if not samples else f"{samples[-1].summary.energy_kwh:.1f} kWh"
@@ -242,19 +275,30 @@ def _print_outcome(run_dir: Path, run_id: str) -> int:
         if saved is not None:
             line += f", energy saved {saved:.1f} %"
         print(line)
-    print(f"report: spotcool-world report {run_id}")
-    return 0 if manifest.ended == "finished" else 1
+    report, replay = f"spotcool-world report {run_id}", f"spotcool-world replay {run_id}"
+    if config is not None:
+        report = f"SPOTCOOL_WORLD_RUN_DIR={_quoted(run_dir)} {report}"
+        replay += f" --config {_quoted(config)}"
+    print(f"report: {report}")
+    print(f"replay: {replay}")
+
+
+def _quoted(path: Path) -> str:
+    """A path for a shell command line: absolute, with forward slashes, quoted if need be."""
+    return shlex.quote(path.resolve().as_posix())
 
 
 def _replay(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     """Replay a recorded run; 0 once it has played to its end, else 1."""
-    settings = WorldSettings()
-    speed = settings.speed if args.speed is None else _speed(parser, args.speed)
-    configure_logging(settings.log_level)
+    if not args.wait_viewer >= 0:
+        parser.error("--wait-viewer must be 0 (no wait) or more")
     try:
+        settings = _settings(parser, args.config)
+        speed = settings.speed if args.speed is None else _speed(parser, args.speed)
+        configure_logging(settings.log_level)
         from spotcool_world.runner.assembly import Replay
 
-        replay = Replay(settings, args.run_id, speed=speed)
+        replay = Replay(settings, args.run_id, speed=speed, wait_viewer_s=args.wait_viewer)
     except ModuleNotFoundError as exc:
         return _missing_extra("replay", exc)
     except (OSError, ValueError) as exc:
@@ -265,7 +309,7 @@ def _replay(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     _print_urls(replay.urls())
     try:
         asyncio.run(replay.run())
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         print(f"replay failed: {exc}")
         return 1
     except KeyboardInterrupt:
