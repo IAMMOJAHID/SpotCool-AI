@@ -37,7 +37,7 @@ B builds everything your agent connects to, because there is no real building:
 |---|---|---|
 | **Physics** | A 5-zone office from BOPTEST (`multizone_office_simple_air`, 1,662.66 m², Chicago weather, peak cooling day), run **twice**: the SpotCool run (your writes) and the baseline run (the building on its own) | **Done** (WP1). A fast RC model replaces BOPTEST for tests and quick runs |
 | **BMS** | Device `SpotCool-Office-BMS` on BACnet/IP | **Built** (WP2), merged into `world/main` |
-| **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | Planned (WP3); its behaviour is settled in §6 |
+| **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | **Built** (WP3): Mitsubishi, Daikin or LG (`vrf_profile`), in real time |
 | **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | **Built** (WP4). The zone clips are filmed on Nov 2; until then the cameras show dataset or synthetic frames |
 | **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | **Built** (WP5), served during every run |
 | **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | **Built** (WP5), sent during every run |
@@ -81,7 +81,7 @@ B builds everything your agent connects to, because there is no real building:
 | Interface | Address | Direction | Status |
 |---|---|---|---|
 | BMS, BACnet/IP | device **1001** `SpotCool-Office-BMS`, UDP **47808** | you read and write | built (§5) |
-| VRF gateway, BACnet/IP | device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810** | you read and write | planned (§6) |
+| VRF gateway, BACnet/IP | device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810** | you read and write | built (§6) |
 | Camera catalog | `GET http://<world>:8081/cameras` | you read | built (§7) |
 | Snapshot | `GET http://<world>:8081/cameras/{id}/snapshot.jpg` | you read | built (§7) |
 | Room calendar | `GET http://<world>:8081/calendar/rooms/meeting-south/schedule` (also `.ics`) | you read | built (§8) |
@@ -178,7 +178,7 @@ uv run python packages/world/examples/foundational/06_bacnet_device.py --ticks 4
   - On Windows, allow UDP 47808–47810 in Windows Firewall for Python.
 - **Tools:** Python clients BACpypes3 or BAC0, and YABE (a free Windows BACnet explorer) for browsing by hand.
 
-## 6. VRF gateway in the meeting room (planned, WP3)
+## 6. VRF gateway in the meeting room (built, WP3)
 
 Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS: priority 10, NULL releases, the operator at 8 wins.
 
@@ -204,7 +204,15 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
   - a write to an axis the brand doesn't expose (`IDU-VANE-H` on Daikin and LG) is refused with `write-access-denied`;
   - a state the brand lacks (Pos1–Pos5 on LG) is refused with `value-out-of-range`;
   - a NULL release is always accepted;
-  - the angle point of an axis the brand doesn't expose has Reliability `no-sensor`.
+  - the angle point of an axis the brand doesn't expose has Reliability `no-sensor`;
+  - the general rules come first: a priority outside 8–16, or a state number that doesn't exist, is refused as for the BMS, before the brand is checked;
+  - BACnet carries only the error code. The brand's reason appears in the `bms_write` event and the world's log.
+- **`IDU-VANE-H` exists on every brand.** On Daikin and LG it reads Pos3 and accepts NULL, but refuses values. Check the profile, or the angle point's reliability, before aiming it.
+- **LG has swing only.** Its relinquish default, Pos3, means swing off: releasing Swing freezes the louver where it is, and the present value reads Pos3.
+- **At start** the louvers are at 0° and slew to Pos3 (vertical −30°) within 2 s. The room starts at 30 °C and settles toward the setpoint over about 5 minutes (τ = 120 s).
+- **Write a point only when its value changes**, at most about once a second per point. Each write is a `bms_write` event and a row in the judges' BACnet log, so a 10 Hz loop writing every cycle would push the BMS writes out of view.
+- **`IDU-PWR` is illustrative.** It's a simple model, not a measured unit, and is never quoted as a saving.
+- **On the same PC as the world,** use your own client port and address `<ip>:47810` directly.
 - **Slew:** the louvers move at 15°/s between positions, as real ones do. The angle points lag the command: 0° to −60° takes 4 s.
 - **Real time:** the unit runs on the wall clock, whatever the simulation's speed. A write takes effect at once.
 - **Address:** the BMS's IP, on UDP 47810. A Who-Is sent to 47808 won't reach it, so address it directly.

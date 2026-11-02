@@ -75,6 +75,18 @@
    - Every `vrf_state` and VRF `bms_write` lands in the run's recording through the events topic.
    - A replay plays them back per step, not at their wall-time rate. The video films this segment live, so that's enough; document it as a known limit in AGENTS.md.
 
+## Review outcome (lead)
+- **The independent review approved it.** The BMS answered a 60-operation BACnet session byte-identically before and after the move to `server.py`.
+- **Two low findings were fixed in the fix commit:**
+  - the BACnet objects are attached before the socket binds;
+  - a failing VRF tick is logged and the worker carries on, instead of ending the run.
+- **Person A's §6 now says:**
+  - write only on change, about once a second per point at most;
+  - the general refusals come before the brand's;
+  - `IDU-VANE-H` exists on every brand;
+  - what LG's release does;
+  - the start-up state.
+
 ## Tests
 - **Model:**
   - a slew from 0° to −60° takes ≥ 4.0 s, no step exceeds 15°/s × dt, and dt clipping works;
