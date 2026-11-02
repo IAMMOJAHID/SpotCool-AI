@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-03, by the lead Claude Code session. The WP3 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
+**Last updated:** 2026-11-03, by the lead Claude Code session. The WP10 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
 - **WP6.1 (the energy-measurement fix) is merged**, and the **BOPTEST checkpoint passed** (§7): the first full BOPTEST day with the BMS and the stub agent.
-- **WP7 (dashboard) and WP1.2 (BOPTEST survives a dropped connection) are merged**; WP1.2's recovery is proven live. **WP3 (VRF gateway) is building.**
+- **WP7 (dashboard) and WP1.2 (BOPTEST survives a dropped connection) are merged**; WP1.2's recovery is proven live. **WP3 (VRF gateway) is merged. WP10 (evals, CI, runbooks) is building;** only WP9 (the video) follows.
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -75,7 +75,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 | WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP1.2 `1ed3fcb` (trunk CI `41533384879`). | 874 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP3 `0a6509f` (trunk CI `41542790318`). | 919 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
 | WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
 | WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
 | WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
@@ -87,8 +87,8 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP6.1 step-mean power | Merged `6159284` | `ac8008e` kickoff, `0b1153c` build, `43af1ed` review fixes, `2fab314` docs | Power meters as step means; the report's quote verdict `quote_blockers` (§7) |
 | WP1.2 BOPTEST dropped connection | Merged `1ed3fcb` | `08e5e2e` kickoff, `f8eac86` build, `fca94ea` review fixes, `380f6aa` docs | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
 | WP7 dashboard | Merged `f184d79` | `269e026` kickoff, `b8662f8` build, `b316faa` review fixes, `0df42e0` docs | React app (operator and video modes); the world replays the run so far to each new viewer; camera CORS for the dashboard's own origin |
-| **WP3 VRF gateway** | **Building** (agent `adb8aa9fe786129a4`) | `d794de5` kickoff, `0bbf211` trunk sync | The meeting-room VRF on BACnet, in wall time; the brief is ready |
-| WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
+| WP3 VRF gateway | Merged `0a6509f` | `d794de5` kickoff, `819454b` build, `5a9386a` review fixes, `fd133c6` docs | The meeting-room VRF on BACnet, in wall time; the brief is ready |
+| **WP10 evals + release** | **Building** (agent `a8df75212933982d9`) | `c8e386c` kickoff, `d1c0056` trunk sync | Stub back-off, golden evals, CI, runbooks, honesty and credits |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
 
 **Every merged WP went through the whole flow:**
@@ -99,7 +99,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
   - WP11: 2 high, 1 medium, 5 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → **WP3** (building) → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → ~~WP3~~ → **WP10** (building) → WP9.
 
 **Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
@@ -293,26 +293,39 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - **Kill 2** gave a `ConnectError` at step 47, and that step was recovered too.
      - **The run finished:** 2 recoveries per plant, recorded as non-fatal errors and the `plant_connection_recoveries` metric. Both tests were stopped.
      - **Its totals equal the clean paced checkpoint's to the decimal:** 227.0 against 287.8 kWh, 21.14 %, with a 0.000 % difference. So the recovered steps carried BOPTEST's exact values, and a stub run on BOPTEST reproduces at speed 0 too.
-5. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`, venv `wp3-vrf-gateway`. **Building** (agent `adb8aa9fe786129a4`; synced at `0bbf211`, after WP1.2, because WP3 moves code out of `bms.py`). After a 429, resume it with `SendMessage`. Then the rest of the gate flow. **The brief's binding decisions, and why:**
-   - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
-   - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
-   - **Reuse, never copy:** WP2's `PriorityArray` and `CommandPolicy`, and the BACnet/IP server code moves from `bms.py` into a shared `transports/bacnet/server.py`, with the BMS tests unchanged.
-   - **Brand profiles enforced with BACnet's own errors:** `write-access-denied` for an axis the brand lacks, `value-out-of-range` for a state it lacks; releases always accepted.
-   - **Louvers slew at 15°/s** (dt clipped to 0.1 s); room τ = 120 s of wall time toward the setpoint (never below it) or 30 °C ambient; illustrative power.
-   - **No new run mode:** film the take with `run --plant rc --speed 1` and the live camera set. The stub agent doesn't drive the VRF.
-6. **WP10 evals and release.** Kickoff decisions to make:
-   - **Stub agent upgrades:**
-     - **priority-8 back-off** (stop writing a point an operator holds);
-     - **deterministic write timing,** e.g. writes per tick awaited inside the tick, so runs reproduce at any speed.
-   - **Golden evals** on saved runs, using `runner/report.py`'s `load_run`, `arrivals` and `comfort_kh`. Three scenarios:
-     - `hybrid_tuesday` within a band;
-     - `all_hands_day` saving about 0;
-     - `empty_friday`.
-   - **Checks:** priority 8 always beats 10; a valid run has `ended == "finished"` and `dropped_events == 0`; `stub_agent` is recorded.
-   - **Release docs:** README, CREDITS and licences, the honesty note, a security scan. The honesty note must also explain BOPTEST's `tdis_tot` and `idis_tot`: its schedule counts every zone as occupied all day.
-   - **The root docs** (the root `CLAUDE.md`, `AGENTS.md` and README are stale for B's world): rewrite them, coordinated with A.
-   - **CI:** add `scripts` to pytest's `testpaths`, and decide whether the dashboard gets CI.
-   - **Optional WP1.1:** an RC slow mass node.
+5. **Done: WP3 merged** (`0a6509f`; branch CI `41542464466`, trunk CI `41542790318`).
+   - **Review** (agent `a8caef26345c2bd0e`): approve. The BMS answered a 60-operation BACnet session byte-identically before and after the move to `server.py`.
+   - **Two low fixes** in `5a9386a` (builder `adb8aa9fe786129a4`):
+     - the objects are attached before the socket binds;
+     - a failing VRF tick is logged, and the worker carries on.
+   - **Lead docs** `fd133c6`: Person A's §6 marked built, with:
+     - write only on change, at most about once a second;
+     - the general refusals come first;
+     - `IDU-VANE-H` exists on every brand;
+     - LG's release freezes the louver;
+     - the start-up state;
+     - `IDU-PWR` is illustrative.
+   - **For WP9:**
+     - film the louver segment live, with Mitsubishi;
+     - start the world a few minutes early, so the room settles from 30 °C;
+     - stop with Ctrl+C, since the recorder writes only on ticks.
+6. **WP10 evals and release.** Branch `wp/wp10-evals-release`, worktree `C:\Users\hussa\dev\wt\wp10-evals-release`, venv `wp10-evals-release`.
+   - **Building:** agent `a8df75212933982d9`, synced at `d1c0056`. After a 429, resume it with `SendMessage`. Then the rest of the gate flow.
+   - **The kickoff's binding decisions** (`c8e386c`):
+     - the stub backs off from a priority 1–9 hold, and says so;
+     - golden evals on RC at speed 1800, judged from the saved run through `report.py`:
+       - `hybrid_tuesday` within a measured band;
+       - `all_hands_day` saving under 2 %;
+       - `empty_friday` saving more than `hybrid_tuesday`;
+       - reproducible within 0.5 pp;
+     - a live variant that the lead runs;
+     - CI jobs for the evals, scenario lint, the dashboard and a hygiene check;
+     - runbooks in `docs/runbooks/`;
+     - the honesty note covers `tdis_tot`/`idis_tot`;
+     - `docs/release/numbers.md`;
+     - `CREDITS.md` read from the lock files;
+     - a security pass.
+   - **Shared root files stay as they are.** The world's README section is drafted in `docs/release/` for the user to agree with Person A. Release merges into `dev`/`main` and the tag are the user's call with A.
 7. **WP9 video.**
    - Storyboard and narration.
    - HyperFrames motion graphics.
@@ -362,6 +375,11 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`, except 
     - `perception`: `people`, and optional `masks` in frame pixels;
     - `decision`: `zone`, `point`, `value`, `priority`, `reason`;
     - `explanation` and `chat`: `text`.
+13. **The VRF gateway is built** (§6):
+    - write a point only when it changes;
+    - `IDU-VANE-H` exists on every brand but refuses values on Daikin and LG;
+    - on LG, releasing Swing freezes the louver.
+14. **The shared README claims "up to 60 %".** No run of ours supports it: the BOPTEST stub upper bound is 21.14 %. Agree a wording before submission.
 
 ## 9. Superseded (don't use)
 
