@@ -250,7 +250,8 @@ class BoptestClient:
         """Stored trajectories of some points between two times (``PUT /results``).
 
         BOPTEST stores every point each 30 simulated seconds and at each step's end. Any
-        transient failure is retried with backoff, for up to ``QUICK_TIMEOUT_S``.
+        transient failure is retried with backoff. ``QUICK_TIMEOUT_S`` bounds the whole call:
+        each attempt's timeout is capped at the time left, and no retry starts after it.
 
         Args:
             testid: The test.
@@ -270,11 +271,13 @@ class BoptestClient:
             "start_time": start_time_s,
             "final_time": final_time_s,
         }
-        payload = await self._retrying(
-            lambda: self._payload("PUT", f"results/{testid}", body),
-            time.perf_counter() + QUICK_TIMEOUT_S,
-            retry=lambda exc: exc.retryable,
-        )
+        deadline = time.perf_counter() + QUICK_TIMEOUT_S
+
+        def attempt() -> Awaitable[Any]:
+            left_s = max(deadline - time.perf_counter(), 1e-3)
+            return self._payload("PUT", f"results/{testid}", body, timeout_s=left_s)
+
+        payload = await self._retrying(attempt, deadline, retry=lambda exc: exc.retryable)
         series: dict[str, list[float]] = {}
         for name, values in _mapping(payload, "results").items():
             if not isinstance(values, list) or not all(isinstance(v, int | float) for v in values):

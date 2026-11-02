@@ -192,8 +192,9 @@ async def test_points_show_the_spotcool_run_in_bms_units(
     assert await read(client, bms, "analog-input,521") == pytest.approx(55.0, rel=1e-6)
     assert await read(client, bms, "analog-input,504") == pytest.approx(5.0)
     assert await read(client, bms, "analog-input,510") == pytest.approx(7.0)  # 501-507
-    # Energy: the trapezoid between 3 kW and 7 kW over the 15 minutes.
-    assert await read(client, bms, "analog-input,511") == pytest.approx(1.25, rel=1e-6)
+    # Energy: the step's mean power, 7 kW, for its 15 minutes; the first state's 3 kW is
+    # instantaneous and never counted (a trapezoid would say 1.25 kWh).
+    assert await read(client, bms, "analog-input,511") == pytest.approx(1.75, rel=1e-6)
     assert await read(client, bms, "analog-value,950") == T0 + STEP_S
 
 

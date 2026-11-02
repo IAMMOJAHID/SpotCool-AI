@@ -216,7 +216,7 @@ class BoptestPlant(PlantService):
             logger.warning(
                 f"BOPTEST: no power means for test {testid}'s step to {state.get('time')} s "
                 f"({type(exc).__name__}: {exc}); its meters are the values at the end of the "
-                f"step ({self._power_fallbacks} such steps so far)"
+                f"step (power fallbacks so far: {self._power_fallbacks})"
             )
 
     async def _keep_alive(self) -> None:

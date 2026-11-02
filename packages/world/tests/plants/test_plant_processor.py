@@ -17,6 +17,7 @@ from spotcool_world.frames import (
 )
 from spotcool_world.pipeline import Pipeline, PipelineParams
 from spotcool_world.processors import FrameDirection, FrameProcessor, PlantProcessor
+from spotcool_world.processors.plant_processor import POWER_FALLBACKS_METRIC
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.services import PlantService, PlantStartParams
 from spotcool_world.services.boptest.catalog import bms_signal
@@ -28,16 +29,31 @@ START_S = 198 * 86_400 + 7 * 3600
 
 
 class FakePlant(PlantService):
-    """Records every call; its measurements are the number of calls so far."""
+    """Records every call; its measurements are the number of calls so far.
 
-    def __init__(self, *, fail_start: bool = False, fail_step: bool = False) -> None:
+    The steps (from 1) in ``fall_back`` count as power fallbacks.
+    """
+
+    def __init__(
+        self,
+        *,
+        fail_start: bool = False,
+        fail_step: bool = False,
+        fall_back: set[int] | None = None,
+    ) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.fail_start = fail_start
         self.fail_step = fail_step
+        self.fall_back = fall_back or set()
+        self.fallbacks = 0
 
     @property
     def step_s(self) -> float:
         return 900.0
+
+    @property
+    def power_fallbacks(self) -> int:
+        return self.fallbacks
 
     async def start(self, params: PlantStartParams) -> dict[str, float]:
         self.calls.append(("start", params))
@@ -49,6 +65,8 @@ class FakePlant(PlantService):
         self.calls.append(("step", dict(overrides)))
         if self.fail_step:
             raise RuntimeError("boom")
+        if sum(call == "step" for call, _ in self.calls) in self.fall_back:
+            self.fallbacks += 1
         return {"time": float(len(self.calls))}
 
     async def kpis(self) -> dict[str, float | None]:
@@ -197,6 +215,32 @@ async def test_a_failed_start_is_fatal_and_nothing_steps() -> None:
     assert [f.fatal for f in up if isinstance(f, ErrorFrame)] == [True]
     assert [call for call, _ in plant.calls] == ["start", "stop"]
     assert not any(isinstance(f, PlantMeasurementsFrame) for f in down)  # no initial state
+
+
+@pytest.mark.asyncio
+async def test_a_step_whose_power_fell_back_is_a_non_fatal_error_and_a_metric() -> None:
+    plant = FakePlant(fall_back={2})
+    down, up = await run_test(
+        PlantProcessor(plant, "spotcool"),
+        frames_to_send=[tick(0), tick(1), tick(2)],
+        params=params(),
+    )
+    assert [(f.fatal, f.message) for f in up if isinstance(f, ErrorFrame)] == [
+        (
+            False,
+            "spotcool plant: step 1 (07:15-07:30) reports its end-of-step power, not its mean "
+            "over the step (power fallbacks so far: 1)",
+        )
+    ]
+    counts = [
+        (sample.value, sample.labels)
+        for frame in down
+        if isinstance(frame, MetricsFrame)
+        for sample in frame.samples
+        if sample.name == POWER_FALLBACKS_METRIC
+    ]
+    assert counts == [(1, {"run": "spotcool"})]  # once, when the count rose
+    assert names(down)[-1] == "KpiFrame"  # the run went on
 
 
 @pytest.mark.asyncio

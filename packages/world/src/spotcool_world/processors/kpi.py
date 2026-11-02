@@ -24,8 +24,13 @@ PROVISIONAL_EVERY_STEPS = 4
 """Steps between two provisional ``KpiFrame``s."""
 RUNS: tuple[Run, Run] = ("spotcool", "baseline")
 """The plant runs, in the order their KPI frames are pushed."""
-CROSS_CHECK_PCT = 2.0
-"""How far (%) a run's integrated energy may be from its plant's own before it is not trusted."""
+CROSS_CHECK_PCT = 0.1
+"""How far (%) a run's integrated energy may be from its plant's own before it is not trusted.
+
+A healthy run agrees to about 1e-4 %: BOPTEST's ``ener_tot`` comes through ``GET /kpi``
+unrounded, and only its J-to-kWh factor (2.77778e-7) is 8e-5 % high. A bigger gap means the
+world missed power inside steps, such as a step that fell back to its end-of-step value.
+"""
 
 
 def comfort_kh(

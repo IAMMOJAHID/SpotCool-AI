@@ -15,7 +15,7 @@ from typing import Any, cast
 import pytest
 
 from spotcool_world.services import PlantStartParams, WorldSettings
-from spotcool_world.services.boptest.client import BoptestClient
+from spotcool_world.services.boptest.client import BoptestClient, BoptestError
 from spotcool_world.services.boptest.plant import BoptestPlant
 from spotcool_world.services.rc import RcPlant
 
@@ -100,7 +100,8 @@ def make_settings(tmp_path: Path) -> Callable[..., WorldSettings]:
 class FakeBoptestClient:
     """``BoptestClient`` for one test, with an RC plant's physics; ``stop`` takes ``stop_s``.
 
-    ``events`` records ``select``, ``stop sent``, ``stop done`` and ``closed``, in order.
+    ``events`` records ``select``, ``stop sent``, ``stop done`` and ``closed``, in order. The
+    first ``results_failures`` results calls fail.
 
     Args:
         base_url: The service URL, as the plant's provider passes it.
@@ -113,6 +114,7 @@ class FakeBoptestClient:
         self.events: list[str] = []
         self.stop_sent = asyncio.Event()
         self.idle_s = 0.0
+        self.results_failures = 0
         self._rc = RcPlant()
         self._state: dict[str, float] = {}
 
@@ -136,6 +138,9 @@ class FakeBoptestClient:
     async def results(
         self, testid: str, point_names: Sequence[str], start_time_s: float, final_time_s: float
     ) -> dict[str, list[float]]:
+        if self.results_failures:
+            self.results_failures -= 1
+            raise BoptestError("PUT /results: HTTP 500: results failed", status=500)
         # Each point holds the RC plant's value over the step: its meters' means.
         samples = {name: [self._state[name]] * 2 for name in point_names}
         return samples | {"time": [start_time_s, final_time_s]}

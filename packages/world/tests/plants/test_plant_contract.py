@@ -12,7 +12,6 @@ import pytest
 import pytest_asyncio
 
 from spotcool_contracts import Zone, load_point_map
-from spotcool_world.processors.kpi import CROSS_CHECK_PCT
 from spotcool_world.services import PlantService, PlantStartParams
 from spotcool_world.services.boptest.catalog import bms_signal, load_catalog, zone_damper
 from spotcool_world.services.rc import RcPlant
@@ -136,9 +135,9 @@ async def test_the_meters_add_up_to_the_plants_own_energy(plant: PlantService) -
     watts = sum(raw[name] for raw in steps for name in catalog.electric_power)
     ener_tot = (await plant.kpis())["ener_tot"]
     assert ener_tot is not None
-    assert watts * PARAMS.step_s / 3.6e6 == pytest.approx(
-        ener_tot * catalog.area_m2, rel=CROSS_CHECK_PCT / 100
-    )
+    # RC sums the same sub-steps both ways; BOPTEST's J-to-kWh factor (2.77778e-7) is 8e-7 high.
+    rel = 1e-9 if isinstance(plant, RcPlant) else 1e-5
+    assert watts * PARAMS.step_s / 3.6e6 == pytest.approx(ener_tot * catalog.area_m2, rel=rel)
 
 
 @pytest.mark.asyncio

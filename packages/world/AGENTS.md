@@ -200,9 +200,14 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   telemetry never integrates them. Power spikes inside a step when a VAV box opens wide, so a
   value at the end of the step would miss it.
   - The BOPTEST plant reads each step's meters from `PUT /results` over `[t - step, t]`
-    (`BoptestClient.results`, retried on transient failures) and averages BOPTEST's 30-second
-    samples with the time-weighted trapezoid (`step_means`). If that fails, the meters keep
-    their values at the end of the step: a warning, counted in `power_fallbacks`, never fatal.
+    (`BoptestClient.results`) and averages BOPTEST's 30-second samples with the
+    time-weighted trapezoid (`step_means`). The call retries transient failures within
+    `QUICK_TIMEOUT_S` (30 s) in all: each attempt's timeout is capped at the time left. If it
+    fails, the meters keep their values at the end of the step: a warning and one more
+    `PlantService.power_fallbacks` (0 on the other plants), never fatal.
+  - `PlantProcessor` surfaces a fallback in the recording: when a plant's count rises, a
+    non-fatal error naming the run and the step, and the run's count as a
+    `plant_power_fallbacks` metric (`POWER_FALLBACKS_METRIC`).
   - The RC plant divides each meter's energy over its 60-second sub-steps by the step.
 
 ## The BMS on BACnet/IP
@@ -221,7 +226,8 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   `SetpointCommandFrame` with all ten managed inputs, then the tick. `bms.output()` goes after
   the plants: it shows the SpotCool run's measurements on the points (BMS units), takes the
   baseline's setpoints as the schedule (the cooling setpoints' relinquish defaults) and the
-  West door contact from the scenario. The baseline run never gets a command.
+  West door contact from the scenario. The baseline run never gets a command. `HVAC-ENERGY`
+  adds each step's mean power times the step, like the telemetry (`EnergyMeter`).
 - **Commands** are network writes of a present value (WriteProperty or WritePropertyMultiple) at
   priority 8 (operators) to 16; the agent writes at 10, and a write without a priority is at 16.
   Priorities 1-7, read-only points, other properties, an array index, and analog values off
@@ -439,7 +445,8 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     plant's own final one (BOPTEST's KPIs); the plants' frames are not passed on.
   - The cross-check, at that end: each run's energy against its plant's own, `ener_tot`
     (kWh/m2) x the floor area, 1662.66 m2 (`plant_energy_kwh`). A difference of more than
-    `CROSS_CHECK_PCT` (2 %) is logged as a warning: that run's saving must not be quoted.
+    `CROSS_CHECK_PCT` (0.1 %) is logged as a warning. A healthy run agrees to about 1e-4 %
+    (BOPTEST's J-to-kWh factor); more means power inside steps was missed.
   - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
     computes them.
 - **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
@@ -502,9 +509,14 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under
   the settings' `run_dir`. The series come from the raw records through the telemetry's
   functions, the people from the `scenario_state` events, the KPIs from the manifest.
-  - The KPI table shows each run's energy, its plant's own and their difference (%). Below it,
-    a note says that energy saved compares the former, and whether it passed the cross-check
-    (the figure to quote) or not (a warning: do not quote it).
+  - The KPI table (`check_energy`) shows each run's energy by the step-mean integration and
+    by its plant's own, their difference (%), energy saved both ways (the manifest's saving is
+    never shown) and the steps whose power fell back (the last `plant_power_fallbacks` metric).
+  - The verdict follows it (`verdict`): `Quotable: X % saved`, the plants' own saving, or `Not
+    quotable:` with every blocker (`quote_blockers`, one sentence each). It blocks a plant that
+    is not BOPTEST (RC's cross-check is circular), a run that did not finish, dropped events, a
+    missing run or plant energy, any power fallback, a run more than `CROSS_CHECK_PCT` off its
+    plant's own, an unpaced run (speed 0) and a stub-agent run (an upper bound at best).
   - Recovery: for each zone and arrival (people after a step with none), the minutes until the
     zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
     on. Arrivals that never recover are listed.
@@ -562,10 +574,12 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   ends in `-stub`.
 - **Output.** At start-up it prints the URLs: the dashboard, its event stream, the camera
   catalog, the calendar and the BMS's address and port. A server on a wildcard host (`0.0.0.0`,
-  `::`) shows this PC's LAN address, then its loopback one. At the end: the run id, how it
-  ended, each plant run's energy, comfort where people were and energy saved, and the report
-  and replay commands. After a `--config` run those carry `SPOTCOOL_WORLD_RUN_DIR=<dir>` and
-  `--config <file>`. The exit code is 0 when the pipeline finished, 1 otherwise; invalid settings
+  `::`) shows this PC's LAN address, then its loopback one. At the end, from the recording: the
+  run id, how it ended, each plant run's energy (the step-mean integration, its plant's own and
+  their difference) and comfort where people were, energy saved both ways, the report's verdict,
+  and the report and replay commands. After a `--config` run those carry
+  `SPOTCOOL_WORLD_RUN_DIR=<dir>` and `--config <file>`. The exit code is 0 when the pipeline
+  finished, 1 otherwise; invalid settings
   (such as `bms_address: localhost` or `log_level: VERBOSE`) print `run failed: ...` and exit 1.
 - **Lifecycle.** Before the runner, the BMS starts (`bms_address`, `bms_port`), then the cameras,
   and the calendar store follows `WORLD_FRAMES_TOPIC`. One `WorkerRunner` runs the pipeline,
@@ -626,14 +640,15 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
      takes a BOPTEST round trip. Expect `run boptest-checkpoint finished (end time reached)`,
      the stub label, both runs' energy and comfort, and energy saved. The log shows
      `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids, and no
-     `no power means` or `off its plant's own` warning.
+     `no power means` or `off its plant's own` warning. Each run's difference from its
+     plant's own is about 0.000 %, and the verdict's only blockers are the unpaced run and the
+     stub agent.
   4. Ctrl+C: start the same run with `--run-id boptest-ctrl-c`, press Ctrl+C after a few steps
      (after the start has returned). Expect `cancelled (SIGINT)` and both tests stopped in the
      log. Then run step 2 again: it must get a worker at once, which shows no test was left.
   5. `uv run spotcool-world report boptest-checkpoint`, and
-     `uv run spotcool-world replay boptest-checkpoint --speed 0`. The report's KPI table shows
-     both runs within 2 % of their plants' own energy, and its note calls the saving
-     cross-checked.
+     `uv run spotcool-world replay boptest-checkpoint --speed 0`. The report shows 0 power
+     fallbacks for both runs and the same verdict as the run.
   6. Stop the Codespace to save its quota: `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
 
 ## The stub agent

@@ -214,8 +214,8 @@ async def test_the_end_warns_about_a_run_whose_energy_is_off_its_plants_own(
 ) -> None:
     per_m2 = 100.0 / load_catalog().area_m2  # ener_tot of 100 kWh
     frames: list[Frame] = [
-        measured(make_summary("spotcool", energy_kwh=103.0), T0 + STEP_S),  # 3 % over
-        measured(make_summary("baseline", energy_kwh=101.5), T0 + STEP_S),  # 1.5 %: close enough
+        measured(make_summary("spotcool", energy_kwh=100.5), T0 + STEP_S),  # 0.5 % over
+        measured(make_summary("baseline", energy_kwh=100.05), T0 + STEP_S),  # within 0.1 %
         final_from_plant("spotcool", {"ener_tot": per_m2}),
         final_from_plant("baseline", {"ener_tot": per_m2}),
     ]
@@ -226,5 +226,6 @@ async def test_the_end_warns_about_a_run_whose_energy_is_off_its_plants_own(
     finally:
         logger.remove(sink)
     [warning] = [w for w in warnings if "plant's own" in w]
-    assert "spotcool energy 103.0 kWh is +3.0 % off its plant's own 100.0 kWh" in warning
+    assert "spotcool energy 100.5 kWh is +0.5 % off its plant's own 100.0 kWh" in warning
+    assert "more than 0.1 %" in warning
     assert [k.boptest["ener_tot"] for k in kpis(down)] == [per_m2] * 2  # still merged

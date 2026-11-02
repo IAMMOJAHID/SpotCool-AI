@@ -19,6 +19,7 @@ from loguru import logger
 from spotcool_contracts import Zone
 from spotcool_world.processors.telemetry import EnergyMeter
 from spotcool_world.services import PlantStartParams
+from spotcool_world.services.boptest import client as client_module
 from spotcool_world.services.boptest.catalog import (
     MANAGED_INPUTS,
     bms_signal,
@@ -468,6 +469,27 @@ async def test_results_ask_for_points_over_a_window_and_retry_a_transient_failur
     }
     assert samples == {"time": [900.0, 930.0, 960.0]} | dict.fromkeys(METERS[:2], [295.0] * 3)
     assert [name for name, _ in client.calls] == ["PUT results"] * 2
+
+
+@pytest.mark.asyncio
+async def test_results_cap_each_attempt_at_the_time_left_of_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(client_module, "QUICK_TIMEOUT_S", 2.0)  # read at each call
+    timeouts: list[float] = []
+
+    async def busy_then_answer(request: httpx.Request) -> httpx.Response:
+        timeouts.append(request.extensions["timeout"]["read"])
+        if len(timeouts) == 1:
+            await asyncio.sleep(0.3)
+            return answer(None, 503, "busy")
+        return answer({"time": [0.0, 30.0], "p": [1.0, 1.0]})
+
+    client = BoptestClient(URL, backoff_s=0.001, transport=httpx.MockTransport(busy_then_answer))
+    assert await client.results(TESTID, ["p"], 0.0, 30.0) == {"time": [0.0, 30.0], "p": [1.0, 1.0]}
+    await client.aclose()
+    assert timeouts[0] == pytest.approx(2.0, abs=0.05)  # the whole budget
+    assert timeouts[1] < 2.0 - 0.25  # what the first attempt left of it
 
 
 def test_step_means_weigh_each_sample_by_the_time_it_covers() -> None:
