@@ -67,6 +67,9 @@ def _value(raw: Mapping[str, float], read: _Read) -> float:
 def power_kw(raw: Mapping[str, float]) -> dict[str, float]:
     """The seven HVAC meters in kW, by BMS point name: BOPTEST's ElectricPower basis.
 
+    After a step, plants report each meter's mean over the step; a run's initial state has no
+    step, so its meters are instantaneous.
+
     Args:
         raw: A plant's outputs, in BOPTEST names and units.
 
@@ -116,28 +119,31 @@ def summarize(run: Run, raw: Mapping[str, float], energy_kwh: float = 0.0) -> Pl
 
 
 class EnergyMeter:
-    """A run's cumulative energy: the trapezoid rule over its power samples.
+    """A run's cumulative energy: each step's mean power times the step, from the first step.
 
-    The first sample (the run's initial state) starts the meter at 0 kWh. A sample that is not
-    later than the previous one adds nothing.
+    A sample stamped ``t`` is the mean power over the step that ends at ``t``, so it adds that
+    power times the time since the previous sample: one rectangle per step. The first sample
+    (the run's initial state, which has no step) starts the meter at 0 kWh, and its power is
+    never counted. A sample that is not later than the previous one adds nothing.
     """
 
     def __init__(self) -> None:
         self.kwh = 0.0
         """Energy since the first sample."""
-        self._last: tuple[float, float] | None = None
+        self._last_s: float | None = None
 
     def add(self, t_s: float, power_kw: float) -> float:
-        """Add the power at a simulation time; return the energy up to that time.
+        """Add the mean power over the step that ends at ``t_s``; return the energy up to then.
 
         Args:
-            t_s: The sample's simulation time.
-            power_kw: The power at that time.
+            t_s: The sample's simulation time: the end of its step.
+            power_kw: The mean power over that step.
         """
-        if self._last is not None and t_s > self._last[0]:
-            last_s, last_kw = self._last
-            self.kwh += (last_kw + power_kw) / 2 * (t_s - last_s) / 3600
-        self._last = (t_s, power_kw)
+        if self._last_s is None:
+            self._last_s = t_s
+        elif t_s > self._last_s:
+            self.kwh += power_kw * (t_s - self._last_s) / 3600
+            self._last_s = t_s
         return self.kwh
 
 
@@ -171,8 +177,8 @@ def metered_summary(
 class TelemetryProcessor(FrameProcessor):
     """Fills every ``PlantMeasurementsFrame``'s ``summary``: the run's state in BMS units.
 
-    The summary (``metered_summary``) carries the run's cumulative energy, integrated by an
-    ``EnergyMeter`` over the frames' stamps from the run's first frame with the seven meters
+    The summary (``metered_summary``) carries the run's cumulative energy: an ``EnergyMeter``
+    adds each step's mean power times the step, from the run's first frame with the seven meters
     (normally its initial state, the first frame after a ``StartFrame``) on. A frame lacking a
     value the summary needs keeps ``summary=None``; that is logged once per run. A
     ``StartFrame`` starts afresh. Every frame passes on.

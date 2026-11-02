@@ -106,9 +106,9 @@ There are 51 points; the device object makes 52. Zone index i: cor = 1, nor = 2,
 | AI 350+i | `ZN-<Z>-SA-FLOW` | L/s | read | Zone supply airflow. It drops to a small leakage flow while the zone is in standby |
 | MSV 400+i | `ZN-<Z>-OCC-MODE` | 1 Occupied, 2 Standby, 3 Unoccupied | read (set by the BMS) | What the BMS is doing with the zone |
 | BV 450+i | `ZN-<Z>-OCC-SENSOR` | inactive = Unoccupied, active = Occupied | **commandable** | The zone's occupancy-sensor input; relinquish default Occupied. **You are the occupancy sensor** |
-| AI 501–507 | `AHU-SF-PWR`, `AHU-CLG-PUMP-PWR`, `AHU-HTG-PUMP-PWR`, `CH-PWR`, `CHW-PUMP-PWR`, `HP-PWR`, `HW-PUMP-PWR` | kW | read | The 7 HVAC power meters |
+| AI 501–507 | `AHU-SF-PWR`, `AHU-CLG-PUMP-PWR`, `AHU-HTG-PUMP-PWR`, `CH-PWR`, `CHW-PUMP-PWR`, `HP-PWR`, `HW-PUMP-PWR` | kW | read | The 7 HVAC power meters. Each shows its **mean over the last step**, not a sample at the step's end |
 | AI 510 | `HVAC-TOTAL-PWR` | kW | read | Their sum |
-| AI 511 | `HVAC-ENERGY` | kWh | read | HVAC energy since the run started |
+| AI 511 | `HVAC-ENERGY` | kWh | read | HVAC energy since the run started: each step's mean power times the step |
 | AI 520, 521 | `OA-T`, `OA-RH` | °C, %RH | read | Outdoor air |
 | AI 530, 531 | `AHU-SAT`, `AHU-SF-SPD` | °C, % | read | Air-handler supply temperature and fan speed |
 | BI 601 | `WES-ENTRANCE-DOOR` | contact | read | West entrance door contact, driven by the scenario |

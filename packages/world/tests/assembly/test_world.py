@@ -18,8 +18,16 @@ import pytest
 from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, EventType
 from spotcool_world.bus import Subscription
 from spotcool_world.processors import EVENTS_TOPIC
+from spotcool_world.processors.kpi import RUNS
 from spotcool_world.runner.assembly import World
-from spotcool_world.runner.report import REPORT_FILE, STUB_AGENT_NOTE, write_report
+from spotcool_world.runner.report import (
+    REPORT_FILE,
+    STUB_AGENT_NOTE,
+    check_energy,
+    load_run,
+    quote_blockers,
+    write_report,
+)
 from spotcool_world.serializers import (
     EVENTS_FILE,
     MANIFEST_FILE,
@@ -149,6 +157,59 @@ async def test_two_hours_with_the_stub_agent(make_settings: MakeSettings, two_ho
     assert sum(e.type is EventType.PERCEPTION for e in agent) == 8  # one per step
     assert all(e.data["stub"] is True for e in agent)
     assert STUB_AGENT_NOTE in report_top(world)
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_full_day_with_the_stub_agent_matches_the_plants_own_energy(
+    make_settings: MakeSettings,
+) -> None:
+    settings = make_settings(scenario="hybrid_tuesday", stub_agent=True)
+    # The world's own HTTP server answers the 14:15 complaint with a 404 at once, where a
+    # closed port takes three refused connections of about 2 s each on Windows.
+    agent = f"http://127.0.0.1:{settings.http_port}"
+    world = World(settings.model_copy(update={"agent_base_url": agent}), run_id="full-day")
+    await asyncio.wait_for(world.run(handle_sigint=False), 120)
+    run = load_run(settings.run_dir, world.run_id)
+    assert (run.manifest.ended, run.manifest.end_time_s) == ("finished", DAY_S + 19 * 3600)
+    check = check_energy(run)
+    for name in RUNS:  # the RC plant sums the same sub-steps as the world's integration
+        own = check.own[name]
+        assert own is not None and check.integrated[name] == pytest.approx(own, rel=1e-9)
+    saved = check.saved_own
+    assert saved is not None and saved > 0
+    assert check.saved_integrated == pytest.approx(saved, rel=1e-9)
+    assert run.manifest.final_kpis["spotcool"].energy_saved_pct == pytest.approx(saved, rel=1e-9)
+    assert quote_blockers(run) == [
+        "The plant is rc, our own reduced model, and its cross-check is circular: both "
+        "energies come from the same sub-step sums.",
+        "The run was unpaced (speed 0): the agent's writes land at random points between "
+        "steps, so it does not reproduce.",
+        "A stub agent ran it, with perfect perception: quote it only as an upper bound with "
+        "perfect perception, labelled so.",
+    ]
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_power_fallback_is_recorded_reported_and_blocks_the_quote(
+    make_settings: MakeSettings, two_hours: str, fake_boptest: Any
+) -> None:
+    world = World(make_settings(plant="boptest-local", scenario=two_hours), run_id="fell-back")
+    fake_boptest.clients[0].results_failures = 2  # SpotCool's first two steps
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+    run = load_run(world.settings.run_dir, world.run_id)
+    assert run.manifest.ended == "finished"  # never fatal
+    assert run.fallbacks == {"spotcool": 2, "baseline": 0}
+    errors = [e.data for e in recorded(world) if e.type is EventType.ERROR]
+    assert [(e["where"], e["fatal"]) for e in errors] == [("PlantProcessor(spotcool)", False)] * 2
+    assert "step 0 (07:00-07:15) reports its end-of-step power" in errors[0]["message"]
+    fell_back = "The SpotCool run's power fell back to its end-of-step value in 2 of its steps."
+    assert fell_back in quote_blockers(run)
+    write_report(world.settings.run_dir, world.run_id)
+    report = (world.settings.run_dir / world.run_id / REPORT_FILE).read_text("utf-8")
+    assert "| Power readings that fell back (steps) | 2 | 0 |" in report
+    assert f"- {fell_back}" in report
     assert_all_stopped(world)
 
 
