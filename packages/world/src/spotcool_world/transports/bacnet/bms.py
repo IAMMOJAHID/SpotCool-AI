@@ -24,38 +24,15 @@ import functools
 import socket
 import time
 from collections.abc import Callable
-from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-from bacpypes3.apdu import (
-    WritePropertyMultipleError,
-    WritePropertyMultipleRequest,
-    WritePropertyRequest,
-)
-from bacpypes3.basetypes import (
-    BinaryPV,
-    EngineeringUnits,
-    OptionalUnsigned,
-    PriorityValue,
-    PropertyIdentifier,
-)
 from bacpypes3.errors import PropertyError
-from bacpypes3.ipv4.app import NormalApplication
-from bacpypes3.local.analog import AnalogInputObject, AnalogValueObject
-from bacpypes3.local.binary import BinaryInputObject, BinaryValueObject
-from bacpypes3.local.cov import GenericCriteria
-from bacpypes3.local.device import DeviceObject
-from bacpypes3.local.multistate import MultiStateValueObject
-from bacpypes3.pdu import IPv4Address
-from bacpypes3.primitivedata import Null, Real, Unsigned
 from loguru import logger
 
 from spotcool_contracts import Zone, load_point_map
-from spotcool_contracts.events import BmsWriteData
-from spotcool_contracts.points import Conversion, ObjectType, PointSpec
+from spotcool_contracts.points import Conversion
 from spotcool_contracts.priorities import AGENT_PRIORITY
-from spotcool_world import __version__
 from spotcool_world.adapters.units import to_bms, to_boptest
 from spotcool_world.frames import (
     BmsWriteFrame,
@@ -76,48 +53,31 @@ from spotcool_world.transports.bacnet.bms_logic import (
     OccupancyMode,
     ZoneStandby,
 )
-from spotcool_world.transports.bacnet.priority import (
-    ANALOG_TYPES,
-    PRIORITY_LEVELS,
-    CommandPolicy,
-    PointValue,
-    PriorityArray,
+from spotcool_world.transports.bacnet.priority import CommandPolicy, PointValue
+from spotcool_world.transports.bacnet.server import (
+    NetworkWrite,
+    Point,
+    ServerApplication,
+    bacnet_object,
+    close_application,
+    command_properties,
+    device_object,
+    encode,
+    endpoint,
+    in_control,
+    local_address,
+    new_point,
+    open_application,
+    record_write,
+    screen_write,
 )
 from spotcool_world.transports.base_transport import BaseTransport
-
-DEFAULT_PREFIX = 24
-"""Network prefix length when the address names none; it sets the BACnet broadcast domain."""
-
-COV_INCREMENT = 0.1
-"""Change of an analog present value, in BMS units, that sends a COV notification."""
 
 WATCHDOG_PERIOD_S = 1.0
 """Wall seconds between heartbeat checks while the device runs; every tick also checks."""
 
 ADDRESS_LOST_TICKS = 2
 """Ticks in a row without its bound address before the BMS reports it lost; one is a blip."""
-
-VENDOR_ID = 999
-"""BACpypes3's own vendor identifier; the point map names no vendor."""
-
-_READY_TIMEOUT_S = 5.0
-
-_CLIENT: ContextVar[str] = ContextVar("spotcool_bacnet_client", default="unknown")
-"""``ip:port`` of the client whose request the current task serves."""
-
-WriteHandler = Callable[[int | str, Any, int | None, int | None], None]
-"""Applies one network write, ``(property, decoded value, array index, priority)``, or raises
-the BACnet error that refuses it."""
-
-
-def primary_ipv4() -> str:
-    """The machine's primary IPv4 address (its default route's), or 127.0.0.1 if it has none."""
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-        try:
-            probe.connect(("10.255.255.255", 1))  # a UDP connect sends nothing; it picks a route
-            return str(probe.getsockname()[0])
-        except OSError:
-            return "127.0.0.1"
 
 
 def is_local_ipv4(ip: str) -> bool:
@@ -130,110 +90,11 @@ def is_local_ipv4(ip: str) -> bool:
     return True
 
 
-class _Guarded:
-    """Mixin: a network write to the object goes to the BMS, never straight to the property."""
-
-    _on_write: WriteHandler
-
-    async def write_property(
-        self,
-        attr: int | str,
-        value: Any,
-        index: int | None = None,
-        priority: int | None = None,
-    ) -> None:
-        """Hand the write to the BMS, which applies it or raises the error that refuses it."""
-        self._on_write(attr, value, index, priority)
-
-
-class _AnalogInput(_Guarded, AnalogInputObject):
-    """An analog input point."""
-
-
-class _AnalogValue(_Guarded, AnalogValueObject):
-    """An analog value point; a commandable one carries the priority-array properties."""
-
-
-class _BinaryInput(_Guarded, BinaryInputObject):
-    """A binary input point."""
-
-
-class _BinaryValue(_Guarded, BinaryValueObject):
-    """A binary value point; a commandable one carries the priority-array properties."""
-
-
-class _MultiStateValue(_Guarded, MultiStateValueObject):
-    """A multi-state value point."""
-
-    # BACpypes3 gives multi-state values the analog criteria, which need a COV increment.
-    _cov_criteria = GenericCriteria
-
-
-class _Device(_Guarded, DeviceObject):
-    """The BMS's device object; none of its properties is writable over the network."""
-
-
-_OBJECT_CLASSES: dict[ObjectType, Callable[..., Any]] = {
-    ObjectType.ANALOG_INPUT: _AnalogInput,
-    ObjectType.ANALOG_VALUE: _AnalogValue,
-    ObjectType.BINARY_INPUT: _BinaryInput,
-    ObjectType.BINARY_VALUE: _BinaryValue,
-    ObjectType.MULTI_STATE_VALUE: _MultiStateValue,
-}
-
-
-class _BmsApplication(NormalApplication):
-    """BACpypes3's IPv4 device application, telling the BMS which client sent each write.
-
-    A write without a priority is a write at priority 16 (ASHRAE 135 clause 19.2.1). That is
-    set before BACpypes3 decodes the value, which only takes a NULL (a release) with a priority.
-    """
-
-    async def do_WritePropertyRequest(self, apdu: WritePropertyRequest) -> None:
-        """Serve a WriteProperty with the client's address in context."""
-        request: Any = apdu  # BACpypes3's element descriptors defeat the type checker
-        if request.priority is None:
-            request.priority = PRIORITY_LEVELS
-        token = _CLIENT.set(_endpoint(apdu.pduSource))
-        try:
-            await super().do_WritePropertyRequest(apdu)
-        finally:
-            _CLIENT.reset(token)
-
-    async def do_WritePropertyMultipleRequest(self, apdu: WritePropertyMultipleRequest) -> None:
-        """Serve a WritePropertyMultiple with the client's address in context."""
-        request: Any = apdu
-        for spec in request.listOfWriteAccessSpecs:
-            for prop in spec.listOfProperties:
-                if prop.priority is None:
-                    prop.priority = PRIORITY_LEVELS
-        token = _CLIENT.set(_endpoint(apdu.pduSource))
-        try:
-            await super().do_WritePropertyMultipleRequest(apdu)
-        except WritePropertyMultipleError as error:
-            # BACpypes3 raises this error PDU instead of answering with it.
-            error.set_context(apdu)
-            await self.response(error)
-        finally:
-            _CLIENT.reset(token)
-
-
-@dataclass(eq=False)
-class _Point:
-    """One point's state in BMS units; its BACnet object shows it while the device runs."""
-
-    spec: PointSpec
-    value: PointValue | None = None
-    array: PriorityArray | None = None
-    relinquish_default: PointValue | None = None
-    obj: Any = None
-
-
 @dataclass(eq=False)
 class _Read:
     """A point the SpotCool run's measurements update."""
 
-    point: _Point
+    point: Point
     key: str
     conversion: Conversion
 
@@ -243,11 +104,11 @@ class _Zone:
     """A zone's points, its occupied-standby state and its BOPTEST signals."""
 
     standby: ZoneStandby
-    temp: _Point
-    cooling: _Point
-    heating: _Point
-    sensor: _Point
-    mode: _Point
+    temp: Point
+    cooling: Point
+    heating: Point
+    sensor: Point
+    mode: Point
     cooling_input: str
     schedule_key: str
     conversion: Conversion
@@ -316,7 +177,7 @@ class BacnetBmsTransport(BaseTransport):
         self._has_address = has_address
         self._ticks_without_address = 0
         self._occupied_hours = occupied_hours
-        self._points = {spec.name: _new_point(spec) for spec in self._map.points}
+        self._points = {spec.name: new_point(spec) for spec in self._map.points}
         self._zones = {zone: self._new_zone(zone) for zone in Zone}
         self._reads = [
             _Read(point, point.spec.boptest.read, point.spec.boptest.conversion)
@@ -333,7 +194,7 @@ class BacnetBmsTransport(BaseTransport):
         self._meter = EnergyMeter()  # HVAC-ENERGY: each step's mean power times the step
         self._now_s: float | None = None
         self._writes: list[BmsWriteFrame] = []
-        self._app: _BmsApplication | None = None
+        self._app: ServerApplication | None = None
         self._bound: str | None = None
         self._input = _BmsInput(self, name=f"{self.name}::input")
         self._output = _BmsOutput(self, name=f"{self.name}::output")
@@ -361,24 +222,18 @@ class BacnetBmsTransport(BaseTransport):
         """
         if self._app is not None:
             return
-        local = _local_address(self._address, self._port)
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
-            probe.bind(local.addrTuple)  # fail now: BACpypes3 retries a failed bind forever
-        self._app = _BmsApplication(self._device_object(), local)
+        local = local_address(self._address, self._port)
+        for point in self._points.values():
+            on_write = functools.partial(self._network_write, point)
+            point.obj = bacnet_object(point, _reliability(point.value), on_write)
+        objects = [point.obj for point in self._points.values()]
         try:
-            for point in self._points.values():
-                point.obj = self._bacnet_object(point)
-                self._app.add_object(point.obj)
-            # BACpypes3 binds in tasks of its own: serve once they are done.
-            bound = asyncio.gather(*self._app.normal.server._transport_tasks)
-            await asyncio.wait_for(bound, _READY_TIMEOUT_S)
-        except TimeoutError as exc:
-            await self._close()
-            raise OSError(f"could not bind UDP {_endpoint(local)}") from exc
+            self._app = await open_application(self._device_object(), objects, local)
         except BaseException:
-            await self._close()
+            for point in self._points.values():
+                point.obj = None
             raise
-        self._bound, self._ticks_without_address = _endpoint(local), 0
+        self._bound, self._ticks_without_address = endpoint(local), 0
         self.create_task(self._serve(), "bacnet-device")
         logger.info(
             f"{self.name}: BACnet device {self._map.device_name} ({self._map.device_instance}),"
@@ -402,10 +257,9 @@ class BacnetBmsTransport(BaseTransport):
         app, self._app, self._bound = self._app, None, None
         if app is None:
             return
-        app.close()
         for point in self._points.values():
             point.obj = None
-        await asyncio.sleep(0)  # a closed transport releases its socket on the next iteration
+        await close_application(app)
         logger.info(f"{self.name}: BACnet device closed")
 
     def _new_zone(self, zone: Zone) -> _Zone:
@@ -428,87 +282,29 @@ class BacnetBmsTransport(BaseTransport):
         )
 
     def _device_object(self) -> Any:
-        device = _Device(
-            objectIdentifier=("device", self._map.device_instance),
-            objectName=self._map.device_name,
-            description=self._map.description,
-            vendorName=self._map.vendor_name,
-            vendorIdentifier=VENDOR_ID,
-            modelName="SpotCool virtual BMS",
-            firmwareRevision=__version__,
-            applicationSoftwareVersion=__version__,
-        )
-        device._on_write = functools.partial(self._network_write, None)
-        return device
+        on_write = functools.partial(self._network_write, None)
+        return device_object(self._map, "SpotCool virtual BMS", on_write)
 
-    def _bacnet_object(self, point: _Point) -> Any:
-        spec = point.spec
-        states = spec.states or []
-        kwargs: dict[str, Any] = {
-            "objectIdentifier": (spec.object_type.value, spec.instance),
-            "objectName": spec.name,
-            "description": spec.description,
-            "eventState": "normal",
-            "outOfService": False,
-            "presentValue": _encode(spec, point.value),
-            "reliability": _reliability(point.value),
-        }
-        if spec.object_type in ANALOG_TYPES:
-            kwargs["units"] = EngineeringUnits(spec.units or "no-units")
-            kwargs["covIncrement"] = COV_INCREMENT
-            limits = {
-                "minPresValue": spec.min_value,
-                "maxPresValue": spec.max_value,
-                "resolution": spec.resolution,
-            }
-            kwargs.update({prop: limit for prop, limit in limits.items() if limit is not None})
-        elif spec.object_type is ObjectType.MULTI_STATE_VALUE:
-            kwargs.update(numberOfStates=len(states), stateText=states)
-        else:
-            kwargs.update(inactiveText=states[0], activeText=states[1])
-            if spec.object_type is ObjectType.BINARY_INPUT:
-                kwargs["polarity"] = "normal"
-        if point.array is not None:
-            kwargs.update(_command_properties(point))
-        obj = _OBJECT_CLASSES[spec.object_type](**kwargs)
-        obj._on_write = functools.partial(self._network_write, point)
-        return obj
-
-    def _network_write(
+    async def _network_write(
         self,
-        point: _Point | None,
+        point: Point | None,
         prop: int | str,
         value: Any,
         index: int | None,
         priority: int | None,
     ) -> None:
         """Apply one network write to a point (``None``: the device object), or refuse it."""
-        client = _CLIENT.get()
-        level = PRIORITY_LEVELS if priority is None else priority  # no priority means 16
-        prop_id = PropertyIdentifier(prop)
-        if point is None or prop_id != PropertyIdentifier.presentValue:
-            written = None if isinstance(value, Null) else str(value)
-            reason = f"{prop_id} is not writable; commands write present-value"
-            self._record(None if point is None else point.spec, level, written, client, reason)
-            raise PropertyError("write-access-denied")
-        spec = point.spec
-        command = _decode(spec, value)
-        if index is not None:
-            self._record(spec, level, command, client, "present-value is not an array")
-            raise PropertyError("property-is-not-an-array")
-        rejection = self._policy.check(spec, command, level)
+        write, rejection = screen_write(point, prop, value, index, priority, self._policy)
         if rejection is not None:
-            self._record(spec, level, command, client, rejection.reason)
+            self._record(write, rejection.reason)
             raise PropertyError(rejection.error_code)
-        self._apply(point, command, level)
+        assert point is not None  # the device object refuses every write
+        self._apply(point, write.value, write.priority)
         if point is self._heartbeat:
             self._watchdog.beat(point.value)
-        assert point.array is not None  # the policy accepts commandable points only
-        _, winner = point.array.effective(point.relinquish_default)
-        note = f"priority {winner} is in control" if winner is not None and winner < level else None
-        self._record(spec, level, command, client, note, accepted=True)
+        self._record(write, in_control(point, write.priority), accepted=True)
 
-    def _apply(self, point: _Point, command: PointValue | None, priority: int) -> None:
+    def _apply(self, point: Point, command: PointValue | None, priority: int) -> None:
         assert point.array is not None
         if command is None:
             point.array.release(priority)
@@ -520,39 +316,9 @@ class BacnetBmsTransport(BaseTransport):
             self._zones[zone].standby.sensor(point.value == OccupancyMode.OCCUPIED, self._now_s)
             self._show_zone(zone)
 
-    def _record(
-        self,
-        spec: PointSpec | None,
-        priority: int,
-        value: PointValue | None,
-        client: str,
-        reason: str | None,
-        *,
-        accepted: bool = False,
-    ) -> None:
-        if spec is None:
-            object_id, object_name = f"device,{self._map.device_instance}", self._map.device_name
-        else:
-            object_id, object_name = spec.object_id, spec.name
-        # BmsWriteData holds priorities 1-16 only. One outside them was refused with
-        # VALUE_OUT_OF_RANGE, so it is clamped here and the reason names the real one.
-        data = BmsWriteData(
-            device=self._map.device_name,
-            object_id=object_id,
-            object_name=object_name,
-            priority=min(max(priority, 1), PRIORITY_LEVELS),
-            value=value,
-            client=client,
-            accepted=accepted,
-            reason=reason,
-        )
+    def _record(self, write: NetworkWrite, reason: str | None, *, accepted: bool = False) -> None:
+        data = record_write(self.name, self._map, write, reason, accepted=accepted)
         self._writes.append(BmsWriteFrame(data=data, sim_time_s=self._now_s))
-        outcome = "accepted" if accepted else "rejected"
-        logger.log(
-            "INFO" if accepted else "WARNING",
-            f"{self.name}: {client} wrote {object_name}={value} at priority {priority}: "
-            f"{outcome}{f' ({reason})' if reason else ''}",
-        )
 
     def _check_heartbeat(self) -> None:
         """Release every priority-10 command once the agent's heartbeat has stopped."""
@@ -566,9 +332,8 @@ class BacnetBmsTransport(BaseTransport):
         for point in self._points.values():
             if point.array is not None and point.array.slots[AGENT_PRIORITY - 1] is not None:
                 self._apply(point, None, AGENT_PRIORITY)
-                self._record(
-                    point.spec, AGENT_PRIORITY, None, client, "heartbeat timeout", accepted=True
-                )
+                write = NetworkWrite(point.spec, AGENT_PRIORITY, None, client)
+                self._record(write, "heartbeat timeout", accepted=True)
 
     def _lost_address(self) -> str | None:
         """Check the bound address; return the error to report when it has just been lost.
@@ -665,17 +430,17 @@ class BacnetBmsTransport(BaseTransport):
             self._refresh(z.cooling)
             self._show_zone(zone)
 
-    def _show(self, point: _Point, value: PointValue | None) -> None:
+    def _show(self, point: Point, value: PointValue | None) -> None:
         point.value = value
         if point.obj is not None:
             point.obj.reliability = _reliability(value)
-            point.obj.presentValue = _encode(point.spec, value)
+            point.obj.presentValue = encode(point.spec, value)
 
-    def _refresh(self, point: _Point) -> None:
+    def _refresh(self, point: Point) -> None:
         """Recompute a commandable point's present value; show it and its priority array."""
         assert point.array is not None
         if point.obj is not None:
-            for prop, value in _command_properties(point).items():
+            for prop, value in command_properties(point).items():
                 setattr(point.obj, prop, value)
         self._show(point, point.array.effective(point.relinquish_default)[0])
 
@@ -745,71 +510,6 @@ class _BmsOutput(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
-def _new_point(spec: PointSpec) -> _Point:
-    if not spec.is_commandable:
-        return _Point(spec)  # no value until the run measures, schedules or scripts it
-    default = spec.relinquish_default
-    return _Point(spec, value=default, array=PriorityArray(), relinquish_default=default)
-
-
 def _reliability(value: PointValue | None) -> str:
     """BACnet's reliability for a point: a value the BMS has not got is a communication failure."""
     return "communication-failure" if value is None else "no-fault-detected"
-
-
-def _endpoint(address: Any) -> str:
-    """``ip:port`` of a BACpypes3 address (its own text form drops port 47808)."""
-    host_port = getattr(address, "addrTuple", None)
-    return f"{host_port[0]}:{host_port[1]}" if host_port else str(address)
-
-
-def _local_address(address: str | None, port: int) -> IPv4Address:
-    host = address or primary_ipv4()
-    if "/" not in host:
-        host = f"{host}/{DEFAULT_PREFIX}"
-    try:
-        return cast(IPv4Address, IPv4Address(f"{host}:{port}"))  # Address.__new__ dispatches
-    except ValueError as exc:
-        raise ValueError(
-            f"invalid BMS address {address!r}: expected an IPv4 address such as 192.168.1.20 "
-            "or 192.168.1.20/24"
-        ) from exc
-
-
-def _encode(spec: PointSpec, value: PointValue | None) -> Any:
-    """A BMS value as the BACnet present value; a placeholder until the value is known."""
-    if spec.object_type in ANALOG_TYPES:
-        return Real(value if isinstance(value, float | int) else 0.0)
-    states = spec.states or []
-    index = states.index(value) if value in states else 0
-    if spec.object_type is ObjectType.MULTI_STATE_VALUE:
-        return Unsigned(index + 1)
-    return BinaryPV(index)
-
-
-def _decode(spec: PointSpec, value: Any) -> PointValue | None:
-    """A decoded BACnet present value in BMS units; ``None`` for NULL."""
-    if isinstance(value, Null):
-        return None
-    if spec.object_type in ANALOG_TYPES:
-        return float(value)
-    states = spec.states or []
-    index = int(value) - (1 if spec.object_type is ObjectType.MULTI_STATE_VALUE else 0)
-    return states[index] if 0 <= index < len(states) else str(int(value))  # policy rejects it
-
-
-def _command_properties(point: _Point) -> dict[str, Any]:
-    """The priority-array properties of a commandable point's BACnet object."""
-    assert point.array is not None
-    spec = point.spec
-    _, winner = point.array.effective(point.relinquish_default)
-    return {
-        "priorityArray": [
-            PriorityValue(null=()) if slot is None else PriorityValue(_encode(spec, slot))
-            for slot in point.array.slots
-        ],
-        "relinquishDefault": _encode(spec, point.relinquish_default),
-        "currentCommandPriority": (
-            OptionalUnsigned(null=()) if winner is None else OptionalUnsigned(unsigned=winner)
-        ),
-    }

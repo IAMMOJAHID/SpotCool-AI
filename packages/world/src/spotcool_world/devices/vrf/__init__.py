@@ -1,1 +1,1 @@
-"""VRF indoor-unit model (louver slew, fan, room thermal and power); arrives with WP3."""
+"""The meeting-room VRF indoor unit: ``VrfUnit`` (louver slew, swing, room and power), pure."""
