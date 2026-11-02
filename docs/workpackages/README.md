@@ -49,11 +49,13 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 | WP4 | [cameras](WP4-cameras.md) | Claude Code | `wp/wp4-cameras` |
 | WP5 | [scenarios, calendar, occupants](WP5-scenarios.md) | Claude Code | `wp/wp5-scenarios` |
 | WP6 | [telemetry, KPIs, recorder, dashboard feed](WP6-telemetry.md) | Claude Code | `wp/wp6-telemetry` |
-| WP7 | [dashboard app](WP7-dashboard.md) | Antigravity | `wp/wp7-dashboard` |
+| WP7 | [dashboard app](WP7-dashboard.md) | Claude Code | `wp/wp7-dashboard` |
 | WP8 | [footage pipeline](WP8-footage.md) | Claude Code + people | `wp/wp8-footage` |
 | WP9 | [video production](WP9-video.md) | Antigravity + people | `wp/wp9-video` |
 | WP10 | [evals, CI, docs, release](WP10-evals-release.md) | Claude Code | `wp/wp10-evals-release` |
 | WP11 | [world assembly and CLI](WP11-assembly.md) | Claude Code (lead) | `wp/wp11-assembly` |
+| WP6.1 | [step-mean power](WP6.1-step-mean-power.md) | Claude Code | `wp/wp61-step-mean-power` |
+| WP1.2 | [BOPTEST survives a dropped connection](WP1.2-boptest-dropped-connection.md) | Claude Code | `wp/wp12-boptest-resilience` |
 
 ## Starting a WP (copy-paste)
 

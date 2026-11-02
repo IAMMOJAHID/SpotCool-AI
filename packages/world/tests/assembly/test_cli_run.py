@@ -6,15 +6,18 @@ import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 import pytest
 
+from spotcool_world.runner import cli as cli_module
 from spotcool_world.runner.cli import main
 from spotcool_world.runner.report import REPORT_FILE, STUB_AGENT_NOTE
-from spotcool_world.serializers import EVENTS_FILE, MANIFEST_FILE
+from spotcool_world.serializers import EVENTS_FILE, MANIFEST_FILE, RunManifest
 from spotcool_world.services import WorldSettings
+from spotcool_world.services import rc as rc_module
+from spotcool_world.services.rc import RcPlant
 
 EXAMPLE = Path(__file__).parents[2] / "world.example.yaml"
 MakeSettings = Callable[..., WorldSettings]
@@ -113,12 +116,23 @@ def test_run_replay_and_report_with_a_config_file(
     assert f"  BMS           127.0.0.1:{ports.bms_port} (BACnet/IP)\n" in out
     assert "run cli-run finished (end time reached)" in out
     assert f"\n  {STUB_AGENT_NOTE}\n" in out
-    kpis = (
-        r"  spotcool  energy [\d.]+ kWh, comfort where people were [\d.]+ K h, "
-        r"energy saved [\d.]+ %"
+    for run in ("spotcool", "baseline"):  # the RC plant's own energy is the same sum
+        energy = rf"  {run:<9} energy ([\d.]+) kWh \(plant's own \1 kWh, difference 0\.000 %\), "
+        assert re.search(energy + r"comfort where people were [\d.]+ K h\n", out), out
+    saved = (
+        r"  energy saved ([\d.]+) % by the plants' own energy, \1 % by the step-mean "
+        r"integration\n"
     )
-    assert re.search(kpis, out)
-    assert re.search(r"  baseline  energy [\d.]+ kWh, comfort where people were [\d.]+ K h\n", out)
+    assert re.search(saved, out), out
+    assert (
+        "  Not quotable:\n"
+        "    - The plant is rc, our own reduced model, and its cross-check is circular: both "
+        "energies come from the same sub-step sums.\n"
+        "    - The run was unpaced (speed 0): the agent's writes land at random points between "
+        "steps, so it does not reproduce.\n"
+        "    - A stub agent ran it, with perfect perception: quote it only as an upper bound with "
+        "perfect perception, labelled so.\n"
+    ) in out
     run_dir, config_file = (shlex.quote(p.resolve().as_posix()) for p in (runs, config))
     assert out.endswith(
         f"report: SPOTCOOL_WORLD_RUN_DIR={run_dir} spotcool-world report cli-run\n"
@@ -142,6 +156,34 @@ def test_run_replay_and_report_with_a_config_file(
     assert report.returncode == 0, report.stdout + report.stderr
     top = (runs / "cli-run" / REPORT_FILE).read_text(encoding="utf-8").splitlines()[:4]
     assert f"**{STUB_AGENT_NOTE}**" in top
+
+
+class BrokenPlant(RcPlant):
+    """An RC plant whose every step fails."""
+
+    async def step(self, overrides: Mapping[str, float | None]) -> dict[str, float]:
+        raise RuntimeError("the plant broke")
+
+
+@pytest.mark.bacnet
+def test_a_run_ended_by_a_fatal_error_is_failed_in_its_record_and_printout(
+    make_settings: MakeSettings,
+    two_hours: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(rc_module, "RcPlant", BrokenPlant)
+    monkeypatch.setattr(cli_module, "configure_logging", lambda level: None)  # keep pytest's
+    settings = make_settings()
+    for name in ("run_dir", "http_host", "http_port", "dashboard_port", "bms_address", "bms_port"):
+        monkeypatch.setenv(f"SPOTCOOL_WORLD_{name.upper()}", str(getattr(settings, name)))
+    assert main(["run", "--scenario", two_hours, "--speed", "0", "--run-id", "broken"]) == 1
+    path = settings.run_dir / "broken" / MANIFEST_FILE
+    done = RunManifest.model_validate_json(path.read_text(encoding="utf-8"))
+    assert done.ended == "failed"
+    out = capsys.readouterr().out
+    assert f"run broken failed ({done.end_reason}); recorded in" in out
+    assert "plant step failed: the plant broke" in done.end_reason
 
 
 INVALID = """

@@ -4,9 +4,11 @@
 ``HttpServerWorker`` on ``WorldSettings.http_host:dashboard_port`` (8090).
 
 - ``/ws/events``: every envelope on the events topic, one JSON text message each, for the
-  dashboards. Each client gets its own subscription, whose queue drops its oldest messages
-  when full, so a slow browser never holds up the world. What a client sends is ignored.
-  ``app.state.viewers`` counts the clients connected (a replay can wait for the first one).
+  dashboards. A client that joins mid-run first gets the run so far (``EventFeed``), then the
+  live events, each once and in order. Each client has its own queue, which drops its oldest
+  messages when full, so a slow browser never holds up the world. What a client sends is
+  ignored. ``app.state.viewers`` counts the clients connected (a replay can wait for the first
+  one); ``app.state.feed`` is the ``EventFeed``.
 - ``/ws/agent``: publish-only, for Person A's agent. Each message must be one ``EventEnvelope``
   as JSON text, with ``source: "agent"`` and an agent type (``AGENT_TYPES``), at most
   ``MAX_AGENT_MESSAGE_BYTES`` long and at most ``MAX_AGENT_MESSAGES_PER_S`` a second on the
@@ -27,7 +29,9 @@ read the GET routes. A failing socket ends only its own connection, never the wo
 import asyncio
 import re
 import time
-from collections import deque
+from collections import OrderedDict, deque
+from collections.abc import AsyncIterator, Hashable
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -35,18 +39,23 @@ from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi import Path as PathParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from pydantic import ValidationError
 from starlette.websockets import WebSocketDisconnect, WebSocketDisconnected
 
 from spotcool_contracts.events import EventEnvelope, EventSource, EventType
 from spotcool_world import __version__
-from spotcool_world.bus import Bus, Subscription
+from spotcool_world.bus import Bus
 from spotcool_world.processors.event_emitter import EVENTS_TOPIC
 from spotcool_world.serializers.jsonl import EVENTS_FILE, RUN_ID_PATTERN
 from spotcool_world.transports.http.server import LOCAL_ORIGINS
 
 CLIENT_QUEUE_SIZE = 1000
 """Events a ``/ws/events`` client may fall behind by before its oldest are dropped."""
+HISTORY_LIMIT = 50_000
+"""Events of the current run kept for late viewers (a paced BOPTEST day is about 2,000)."""
+FEED_QUEUE_SIZE = 100_000
+"""Events published before the feed has taken them: large, so a burst loses none."""
 MAX_AGENT_MESSAGE_BYTES = 64 * 1024
 """The largest message ``/ws/agent`` accepts, in UTF-8 bytes."""
 MAX_AGENT_MESSAGES_PER_S = 20
@@ -72,9 +81,20 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
         dist_dir: The built dashboard to serve at ``/``; ``None`` means ``DASHBOARD_DIST``.
             Nothing is served there if the directory does not exist when the app is made.
     """
-    app = FastAPI(title="SpotCool World dashboard", version=__version__)
+    feed = EventFeed(bus)  # subscribes now: a run's first events come before the server is up
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        feed.start()
+        try:
+            yield
+        finally:
+            await feed.stop()
+
+    app = FastAPI(title="SpotCool World dashboard", version=__version__, lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origin_regex=LOCAL_ORIGINS, allow_methods=["GET"])
     app.state.viewers = 0  # /ws/events clients connected now
+    app.state.feed = feed
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -97,21 +117,21 @@ def create_dashboard_app(bus: Bus, run_dir: Path, dist_dir: Path | None = None) 
 
     @app.websocket("/ws/events")
     async def events(websocket: WebSocket) -> None:
-        """Every event on the bus as JSON text; what the client sends is ignored."""
-        # Subscribe first: the client gets everything published after its handshake.
-        subscription = bus.subscribe(EVENTS_TOPIC, maxsize=CLIENT_QUEUE_SIZE)
+        """The run so far, then every event on the bus, as JSON text; what is sent is ignored."""
+        # Join first: the client gets the run's events up to its handshake and all after it.
+        history, viewer = feed.join()
         viewing = False
         try:
             await websocket.accept()
             app.state.viewers += 1
             viewing = True
             async with asyncio.TaskGroup() as group:
-                group.create_task(_send_events(websocket, subscription))
-                group.create_task(_ignore_inbound(websocket, subscription))
+                group.create_task(_send_events(websocket, history, viewer))
+                group.create_task(_ignore_inbound(websocket, viewer))
         except* (WebSocketDisconnect, WebSocketDisconnected):
             pass  # the client went away mid-send
         finally:
-            subscription.close()
+            feed.leave(viewer)
             if viewing:
                 app.state.viewers -= 1
 
@@ -151,19 +171,150 @@ def _recorded_runs(run_dir: Path) -> list[str]:
     )
 
 
-async def _send_events(websocket: WebSocket, subscription: Subscription) -> None:
-    """Send every event until the subscription closes."""
-    async for envelope in subscription:
-        await websocket.send_text(envelope.model_dump_json())
+class Viewer:
+    """One ``/ws/events`` client's queue of events as JSON text; when full, it drops its oldest.
+
+    Args:
+        maxsize: How many events the client may fall behind by.
+    """
+
+    def __init__(self, maxsize: int) -> None:
+        self._queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=maxsize)
+        self._closed = False
+
+    def offer(self, text: str) -> None:
+        """Queue an event; the oldest goes when the queue is full."""
+        if self._closed:
+            return
+        if self._queue.full():
+            self._queue.get_nowait()
+        self._queue.put_nowait(text)
+
+    async def next(self) -> str | None:
+        """The next event, waiting for one; ``None`` once the viewer is closed."""
+        return None if self._closed else await self._queue.get()
+
+    def close(self) -> None:
+        """End a waiting or later ``next()``."""
+        if self._closed:
+            return
+        self._closed = True
+        if self._queue.full():
+            self._queue.get_nowait()  # room for the wake-up; the client is leaving
+        self._queue.put_nowait(None)
 
 
-async def _ignore_inbound(websocket: WebSocket, subscription: Subscription) -> None:
+class EventFeed:
+    """The events topic for the dashboards: the current run's history, then the live events.
+
+    It subscribes when it is made, before the run starts, so the history has the run's first
+    events even when the server comes up after them. ``start()`` (the app's lifespan) runs a
+    task that takes each event in order: it keeps it in the history and hands it to every
+    viewer, with no wait in between. ``join()`` gives a new viewer the history and adds it to
+    the viewers in one step, so a viewer gets every event of the run once and in order,
+    whatever is published meanwhile.
+
+    The history keeps every event except ``vrf_state``, of which it keeps the latest, and
+    ``metrics``, the latest of each metric (name and labels): both arrive all run long. A
+    ``run_status`` of another run clears it first. It holds at most ``HISTORY_LIMIT`` events:
+    the oldest go first, with one warning per run.
+
+    Args:
+        bus: The world's bus.
+    """
+
+    def __init__(self, bus: Bus) -> None:
+        self._subscription = bus.subscribe(EVENTS_TOPIC, maxsize=FEED_QUEUE_SIZE)
+        self._history: OrderedDict[Hashable, str] = OrderedDict()
+        self._viewers: set[Viewer] = set()
+        self._run_id: str | None = None
+        self._taken = 0  # events kept in full so far: each one's history key
+        self._warned = False
+        self._task: asyncio.Task[None] | None = None
+
+    def history(self) -> list[str]:
+        """The current run's events kept for late viewers, oldest first, as JSON text."""
+        return list(self._history.values())
+
+    def join(self) -> tuple[list[str], Viewer]:
+        """A new viewer: the history so far, and its queue of every event after that."""
+        viewer = Viewer(CLIENT_QUEUE_SIZE)
+        self._viewers.add(viewer)
+        return self.history(), viewer
+
+    def leave(self, viewer: Viewer) -> None:
+        """Stop handing events to ``viewer`` and end its ``next()``."""
+        self._viewers.discard(viewer)
+        viewer.close()
+
+    def start(self) -> None:
+        """Start taking events from the bus; a second call does nothing."""
+        if self._task is None:
+            self._task = asyncio.create_task(self._take_all(), name="dashboard-feed")
+
+    async def stop(self) -> None:
+        """Unsubscribe, wait for the task to take what was left, and end every viewer."""
+        self._subscription.close()
+        if self._task is not None:
+            await self._task
+        for viewer in tuple(self._viewers):
+            self.leave(viewer)
+
+    async def _take_all(self) -> None:
+        async for message in self._subscription:
+            if isinstance(message, EventEnvelope):
+                self._take(message)
+
+    def _take(self, envelope: EventEnvelope) -> None:
+        """Keep an event in the history and hand it to every viewer."""
+        if envelope.type is EventType.RUN_STATUS:
+            run_id = envelope.data.get("run_id")
+            if self._run_id is not None and run_id != self._run_id:
+                self._history.clear()
+                self._warned = False
+            if isinstance(run_id, str):
+                self._run_id = run_id
+        text = envelope.model_dump_json()
+        key = self._key(envelope)
+        self._history[key] = text
+        self._history.move_to_end(key)  # a latest-only event takes the newest place
+        if len(self._history) > HISTORY_LIMIT:
+            self._history.popitem(last=False)
+            if not self._warned:
+                self._warned = True
+                logger.warning(
+                    f"dashboard: the run's history is full ({HISTORY_LIMIT} events); "
+                    "late viewers miss its oldest events from now on"
+                )
+        for viewer in tuple(self._viewers):
+            viewer.offer(text)
+
+    def _key(self, envelope: EventEnvelope) -> Hashable:
+        """The event's place in the history: its own, or the one its latest-only kind shares."""
+        if envelope.type is EventType.VRF_STATE:
+            return EventType.VRF_STATE
+        if envelope.type is EventType.METRICS:
+            labels = envelope.data.get("labels") or {}
+            return EventType.METRICS, envelope.data.get("name"), tuple(sorted(labels.items()))
+        self._taken += 1
+        return self._taken
+
+
+async def _send_events(websocket: WebSocket, history: list[str], viewer: Viewer) -> None:
+    """Send the history, then every event until the viewer closes."""
+    for text in history:
+        await websocket.send_text(text)
+    while (text := await viewer.next()) is not None:
+        await websocket.send_text(text)
+
+
+async def _ignore_inbound(websocket: WebSocket, viewer: Viewer) -> None:
     """Read and drop what the client sends; at its disconnect, end ``_send_events``."""
     try:
         while (await websocket.receive())["type"] != "websocket.disconnect":
             pass
     finally:
-        subscription.close()
+        viewer.close()
 
 
 def _agent_event(text: str | None, admitted: deque[float]) -> EventEnvelope | str:

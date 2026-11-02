@@ -2,7 +2,7 @@ import pytest
 
 from spotcool_contracts import Zone
 from spotcool_world.services import PlantStartParams
-from spotcool_world.services.boptest.catalog import bms_signal, zone_damper
+from spotcool_world.services.boptest.catalog import bms_signal, load_catalog, zone_damper
 from spotcool_world.services.rc import RcPlant, weekday_occupancy
 from spotcool_world.services.rc.plant import _CAPACITANCE
 
@@ -12,7 +12,9 @@ CORE_T = bms_signal("ZN-COR-T")
 CORE_SP = bms_signal("ZN-COR-CLG-SP")
 CORE_FLOW = bms_signal("ZN-COR-SA-FLOW")
 CORE_DAMPER = zone_damper(Zone.COR)
+WEST_DAMPER = zone_damper(Zone.WES)
 FAN_W = bms_signal("AHU-SF-PWR")
+METERS = load_catalog().electric_power
 CORE_MIN_FLOW, CORE_MIN_DAMPER = 0.879, 0.174  # BOPTEST's core VAV box
 
 
@@ -90,6 +92,26 @@ async def test_kpis_count_the_steps_not_the_warm_up() -> None:
     assert ener_tot is not None and ener_tot > 0
     assert pele_tot is not None and pele_tot > 0
     assert tdis_tot == pytest.approx(0.0, abs=1e-3)  # held inside the schedule's band
+
+
+@pytest.mark.asyncio
+async def test_each_meter_is_its_energy_over_the_sub_steps_divided_by_the_step() -> None:
+    # One 15-minute step against fifteen 1-minute steps of one sub-step each, from the same
+    # state: West's damper reopens after half an hour shut, so the power moves inside the step.
+    whole, minutes = RcPlant(), RcPlant()
+    await whole.start(START)
+    await minutes.start(START.model_copy(update={"step_s": 60.0}))
+    for _ in range(2):
+        await whole.step({WEST_DAMPER: 0.0})
+    for _ in range(30):
+        await minutes.step({WEST_DAMPER: 0.0})
+    step = await whole.step({})
+    sub_steps = [await minutes.step({}) for _ in range(15)]
+    for name in METERS:
+        assert step[name] == pytest.approx(sum(raw[name] for raw in sub_steps) / 15)
+    end_kw = sum(sub_steps[-1][name] for name in METERS)
+    assert sum(step[name] for name in METERS) != pytest.approx(end_kw)  # not the end's power
+    assert step[CORE_T] == pytest.approx(sub_steps[-1][CORE_T])  # the rest is the end's
 
 
 def test_weekday_occupancy() -> None:

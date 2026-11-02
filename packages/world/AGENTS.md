@@ -71,8 +71,8 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **PipelineWorker / WorkerRunner / bus** | Runnable units on an in-process pub/sub bus; the runner handles signals and shutdown | `workers/`, `runner/`, `bus/` | done |
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
-| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
+| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1), power meters as step means (WP6.1); cameras done (WP4) |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6), replaying the run so far to each new viewer (WP7); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
@@ -183,7 +183,11 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   Subscribe before the run starts, so the first tick's frames aren't missed.
 - **Never store camera frames**: memory only, never disk or logs (WP4 adds a test that asserts
   it). **Always stop BOPTEST tests** in `PlantService.stop()`: the hosted service is shared and
-  free.
+  free. `BoptestClient.stop` retries no answer and HTTP 429/5xx with backoff for up to
+  `STOP_RETRY_S` (60 s); a test it still cannot stop is logged as a warning with the command
+  that stops it (`curl -X PUT <boptest_url>/stop/<testid>`). `BoptestClient.kpis`, read-only,
+  retries the same failures, starting none more than `KPI_RETRY_S` (60 s) after the call, so
+  a forward restarting as the run ends does not lose the final KPIs (the quote's energy).
 - **No tracebacks where audio or frames are in scope.** loguru's default `diagnose=True` prints a
   traceback's local variables, so `logger.exception` (or `opt(exception=...)`) can leak audio or
   camera bytes into the log. Log `type(exc).__name__` and the message instead.
@@ -194,6 +198,51 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   an overwritten signal under its input's `_u` key, as BOPTEST's REST API does. BOPTEST inputs
   latch, so the BOPTEST plant sends `_activate` for all ten managed inputs (each zone's cooling
   setpoint and damper) on every step.
+- **A step's values describe the step that just ended.** The seven ElectricPower meters
+  (`catalog.electric_power`) are their means over the step, in W; every other value is the one
+  at the end of the step. An initial state has no step, so its meters are instantaneous, and
+  telemetry never integrates them. Power spikes inside a step when a VAV box opens wide, so a
+  value at the end of the step would miss it.
+  - The BOPTEST plant reads each step's meters from `PUT /results` over `[t - step, t]`
+    (`BoptestClient.results`) and averages BOPTEST's 30-second samples with the
+    time-weighted trapezoid (`step_means`). The call retries transient failures within
+    `QUICK_TIMEOUT_S` (30 s) in all: each attempt's timeout is capped at the time left. If it
+    fails, the meters keep their values at the end of the step: a warning and one more
+    `PlantService.power_fallbacks` (0 on the other plants), never fatal.
+  - `PlantProcessor` surfaces a fallback in the recording: when a plant's count rises, a
+    non-fatal error naming the run and the step, and the run's count as a
+    `plant_power_fallbacks` metric (`POWER_FALLBACKS_METRIC`).
+  - The RC plant divides each meter's energy over its 60-second sub-steps by the step.
+- **A BOPTEST step survives a dropped connection, and is never guessed or applied twice.**
+  BOPTEST's web layer finishes an advance it got even when its client is gone, and stores
+  every point at each step's end. So when an advance fails on the connection (no answer, or
+  HTTP 502, 503 or 504 from a proxy) or is throttled (429), `BoptestPlant.step` recovers it;
+  HTTP 400 and 500 are BOPTEST's own answers and fail the step at once. The step ends at
+  `t_next`, the last state's time plus the step.
+  - An advance that never reached BOPTEST (`ConnectError`, `ConnectTimeout`: the client's
+    `unsent`), or that it refused with 429, is resent: inputs latch, so the same inputs make
+    the same step.
+  - Any other may have reached it. The plant reads BOPTEST's stored results (one meter, to a
+    step past `t_next`). If they reach `t_next`, the step ran: its state is read back with
+    `BoptestClient.state_at` (`PUT /results` over `[t_next, t_next]`, every key an advance
+    answers; of several samples at `t_next`, the last, as `advance` answers). If they stop at
+    the step's start, in an answer received at least `ADVANCE_TIMEOUT_S` (120 s) after the
+    advance was sent, BOPTEST never got it, and it is resent. Otherwise it reads again, with
+    backoff; a read throttled with 429 is read again too.
+  - Every answer's time is checked, a normal step's included: BOPTEST more than half a step
+    past `t_next` means a step applied twice (an advance that turned up after its resend), and
+    fails the step. A step the scenario's end cut short passes.
+  - A step waits at most `RECOVERY_S` (300 s) of wall time from its first failure: no try
+    starts later, and each read's and resend's timeout ends by then. Then it fails, fatally as
+    before, with a message that says what was tried. The step means follow a recovered step
+    as any other: a step's usual read, within `QUICK_TIMEOUT_S`. Tests inject the plant's
+    and client's `clock` and `sleep`, so none waits in real time.
+  - Every recovery is a warning and one more `PlantService.connection_recoveries` (0 on the
+    other plants). `PlantProcessor` records it like a power fallback: a non-fatal error naming
+    the run and the step, and a `plant_connection_recoveries` metric
+    (`CONNECTION_RECOVERIES_METRIC`). It never blocks the quote: the state is BOPTEST's own.
+  - A transport error names the exception, and a timeout the seconds it allowed
+    (`ReadTimeout after 120 s`).
 
 ## The BMS on BACnet/IP
 
@@ -211,7 +260,8 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   `SetpointCommandFrame` with all ten managed inputs, then the tick. `bms.output()` goes after
   the plants: it shows the SpotCool run's measurements on the points (BMS units), takes the
   baseline's setpoints as the schedule (the cooling setpoints' relinquish defaults) and the
-  West door contact from the scenario. The baseline run never gets a command.
+  West door contact from the scenario. The baseline run never gets a command. `HVAC-ENERGY`
+  adds each step's mean power times the step, like the telemetry (`EnergyMeter`).
 - **Commands** are network writes of a present value (WriteProperty or WritePropertyMultiple) at
   priority 8 (operators) to 16; the agent writes at 10, and a write without a priority is at 16.
   Priorities 1-7, read-only points, other properties, an array index, and analog values off
@@ -243,6 +293,13 @@ every object answers COV. The rules are pure, unit-tested modules: `priority.py`
   `WorldSettings.bms_address` and `bms_port`. Tests marked `bacnet` use 127.0.0.1 and ports from
   47900, and skip when a port is taken. macOS cannot run them: BACpypes3 opens a broadcast
   endpoint on 127.0.0.255, which macOS cannot bind.
+- **The PC's address.** The BMS binds its address once, at `start()`. On each tick `input()`
+  checks the address is still the PC's (`is_local_ipv4`: a socket can bind it; tests inject
+  `has_address`). Once it has been gone for `ADDRESS_LOST_TICKS` (2) ticks in a row (one is a
+  blip), a non-fatal error says `the PC's network changed: the BMS at <ip>:<port> is
+  unreachable; restart the run on one network`, once. When the address is back (a reconnect to
+  the same network), an info line says `the PC's address <ip> is back`, and a later loss is
+  reported again. The plants and the recording go on.
 - **BACpypes3 is pinned to 0.0.110** (the `bacnet` extra). The BMS works around two of its bugs
   (a multi-state value gets the analog COV criteria, so COV subscriptions to it crash; a refused
   WritePropertyMultiple is raised instead of answered) and waits on its private
@@ -377,7 +434,10 @@ dataset indexes and `CameraSceneProcessor` need only the core.
   - `GET /cameras/{id}/mjpeg`: new frames only, at most 5 a second. It ends when the client
     disconnects or the server stops.
   - `GET /healthz`. CORS lets `http://127.0.0.1:*` and `http://localhost:*` read every GET,
-    including the stale header.
+    including the stale header, and so does the dashboard's own page on a private address:
+    `http://<host>:<dashboard_port>` with `<host>` a loopback, RFC 1918 or link-local IP
+    (`create_http_app(routers, dashboard_port=...)`, `is_dashboard_origin`), so a dashboard
+    opened from another PC on the LAN reads the camera catalog.
 - **The live phone.** `PhoneCamera` polls `live_camera_url` at 2 fps with a 2 s timeout. It serves
   only an HTTP 200 JPEG under 5 MB that decodes, as it came, and reports its size in the
   catalog. It keeps the last good frame. It has no zone: it films the real room of the VRF
@@ -411,9 +471,10 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   lockstep publishes a frame's events before the next frame reaches the recorder.
 - **`TelemetryProcessor`** fills each `PlantMeasurementsFrame.summary` (`metered_summary`):
   every zone's temperature, setpoints, CO2 and airflow, the seven meters in kW by BMS point name
-  (`power_kw`, BOPTEST's ElectricPower basis), their total, and the run's energy: the trapezoid
-  rule over the stamps (`EnergyMeter`), from the run's first frame with all seven meters
-  (normally its initial state). BOPTEST leaves out values it reports as null, such as the `_u`
+  (`power_kw`, BOPTEST's ElectricPower basis: each step's means), their total, and the run's
+  energy: each step's mean power times the step (`EnergyMeter`, a rectangle per step), from the
+  run's first frame with all seven meters (normally its initial state, whose power is never
+  counted). BOPTEST leaves out values it reports as null, such as the `_u`
   setpoints of an initial state: a frame lacking a value keeps no summary, its power still
   counts if it has the meters, and that is logged once per run. The KPIs and the report skip
   such frames.
@@ -426,6 +487,10 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   - A provisional `KpiFrame` per run every 4 steps, ahead of the tick, with `boptest` empty.
   - At the first `EndFrame` or `CancelFrame`, one final `KpiFrame` per run that merges the
     plant's own final one (BOPTEST's KPIs); the plants' frames are not passed on.
+  - The cross-check, at that end: each run's energy against its plant's own, `ener_tot`
+    (kWh/m2) x the floor area, 1662.66 m2 (`plant_energy_kwh`). A difference of more than
+    `CROSS_CHECK_PCT` (0.1 %) is logged as a warning. A healthy run agrees to about 1e-4 %
+    (BOPTEST's J-to-kWh factor); more means power inside steps was missed.
   - Recovery times are not a KPI (the contract's `KpiData` has no field for them): the report
     computes them.
 - **`EventEmitterProcessor`** pushes an `EventFrame` for every event a frame becomes
@@ -458,8 +523,11 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     times, the final KPIs, and `dropped_events` (0 in a valid record, a warning otherwise).
   - The first `EndFrame` or `CancelFrame` finishes the record as one task, which the frame
     awaits through `asyncio.shield`: `stop()` while the `EndFrame` passes cannot cut it short,
-    and a later end frame waits for the same task. `ended` names the end frame that reached
-    the recorder first. The task writes what the writing task left if that task is gone.
+    and a later end frame waits for the same task. `ended` follows the end frame that reached
+    the recorder first, by `RunStatusProcessor`'s rule: `finished` after an `EndFrame`; after a
+    `CancelFrame`, `failed` if the last `RunStatusFrame` said so (a fatal error caused it),
+    else `cancelled` (stopped from outside, such as Ctrl+C). The task writes what the writing
+    task left if that task is gone.
   - Every recording failure is fatal: a run id outside `RUN_ID_PATTERN`, a directory that
     already holds a record (never appended to), a failed write (no manifest then). A run that
     never reaches an end frame keeps its flushed records, without a manifest; `cleanup()`
@@ -469,9 +537,14 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
   - Records are JSON: no image or audio bytes (`tests/telemetry/test_recorder.py` checks).
 - **Dashboard server**: `create_dashboard_app(bus, run_dir, dist_dir=None)`
   (`transports/websocket/dashboard.py`).
-  - `/ws/events`: every envelope as JSON text. Each client gets its own subscription (1000
-    messages, the oldest dropped first), made before its handshake ends; what it sends is
-    ignored.
+  - `/ws/events`: every envelope as JSON text. A client that joins mid-run first gets the run
+    so far, then the live events, each once and in order (`EventFeed`). The feed subscribes when
+    the app is made and runs in the app's lifespan (uvicorn and `HttpServerWorker` run it). Its
+    history keeps the current run's events, except `vrf_state` (the latest only) and `metrics`
+    (the latest of each metric, by name and labels); a `run_status` of another run clears it;
+    it holds at most `HISTORY_LIMIT` (50,000) events, dropping the oldest with one warning.
+    Each client has its own queue (1000 messages, the oldest dropped first), joined before its
+    handshake ends; what it sends is ignored. `replay` serves the same app.
   - `/ws/agent`: publish-only. One `EventEnvelope` per JSON text message, `source: "agent"`,
     type perception, decision, explanation or chat, at most 64 KB and 20 messages a second per
     connection, and no image: no string starting `data:` and none over 8192 characters
@@ -482,12 +555,22 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     events.
   - `GET /runs` (`{"runs": [...]}`); `GET /runs/{run_id}/events.jsonl` (422 for an id outside
     `RUN_ID_PATTERN`, 404 for an unknown run); `GET /healthz`; `/` serves `apps/dashboard/dist`
-    if it exists when the app is made. CORS as in `create_http_app`.
+    if it exists when the app is made. CORS lets this machine's pages (`LOCAL_ORIGINS`) read
+    the GET routes.
   - A failing socket ends only its own connection; `HttpServerWorker.stop()` closes them all.
 - **Report**: `spotcool-world report <run_id>` (`runner/report.py`) writes `report.md`,
   `power_energy.png`, `zone_temperatures.png` and `occupancy.png` into the run's directory under
   the settings' `run_dir`. The series come from the raw records through the telemetry's
   functions, the people from the `scenario_state` events, the KPIs from the manifest.
+  - The KPI table (`check_energy`) shows each run's energy by the step-mean integration and
+    by its plant's own, their difference (%), energy saved both ways (the manifest's saving is
+    never shown) and the steps whose power fell back (the last `plant_power_fallbacks` metric).
+  - The verdict follows it (`verdict`): `Quotable: X % saved`, the plants' own saving, or `Not
+    quotable:` with every blocker (`quote_blockers`, one sentence each). It blocks a plant that
+    is not BOPTEST (RC's cross-check is circular), a run that did not finish, dropped events, a
+    missing run or plant energy, any power fallback, a run more than `CROSS_CHECK_PCT` off its
+    plant's own, an unpaced run (speed 0) and a stub-agent run (an upper bound at best). A
+    step recovered after a dropped connection does not: its values are BOPTEST's own.
   - Recovery: for each zone and arrival (people after a step with none), the minutes until the
     zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
     on. Arrivals that never recover are listed.
@@ -545,23 +628,28 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   ends in `-stub`.
 - **Output.** At start-up it prints the URLs: the dashboard, its event stream, the camera
   catalog, the calendar and the BMS's address and port. A server on a wildcard host (`0.0.0.0`,
-  `::`) shows this PC's LAN address, then its loopback one. At the end: the run id, how it
-  ended, each plant run's energy, comfort where people were and energy saved, and the report
-  and replay commands. After a `--config` run those carry `SPOTCOOL_WORLD_RUN_DIR=<dir>` and
-  `--config <file>`. The exit code is 0 when the pipeline finished, 1 otherwise; invalid settings
+  `::`) shows this PC's LAN address, then its loopback one. At the end, from the recording: the
+  run id, how it ended (as the manifest says: `finished`, `failed` or `cancelled`), each plant
+  run's energy (the step-mean integration, its plant's own and
+  their difference) and comfort where people were, energy saved both ways, the report's verdict,
+  and the report and replay commands. After a `--config` run those carry
+  `SPOTCOOL_WORLD_RUN_DIR=<dir>` and `--config <file>`. The exit code is 0 when the pipeline
+  finished, 1 otherwise; invalid settings
   (such as `bms_address: localhost` or `log_level: VERBOSE`) print `run failed: ...` and exit 1.
 - **Lifecycle.** Before the runner, the BMS starts (`bms_address`, `bms_port`), then the cameras,
   and the calendar store follows `WORLD_FRAMES_TOPIC`. One `WorkerRunner` runs the pipeline,
   then the others. The pipeline's `on_pipeline_finished` stops the other workers, so the runner
   returns; its `on_pipeline_error` publishes errors raised above the emitter as `error` events
   (the emitter has made the others events already). After the runner, everything is stopped in
-  reverse order, the plants last.
-- **Ctrl+C** stops the run: the pipeline cancels first, the plants stop (both BOPTEST tests),
-  the recorder writes a `cancelled` manifest with the KPIs so far, then the other workers stop.
-  A second Ctrl+C cancels everything at once. A BOPTEST stop request already sent runs on: the
-  plant keeps it as a task, and its next `stop()`, which `World.run()` makes last, waits up to
-  15 s (`STOP_WAIT_S`) for it before closing the client, so `run()` never returns while one is
-  under way. During a BOPTEST plant start the first Ctrl+C waits for the start (Known
+  reverse order, the plants last and both at once.
+- **Ctrl+C** stops the run: the pipeline cancels first, the plants stop (both BOPTEST tests, at
+  once), the recorder writes a `cancelled` manifest with the KPIs so far, then the other
+  workers stop. A second Ctrl+C cancels everything at once; `cleanup()` then stops the plants,
+  both at once too (`ParallelPipeline.cleanup` cleans its branches up side by side). A BOPTEST
+  stop request already sent runs on: the plant keeps it as a task, and its next `stop()`,
+  which `World.run()` makes last, waits up to 65 s (`STOP_WAIT_S`: the request's 60 s of
+  retries and a margin) for it before closing the client, so `run()` never returns while one
+  is under way. During a BOPTEST plant start the first Ctrl+C waits for the start (Known
   limitations).
 - **Speed.** 300, the default, is for development: a step every 3 s, the day in 2.5 minutes.
   Use 60 or slower for integration and filming, because a clip's action needs wall time: the
@@ -588,12 +676,36 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   open. Each recorded scenario state goes through a `CameraSceneProcessor`, so the camera wall
   shows the take's scenes and people. Each step lasts `step_s / speed` after its `tick` event,
   as in the live run; the servers stop at the record's end.
+- **The PC stays on one network for the whole run.** The BMS binds the PC's IPv4 address when
+  the run starts, and the port forward to the Codespace dies with the network. Windows may move
+  a laptop to another saved Wi-Fi network mid-run (on 2 November, from 192.168.234.x to
+  192.168.1.x): the BMS then reports that its address is gone, A's agent can no longer reach
+  it, and the run must start again. Before a run, set every other saved network to connect
+  manually (`netsh wlan show profiles` lists them):
+
+  ```powershell
+  netsh wlan set profileparameter name="<profile>" connectionmode=manual
+  ```
+
+- **Supervise the port forward.** BACnet is UDP and a Codespace forward carries only TCP, so
+  every run with A's agent runs the world on the laptop and reaches BOPTEST through
+  `gh codespace ports forward`. A forward that exits (a dropped tunnel) is restarted by a loop
+  in its own terminal, outside the world:
+
+  ```bash
+  while :; do gh codespace ports forward 8000:8000 -c <codespace>; sleep 3; done
+  ```
+
+  The world rides out the gap: a step whose connection fails is recovered from BOPTEST's own
+  stored results within 300 s (Important patterns), and a stop retries for 60 s. A recovered
+  step at speed 60 only delays the run; the pacing resumes with the next tick.
 - **The BOPTEST checkpoint** (the lead runs it; not part of the test suite):
-  1. Bring the Codespace's stack up and forward its port (a separate terminal for the forward):
+  1. Bring the Codespace's stack up, and forward its port through the supervised loop (in a
+     separate terminal):
 
      ```bash
      gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision && docker compose ps'
-     gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp
+     while :; do gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp; sleep 3; done
      curl http://127.0.0.1:8000/version
      ```
 
@@ -608,12 +720,17 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
      The start (select, then a 3-day warm-up per test) takes a minute or two; then each step
      takes a BOPTEST round trip. Expect `run boptest-checkpoint finished (end time reached)`,
      the stub label, both runs' energy and comfort, and energy saved. The log shows
-     `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids.
+     `BOPTEST start: test=<id>` twice and `BOPTEST: stopped test <id>` for both ids, and no
+     `no power means` or `off its plant's own` warning. A tunnel that dropped shows `lost its
+     connection` for each recovered step, and the run still finishes. Each run's difference
+     from its plant's own is about 0.000 %, and the verdict's only blockers are the unpaced run
+     and the stub agent.
   4. Ctrl+C: start the same run with `--run-id boptest-ctrl-c`, press Ctrl+C after a few steps
      (after the start has returned). Expect `cancelled (SIGINT)` and both tests stopped in the
      log. Then run step 2 again: it must get a worker at once, which shows no test was left.
   5. `uv run spotcool-world report boptest-checkpoint`, and
-     `uv run spotcool-world replay boptest-checkpoint --speed 0`.
+     `uv run spotcool-world replay boptest-checkpoint --speed 0`. The report shows 0 power
+     fallbacks for both runs and the same verdict as the run.
   6. Stop the Codespace to save its quota: `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
 
 ## The stub agent
@@ -778,6 +895,14 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   path still stops its BOPTEST test: the plant's stop request runs on as a task of its own, and
   its next `stop()` waits for it. Letting the first Ctrl+C interrupt a start needs a change to
   the WP0 worker.
+- **Ctrl+C on a dead BOPTEST connection.** The first Ctrl+C cancels a step still recovering
+  at once (the tick is `TickSource`'s task, which the `CancelFrame` cancels as it passes). The
+  plants' final KPIs and their stops still follow, and on a dead connection each waits its
+  bound: the KPIs retry for up to `KPI_RETRY_S` (60 s, plus an attempt under way, up to
+  120 s), then the stops wait up to `STOP_WAIT_S` (65 s). So the first Ctrl+C can take about
+  four minutes to end such a run; a second one skips the KPIs, and the stops still wait. A
+  frame queued on the worker by hand (tests do) does wait behind a tick in flight, up to
+  `RECOVERY_S` for a recovering step.
 
 ## Windows notes
 

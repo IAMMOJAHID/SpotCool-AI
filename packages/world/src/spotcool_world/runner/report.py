@@ -5,25 +5,38 @@
 
 The series come from the record's raw measurements, through the ``TelemetryProcessor``'s own
 ``metered_summary`` (a state lacking a value is left out, its power still counted), and the
-people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The
-report adds recovery times, which the contract's ``KpiData`` has no field for. A stub run's
-report (``stub_agent`` in the manifest's settings) opens with ``STUB_AGENT_NOTE``.
+people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The KPI
+table shows each run's energy two ways, the plant's own (``ener_tot`` times the floor area) and
+the world's step-mean integration, energy saved both ways, and the steps whose power fell back
+to its end-of-step value. Below it, ``verdict`` says whether the plants' own saving may be
+quoted (``quote_blockers``). The report adds recovery times, which the contract's ``KpiData``
+has no field for. A stub run's report (``stub_agent`` in the manifest's settings) opens with
+``STUB_AGENT_NOTE``.
 """
 
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from spotcool_contracts import ZONES, Zone
 from spotcool_contracts.events import (
     EventType,
+    MetricsData,
     PlantMeasurementsData,
     Run,
     ScenarioStateData,
     ZoneMeasurement,
 )
 from spotcool_world.clocks import SimClock
-from spotcool_world.processors.kpi import RUNS
+from spotcool_world.processors.kpi import (
+    CROSS_CHECK_PCT,
+    RUNS,
+    cross_check_pct,
+    energy_saved_pct,
+    plant_energy_kwh,
+)
+from spotcool_world.processors.plant_processor import POWER_FALLBACKS_METRIC
 from spotcool_world.processors.telemetry import EnergyMeter, metered_summary
 from spotcool_world.scenarios import sim_datetime
 from spotcool_world.serializers.jsonl import (
@@ -34,6 +47,7 @@ from spotcool_world.serializers.jsonl import (
     RunManifest,
     read_records,
 )
+from spotcool_world.services.boptest.catalog import load_catalog
 
 REPORT_FILE = "report.md"
 """The report's name inside the run directory."""
@@ -50,6 +64,8 @@ STUB_AGENT_NOTE = "(stub agent: perfect perception from the scenario script, not
 POWER_CHART = "power_energy.png"
 ZONES_CHART = "zone_temperatures.png"
 OCCUPANCY_CHART = "occupancy.png"
+BOPTEST_PLANTS = ("boptest-local", "boptest-hosted")
+"""The plants whose own energy is independent of the world's integration: only theirs is quoted."""
 
 _LABELS: dict[Run, str] = {"spotcool": "SpotCool", "baseline": "Baseline"}
 _COLORS: dict[Run, str] = {"spotcool": "#2a78d6", "baseline": "#eb6834"}  # dataviz slots 1, 2
@@ -77,11 +93,35 @@ class RecordedRun:
         manifest: The run's manifest.
         samples: Each plant run's states in time order, the initial state first.
         states: The scenario state of each tick, by the tick's time.
+        fallbacks: Each plant run's steps whose power fell back to its end-of-step value (the
+            last ``POWER_FALLBACKS_METRIC`` sample; 0 without one).
     """
 
     manifest: RunManifest
     samples: dict[Run, list[Sample]]
     states: list[tuple[float, ScenarioStateData]]
+    fallbacks: dict[Run, int] = field(default_factory=lambda: dict.fromkeys(RUNS, 0))
+
+
+@dataclass(frozen=True)
+class EnergyCheck:
+    """A recorded run's energy two ways, and its energy saved two ways.
+
+    Parameters:
+        integrated: Each plant run's energy by the world's step-mean integration (kWh).
+        own: Each plant run's energy by its plant's own account, ``ener_tot`` times the floor
+            area (kWh); ``None`` if the plant reported none.
+        differences: Each plant run's integrated energy against its plant's own (%); ``None``
+            without both, or when the plant used no energy.
+        saved_own: Energy saved by the plants' own energy (%): the figure to quote.
+        saved_integrated: Energy saved by the step-mean integration (%): its check.
+    """
+
+    integrated: dict[Run, float]
+    own: dict[Run, float | None]
+    differences: dict[Run, float | None]
+    saved_own: float | None
+    saved_integrated: float | None
 
 
 @dataclass(frozen=True)
@@ -124,6 +164,7 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
     manifest = RunManifest.model_validate_json((folder / MANIFEST_FILE).read_text("utf-8"))
     raws: dict[Run, list[RawRecord]] = {run: [] for run in RUNS}
     states: list[tuple[float, ScenarioStateData]] = []
+    fallbacks: dict[Run, int] = dict.fromkeys(RUNS, 0)
     for record in read_records(folder / EVENTS_FILE):
         if isinstance(record, RawRecord):
             raws[record.run].append(record)
@@ -131,10 +172,118 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
             t_s = record.envelope.sim_time_s
             if t_s is not None:
                 states.append((t_s, ScenarioStateData.model_validate(record.envelope.data)))
+        elif record.envelope.type is EventType.METRICS:
+            metric = MetricsData.model_validate(record.envelope.data)
+            name = metric.labels.get("run")
+            if metric.name == POWER_FALLBACKS_METRIC and name in fallbacks:
+                fallbacks[name] = int(metric.value)
     samples: dict[Run, list[Sample]] = {
         run: drawn for run, records in raws.items() if (drawn := _samples(run, records))
     }
-    return RecordedRun(manifest, samples, sorted(states, key=lambda entry: entry[0]))
+    return RecordedRun(manifest, samples, sorted(states, key=lambda entry: entry[0]), fallbacks)
+
+
+def check_energy(run: RecordedRun) -> EnergyCheck:
+    """Each plant run's energy two ways, and energy saved two ways.
+
+    Args:
+        run: The recorded run.
+    """
+    kpis = run.manifest.final_kpis
+    integrated: dict[Run, float] = {
+        name: samples[-1].summary.energy_kwh for name, samples in run.samples.items()
+    }
+    own: dict[Run, float | None] = {
+        name: plant_energy_kwh(kpis[name].boptest) if name in kpis else None for name in RUNS
+    }
+    differences: dict[Run, float | None] = dict.fromkeys(RUNS)
+    for name, plant in own.items():
+        if name in integrated and plant is not None:
+            differences[name] = cross_check_pct(integrated[name], plant)
+    return EnergyCheck(integrated, own, differences, _saved(own), _saved(integrated))
+
+
+def _saved(energy: Mapping[Run, float | None]) -> float | None:
+    """Energy saved by these energies, or ``None`` without both runs'."""
+    spotcool, baseline = energy.get("spotcool"), energy.get("baseline")
+    return None if spotcool is None or baseline is None else energy_saved_pct(baseline, spotcool)
+
+
+def quote_blockers(run: RecordedRun) -> list[str]:
+    """Why the run's energy saved may not be quoted, one sentence each; empty when it may.
+
+    The figure to quote is energy saved by the plants' own energy; the world's step-mean
+    integration is its check (``check_energy``). It takes a BOPTEST run that finished, lost no
+    events, ran paced and was not driven by the stub agent, with both runs measured, both
+    plants' energy, no power that fell back to its end-of-step value, and each run's
+    integration within ``CROSS_CHECK_PCT`` of its plant's own.
+
+    Args:
+        run: The recorded run.
+    """
+    manifest, check = run.manifest, check_energy(run)
+    blockers: list[str] = []
+    if manifest.plant == "rc":
+        blockers.append(
+            "The plant is rc, our own reduced model, and its cross-check is circular: both "
+            "energies come from the same sub-step sums."
+        )
+    elif manifest.plant not in BOPTEST_PLANTS:
+        blockers.append(f"The plant is {manifest.plant}, not BOPTEST (local or hosted).")
+    if manifest.ended != "finished":
+        how = "it failed" if manifest.ended == "failed" else f"it was {manifest.ended}"
+        blockers.append(f"The run did not finish: {how} ({manifest.end_reason}).")
+    if manifest.dropped_events:
+        blockers.append(f"The recorder dropped {manifest.dropped_events} events.")
+    for name in RUNS:
+        label, own, difference = _LABELS[name], check.own[name], check.differences[name]
+        if name not in check.integrated:
+            blockers.append(f"The {label} run has no measurements, so no saving can be computed.")
+        elif own is None or own <= 0:
+            blockers.append(f"The {label} plant reported no energy, so no saving can be computed.")
+        elif difference is not None and abs(difference) > CROSS_CHECK_PCT:
+            blockers.append(
+                f"The {label} run's step-mean integration is {difference:+.3f} % off its "
+                f"plant's own energy, more than {CROSS_CHECK_PCT:g} %."
+            )
+        if fallbacks := run.fallbacks.get(name, 0):
+            blockers.append(
+                f"The {label} run's power fell back to its end-of-step value in {fallbacks} of "
+                "its steps."
+            )
+    if not manifest.settings.get("speed"):
+        blockers.append(
+            "The run was unpaced (speed 0): the agent's writes land at random points between "
+            "steps, so it does not reproduce."
+        )
+    if manifest.settings.get("stub_agent"):
+        blockers.append(
+            "A stub agent ran it, with perfect perception: quote it only as an upper bound with "
+            "perfect perception, labelled so."
+        )
+    return blockers
+
+
+def verdict(run: RecordedRun) -> list[str]:
+    """Whether the run's energy saved may be quoted, as lines.
+
+    Args:
+        run: The recorded run.
+
+    Returns:
+        ``Quotable: ...`` with the plants' own saving alone, or ``Not quotable:`` followed by
+        every ``quote_blockers`` sentence.
+    """
+    blockers = quote_blockers(run)
+    if blockers:
+        return ["Not quotable:", *blockers]
+    check = check_energy(run)
+    assert check.saved_own is not None  # no blockers: both runs and both plants' energy
+    agree = max(abs(d) for d in check.differences.values() if d is not None)
+    return [
+        f"Quotable: {check.saved_own:.2f} % saved (the plants' own energy; the world's "
+        f"step-mean integration agrees within {agree:.3f} %)."
+    ]
 
 
 def arrivals(run: RecordedRun) -> list[Arrival]:
@@ -235,6 +384,8 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
         "",
         *_kpi_table(run, runs),
         "",
+        *_verdict_lines(run),
+        "",
         "## Recovery after arrivals",
         "",
         *_recovery_lines(found, runs),
@@ -255,12 +406,22 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
     return "\n".join(lines)
 
 
+def _verdict_lines(run: RecordedRun) -> list[str]:
+    """The verdict in Markdown: its first line, then any blockers as a list."""
+    head, *blockers = verdict(run)
+    return [head, "", *(f"- {blocker}" for blocker in blockers)] if blockers else [head]
+
+
 def _kpi_table(run: RecordedRun, runs: list[Run]) -> list[str]:
-    kpis = run.manifest.final_kpis
-    saved = kpis["spotcool"].energy_saved_pct if "spotcool" in kpis else None
-    rows: list[tuple[str, dict[Run, float | None], int]] = [
-        ("HVAC energy (kWh)", {name: run.samples[name][-1].summary.energy_kwh for name in runs}, 1),
-        ("Energy saved (%)", {"spotcool": saved}, 1),
+    kpis, check = run.manifest.final_kpis, check_energy(run)
+    area = load_catalog().area_m2
+    rows: list[tuple[str, Mapping[Run, float | None], int]] = [
+        ("HVAC energy, step-mean integration (kWh)", check.integrated, 1),
+        (f"HVAC energy, plant's own: `ener_tot` x {area:g} m2 (kWh)", check.own, 1),
+        ("Difference from the plant's own (%)", check.differences, 3),
+        ("Energy saved, plants' own (%)", {"spotcool": check.saved_own}, 2),
+        ("Energy saved, step-mean integration (%)", {"spotcool": check.saved_integrated}, 2),
+        ("Power readings that fell back (steps)", run.fallbacks, 0),
         (
             "Comfort where people were (K h)",
             {name: kpi.comfort_where_people_kh for name, kpi in kpis.items()},
@@ -269,10 +430,10 @@ def _kpi_table(run: RecordedRun, runs: list[Run]) -> list[str]:
     ]
     names = dict.fromkeys(key for name in runs if name in kpis for key in kpis[name].boptest)
     for key in names:
-        values: dict[Run, float | None] = {
+        boptest: dict[Run, float | None] = {
             name: kpis[name].boptest.get(key) for name in runs if name in kpis
         }
-        rows.append((f"BOPTEST `{key}`", values, 4))
+        rows.append((f"BOPTEST `{key}`", boptest, 4))
     header = "| KPI | " + " | ".join(_LABELS[name] for name in runs) + " |"
     lines = [header, "|---|" + "---:|" * len(runs)]
     for label, values, digits in rows:
@@ -306,7 +467,8 @@ def _recovery_lines(found: list[Arrival], runs: list[Run]) -> list[str]:
 
 
 def _number(value: float | None, digits: int) -> str:
-    return "n/a" if value is None else f"{value:.{digits}f}"
+    # + 0.0 turns a rounded -0.0 into 0.0
+    return "n/a" if value is None else f"{round(value, digits) + 0.0:.{digits}f}"
 
 
 def _draw_charts(run: RecordedRun, folder: Path) -> None:
@@ -347,9 +509,10 @@ def _draw_charts(run: RecordedRun, folder: Path) -> None:
     for name, samples in run.samples.items():
         x = [hours(s.t_s) for s in samples]
         style = {"color": _COLORS[name], "linewidth": 1.6, "label": _LABELS[name]}
-        power.plot(x, [s.summary.total_power_kw for s in samples], **style)
+        # A step's mean power holds over the step that ends at its stamp.
+        power.plot(x, [s.summary.total_power_kw for s in samples], drawstyle="steps-pre", **style)
         energy.plot(x, [s.summary.energy_kwh for s in samples], **style)
-    power.set_ylabel("Power (kW)", color=_MUTED)
+    power.set_ylabel("Step-mean power (kW)", color=_MUTED)
     energy.set_ylabel("Energy (kWh)", color=_MUTED)
     power.legend(frameon=False, labelcolor=_INK)
     fig.savefig(folder / POWER_CHART, dpi=120)

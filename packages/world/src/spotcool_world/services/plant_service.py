@@ -38,6 +38,23 @@ class PlantService(ABC):
     def step_s(self) -> float:
         """Simulation seconds each ``step()`` advances."""
 
+    @property
+    def power_fallbacks(self) -> int:
+        """Steps whose seven meters are their end-of-step values, not their means: 0 by default.
+
+        A provider that can fail to read the means (BOPTEST) overrides it.
+        """
+        return 0
+
+    @property
+    def connection_recoveries(self) -> int:
+        """Steps recovered after their connection to the plant failed: 0 by default.
+
+        A recovered step's values are the plant's own. A provider behind a network (BOPTEST)
+        overrides it.
+        """
+        return 0
+
     @abstractmethod
     async def start(self, params: PlantStartParams) -> dict[str, float]:
         """Start (or restart) the plant.
@@ -46,12 +63,17 @@ class PlantService(ABC):
             params: Start time, step and warm-up.
 
         Returns:
-            The initial measurements, BOPTEST output name to value.
+            The initial measurements, BOPTEST output name to value. No step has run, so the
+            meters are instantaneous.
         """
 
     @abstractmethod
     async def step(self, overrides: Mapping[str, float | None]) -> dict[str, float]:
         """Advance one step with the given inputs.
+
+        The seven ElectricPower meters (``catalog.electric_power``) are their means over the
+        step that just ended; every other value is the one at the end of the step. The initial
+        state's meters (``start()``) are instantaneous and never integrated.
 
         Args:
             overrides: BOPTEST input name to value. ``None`` releases the input
