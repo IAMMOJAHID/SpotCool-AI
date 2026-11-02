@@ -245,6 +245,10 @@ def test_a_paced_whole_boptest_run_without_a_stub_is_quotable(quotable: Recorded
             lambda run: with_manifest(run, ended="cancelled", end_reason="SIGINT"),
             "The run did not finish: it was cancelled (SIGINT).",
         ),
+        (
+            lambda run: with_manifest(run, ended="failed", end_reason="spotcool plant step failed"),
+            "The run did not finish: it failed (spotcool plant step failed).",
+        ),
         (lambda run: with_manifest(run, dropped_events=3), "The recorder dropped 3 events."),
         (
             lambda run: replace(run, samples={"spotcool": run.samples["spotcool"]}),
@@ -277,7 +281,8 @@ def test_a_paced_whole_boptest_run_without_a_stub_is_quotable(quotable: Recorded
     ids=[
         "rc",
         "not-boptest",
-        "not-finished",
+        "cancelled",
+        "failed",
         "dropped-events",
         "a-run-missing",
         "no-plant-energy",

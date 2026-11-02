@@ -46,6 +46,15 @@ class PlantService(ABC):
         """
         return 0
 
+    @property
+    def connection_recoveries(self) -> int:
+        """Steps recovered after their connection to the plant failed: 0 by default.
+
+        A recovered step's values are the plant's own. A provider behind a network (BOPTEST)
+        overrides it.
+        """
+        return 0
+
     @abstractmethod
     async def start(self, params: PlantStartParams) -> dict[str, float]:
         """Start (or restart) the plant.

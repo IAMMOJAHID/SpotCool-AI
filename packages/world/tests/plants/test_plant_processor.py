@@ -17,7 +17,10 @@ from spotcool_world.frames import (
 )
 from spotcool_world.pipeline import Pipeline, PipelineParams
 from spotcool_world.processors import FrameDirection, FrameProcessor, PlantProcessor
-from spotcool_world.processors.plant_processor import POWER_FALLBACKS_METRIC
+from spotcool_world.processors.plant_processor import (
+    CONNECTION_RECOVERIES_METRIC,
+    POWER_FALLBACKS_METRIC,
+)
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.services import PlantService, PlantStartParams
 from spotcool_world.services.boptest.catalog import bms_signal
@@ -31,7 +34,8 @@ START_S = 198 * 86_400 + 7 * 3600
 class FakePlant(PlantService):
     """Records every call; its measurements are the number of calls so far.
 
-    The steps (from 1) in ``fall_back`` count as power fallbacks.
+    The steps (from 1) in ``fall_back`` count as power fallbacks, those in ``recover`` as
+    connection recoveries.
     """
 
     def __init__(
@@ -40,12 +44,15 @@ class FakePlant(PlantService):
         fail_start: bool = False,
         fail_step: bool = False,
         fall_back: set[int] | None = None,
+        recover: set[int] | None = None,
     ) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.fail_start = fail_start
         self.fail_step = fail_step
         self.fall_back = fall_back or set()
         self.fallbacks = 0
+        self.recover = recover or set()
+        self.recoveries = 0
 
     @property
     def step_s(self) -> float:
@@ -54,6 +61,10 @@ class FakePlant(PlantService):
     @property
     def power_fallbacks(self) -> int:
         return self.fallbacks
+
+    @property
+    def connection_recoveries(self) -> int:
+        return self.recoveries
 
     async def start(self, params: PlantStartParams) -> dict[str, float]:
         self.calls.append(("start", params))
@@ -65,8 +76,9 @@ class FakePlant(PlantService):
         self.calls.append(("step", dict(overrides)))
         if self.fail_step:
             raise RuntimeError("boom")
-        if sum(call == "step" for call, _ in self.calls) in self.fall_back:
-            self.fallbacks += 1
+        steps = sum(call == "step" for call, _ in self.calls)
+        self.fallbacks += steps in self.fall_back
+        self.recoveries += steps in self.recover
         return {"time": float(len(self.calls))}
 
     async def kpis(self) -> dict[str, float | None]:
@@ -240,6 +252,33 @@ async def test_a_step_whose_power_fell_back_is_a_non_fatal_error_and_a_metric() 
         if sample.name == POWER_FALLBACKS_METRIC
     ]
     assert counts == [(1, {"run": "spotcool"})]  # once, when the count rose
+    assert names(down)[-1] == "KpiFrame"  # the run went on
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_step_is_a_non_fatal_error_and_a_metric() -> None:
+    plant = FakePlant(recover={2})
+    down, up = await run_test(
+        PlantProcessor(plant, "baseline"),
+        frames_to_send=[tick(0), tick(1), tick(2)],
+        params=params(),
+    )
+    assert [(f.fatal, f.message) for f in up if isinstance(f, ErrorFrame)] == [
+        (
+            False,
+            "baseline plant: step 1 (07:15-07:30) was recovered after its connection to the "
+            "plant failed; its values are the plant's own (connection recoveries so far: 1)",
+        )
+    ]
+    counts = [
+        (sample.value, sample.labels)
+        for frame in down
+        if isinstance(frame, MetricsFrame)
+        for sample in frame.samples
+        if sample.name == CONNECTION_RECOVERIES_METRIC
+    ]
+    assert counts == [(1, {"run": "baseline"})]  # once, when the count rose
+    assert names(down).count("PlantMeasurementsFrame") == 4  # the initial state and 3 steps
     assert names(down)[-1] == "KpiFrame"  # the run went on
 
 

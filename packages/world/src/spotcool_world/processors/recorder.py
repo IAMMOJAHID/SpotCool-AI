@@ -22,6 +22,7 @@ from spotcool_world.frames import (
     Frame,
     KpiFrame,
     PlantMeasurementsFrame,
+    RunStatusFrame,
     StartFrame,
     TickFrame,
 )
@@ -68,11 +69,14 @@ class RecorderProcessor(FrameProcessor):
     last events (lockstep: everything the pipeline published has passed ``BusPublisher`` by
     then), waits for the writes, writes any batch the writing task left, and writes
     ``manifest.json`` (``RunManifest``) with the final ``KpiFrame``s it saw, then closes the
-    file. The end frame waits for that task through ``asyncio.shield``, so a cancel of the
-    task carrying it (``stop()`` while it passes) cannot cut the record short, and a later end
-    frame waits for the same task. This happens before the base class handles the frame,
-    since a downstream ``CancelFrame`` cancels this processor's tasks. A full subscription
-    drops events; the manifest counts them in ``dropped_events`` and a warning is logged.
+    file. Its ``ended`` is ``finished`` after an ``EndFrame``; after a ``CancelFrame`` it is
+    ``failed`` if the last ``RunStatusFrame`` said so (``RunStatusProcessor``: a fatal error
+    caused the cancel), else ``cancelled``. The end frame waits for that task through
+    ``asyncio.shield``, so a cancel of the task carrying it (``stop()`` while it passes) cannot
+    cut the record short, and a later end frame waits for the same task. This happens before
+    the base class handles the frame, since a downstream ``CancelFrame`` cancels this
+    processor's tasks. A full subscription drops events; the manifest counts them in
+    ``dropped_events`` and a warning is logged.
 
     A run without its record is invalid, so every recording failure is fatal: an unsafe run id
     (``RUN_ID_PATTERN``), a run directory that already holds a recording or cannot be made, a
@@ -102,6 +106,7 @@ class RecorderProcessor(FrameProcessor):
         self._scenario_sha256: str | None = None
         self._indices: dict[Run, int] = {}
         self._final_kpis: dict[Run, KpiData] = {}
+        self._failed_run = False  # the last RunStatusFrame said "failed"
         self._batch: list[Record] = []
         self._batches: asyncio.Queue[list[Record] | None] = asyncio.Queue()
         self._writing: asyncio.Task[Any] | None = None
@@ -158,6 +163,7 @@ class RecorderProcessor(FrameProcessor):
         self._git_sha = await asyncio.to_thread(_git_sha)
         self._scenario_sha256 = await asyncio.to_thread(_scenario_sha256, start.scenario)
         self._indices, self._final_kpis, self._batch, self._failed = {}, {}, [], False
+        self._failed_run = False
         self._writing = self.create_task(self._write(writer), "write")
 
     async def _record(self, frame: Frame) -> None:
@@ -180,6 +186,8 @@ class RecorderProcessor(FrameProcessor):
             self._batch.append(raw)
         elif isinstance(frame, KpiFrame) and not frame.data.provisional:
             self._final_kpis[frame.data.run] = frame.data
+        elif isinstance(frame, RunStatusFrame):
+            self._failed_run = frame.data.status == "failed"
         elif isinstance(frame, TickFrame):
             self._batches.put_nowait(self._batch)  # written and flushed once per tick
             self._batch = []
@@ -269,10 +277,14 @@ class RecorderProcessor(FrameProcessor):
     def _manifest(
         self, frame: EndFrame | CancelFrame, start: StartFrame, dropped: int
     ) -> RunManifest:
+        if isinstance(frame, EndFrame):
+            ended = "finished"
+        else:
+            ended = "failed" if self._failed_run else "cancelled"
         return RunManifest(
             run_id=start.run_id,
             created_utc=self._created,
-            ended="finished" if isinstance(frame, EndFrame) else "cancelled",
+            ended=ended,
             end_reason=frame.reason,
             settings=_redacted(self._settings),
             git_sha=self._git_sha,

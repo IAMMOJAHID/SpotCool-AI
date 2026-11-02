@@ -6,8 +6,9 @@ and what they produce comes out in branch order, so every run is identical.
 
 import asyncio
 import functools
-from collections.abc import Sequence
+from collections.abc import Awaitable, Iterable, Sequence
 from contextvars import ContextVar
+from typing import Any
 
 from spotcool_world.frames import Frame, StartFrame
 from spotcool_world.pipeline.pipeline import PipelineSink, PipelineSource, link_all
@@ -34,6 +35,13 @@ class _Collection:
 _collections: ContextVar[dict[int, _Collection] | None] = ContextVar(
     "spotcool_parallel_collections", default=None
 )
+
+
+async def _all_or_raise(awaitables: Iterable[Awaitable[Any]]) -> None:
+    """Await all at once; once every one has finished, raise the first exception, if any."""
+    for result in await asyncio.gather(*awaitables, return_exceptions=True):
+        if isinstance(result, BaseException):
+            raise result
 
 
 class ParallelPipeline(FrameProcessor):
@@ -82,11 +90,18 @@ class ParallelPipeline(FrameProcessor):
                 await processor.setup(setup)
 
     async def cleanup(self) -> None:
-        """Clean up the parallel pipeline and every processor in every branch."""
+        """Clean up the parallel pipeline and every processor in every branch.
+
+        The branches clean up at once (each in its own order), so two plants stopping take the
+        time of one.
+        """
         await super().cleanup()
-        for chain in self._branches:
-            for processor in chain:
-                await processor.cleanup()
+        await _all_or_raise(self._clean_up(chain) for chain in self._branches)
+
+    @staticmethod
+    async def _clean_up(chain: Sequence[FrameProcessor]) -> None:
+        for processor in chain:
+            await processor.cleanup()
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         """Fan the frame out to every branch."""
@@ -115,13 +130,9 @@ class ParallelPipeline(FrameProcessor):
 
     async def _run_branches(self, frame: Frame, direction: FrameDirection) -> None:
         entry = 0 if direction is FrameDirection.DOWNSTREAM else -1
-        results = await asyncio.gather(
-            *(chain[entry].process_frame(frame, direction) for chain in self._branches),
-            return_exceptions=True,  # let every branch finish its step before raising
+        await _all_or_raise(
+            chain[entry].process_frame(frame, direction) for chain in self._branches
         )
-        for result in results:
-            if isinstance(result, BaseException):
-                raise result
 
     async def _leave_downstream(self, index: int, frame: Frame) -> None:
         collection = (_collections.get() or {}).get(self.id)

@@ -27,6 +27,8 @@ from its initial state: after one, they are still at 22-23 degC at 10:00 on the 
 day. It costs about a minute on BOPTEST and well under a second on the RC plant."""
 POWER_FALLBACKS_METRIC = "plant_power_fallbacks"
 """The metric that counts a run's steps whose power is the end-of-step value, not the mean."""
+CONNECTION_RECOVERIES_METRIC = "plant_connection_recoveries"
+"""The metric that counts a run's steps recovered after their connection to the plant failed."""
 
 
 class PlantProcessor(FrameProcessor):
@@ -41,9 +43,11 @@ class PlantProcessor(FrameProcessor):
     - ``TickFrame``: steps the plant (the baseline always with no overrides), then pushes a
       ``PlantMeasurementsFrame`` stamped with the end of the step (tick time plus ``step_s``,
       the time the values describe), a ``MetricsFrame`` stamped with the tick's time (step
-      latency, simulated seconds per wall second), then the tick. A step whose power fell back
-      to its end-of-step value (the plant's ``power_fallbacks`` rose) adds a non-fatal error
-      naming the run and the step, and the run's count as a ``POWER_FALLBACKS_METRIC`` sample.
+      latency, simulated seconds per wall second), then the tick. A step recovered after its
+      connection to the plant failed (the plant's ``connection_recoveries`` rose) adds a
+      non-fatal error naming the run and the step, and the run's count as a
+      ``CONNECTION_RECOVERIES_METRIC`` sample; a step whose power fell back to its end-of-step
+      value (``power_fallbacks`` rose) does the same with ``POWER_FALLBACKS_METRIC``.
     - ``EndFrame`` or ``CancelFrame``: pushes the plant's final ``KpiFrame``, then stops it.
 
     A plant that fails to start or step is a fatal error: the run cannot go on without it.
@@ -75,6 +79,7 @@ class PlantProcessor(FrameProcessor):
         self._started = False
         self._stopped = False
         self._fallbacks = 0  # the plant's power_fallbacks after the last step
+        self._recoveries = 0  # the plant's connection_recoveries after the last step
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         """Start, command, step and stop the plant as frames arrive; pass every frame on."""
@@ -148,10 +153,23 @@ class PlantProcessor(FrameProcessor):
             samples.append(
                 MetricsData(name="plant_time_ratio", value=ratio, unit="1", labels=labels)
             )
+        span = f"{SimClock.clock_text(frame.sim_time_s)}-{SimClock.clock_text(end_s)}"
+        recoveries = self._service.connection_recoveries
+        if recoveries > self._recoveries:
+            self._recoveries = recoveries
+            await self.push_error(
+                f"{self._run} plant: step {frame.index} ({span}) was recovered after its "
+                f"connection to the plant failed; its values are the plant's own (connection "
+                f"recoveries so far: {recoveries})"
+            )
+            samples.append(
+                MetricsData(
+                    name=CONNECTION_RECOVERIES_METRIC, value=recoveries, unit="1", labels=labels
+                )
+            )
         fallbacks = self._service.power_fallbacks
         if fallbacks > self._fallbacks:
             self._fallbacks = fallbacks
-            span = f"{SimClock.clock_text(frame.sim_time_s)}-{SimClock.clock_text(end_s)}"
             await self.push_error(
                 f"{self._run} plant: step {frame.index} ({span}) reports its end-of-step power, "
                 f"not its mean over the step (power fallbacks so far: {fallbacks})"

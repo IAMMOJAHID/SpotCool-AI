@@ -28,6 +28,7 @@ from spotcool_world.frames import (
 from spotcool_world.pipeline import PipelineParams
 from spotcool_world.processors import FrameDirection, FrameProcessor, RecorderProcessor
 from spotcool_world.processors import recorder as recorder_module
+from spotcool_world.processors.run_status import RunStatusProcessor
 from spotcool_world.scenarios.loader import scenario_path
 from spotcool_world.serializers import (
     EVENTS_FILE,
@@ -289,6 +290,36 @@ async def test_a_cancelled_run_still_gets_its_manifest(record_world: RecordWorld
     assert set(manifest.final_kpis) == {"spotcool", "baseline"}  # the plants' KPIs at the cancel
     raws = [r for r in read_records(run.folder / EVENTS_FILE) if isinstance(r, RawRecord)]
     assert {r.index for r in raws} == {0, 1, 2}  # the initial states and two steps
+
+
+class FailAtTick(FrameProcessor):
+    """Reports a fatal error once a tick has passed, as a failed plant step does."""
+
+    def __init__(self, index: int) -> None:
+        super().__init__()
+        self._index = index
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        await self.push_frame(frame, direction)
+        if isinstance(frame, TickFrame) and frame.index == self._index:
+            await self.push_error("the plant broke", fatal=True)
+
+
+@pytest.mark.parametrize(
+    ("fatal", "ended", "reason"),
+    [(True, "failed", "the plant broke"), (False, "cancelled", "operator stop")],
+    ids=["fatal-error", "stopped"],
+)
+@pytest.mark.asyncio
+async def test_a_cancelled_run_ends_as_its_run_status_says(
+    record_world: RecordWorld, fatal: bool, ended: str, reason: str
+) -> None:
+    status = RunStatusProcessor("run-1", "rc", "hybrid_tuesday")
+    run = await record_world(steps=4, extra=[status, FailAtTick(1) if fatal else CancelAtTick(1)])
+    assert run.worker.state is WorkerState.CANCELLED
+    manifest = manifest_of(run.folder)
+    assert (manifest.ended, manifest.end_reason) == (ended, reason)
 
 
 @pytest.mark.asyncio

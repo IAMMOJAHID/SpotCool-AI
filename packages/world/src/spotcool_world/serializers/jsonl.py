@@ -81,7 +81,8 @@ class RunManifest(BaseModel):
     Parameters:
         run_id: The run's identifier, also its directory's name.
         created_utc: When the run started, wall clock in UTC.
-        ended: ``finished`` after an ``EndFrame``, ``cancelled`` after a ``CancelFrame``.
+        ended: ``finished`` after an ``EndFrame``; after a ``CancelFrame``, ``failed`` when a
+            fatal error caused it, else ``cancelled`` (stopped from outside, such as Ctrl+C).
         end_reason: The reason the ending frame carried.
         settings: The run's ``WorldSettings``, with secrets redacted.
         git_sha: The commit the world ran from, or ``None`` outside a git checkout.
@@ -101,7 +102,7 @@ class RunManifest(BaseModel):
 
     run_id: str
     created_utc: datetime
-    ended: Literal["finished", "cancelled"]
+    ended: Literal["finished", "cancelled", "failed"]
     end_reason: str
     settings: dict[str, Any]
     git_sha: str | None

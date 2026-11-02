@@ -241,9 +241,9 @@ class World(BaseObject):
         and the calendar store follows ``WORLD_FRAMES_TOPIC``. Then one ``WorkerRunner`` runs
         the pipeline and the workers: the first Ctrl+C stops the run gracefully, a second
         cancels it. The run's end (its ``EndFrame`` or ``CancelFrame``) stops the workers. After
-        them, everything started is stopped again, in reverse order, the plants last: a plant's
-        ``stop()`` waits, bounded, for a stop request still on its way (``STOP_WAIT_S`` for
-        BOPTEST), so ``run()`` never returns while one is.
+        them, everything started is stopped again, in reverse order, the plants last and both
+        at once: a plant's ``stop()`` waits, bounded, for a stop request still on its way
+        (``STOP_WAIT_S`` for BOPTEST), so ``run()`` never returns while one is.
 
         Args:
             handle_sigint: Let the runner handle Ctrl+C (off in tests).
@@ -256,8 +256,7 @@ class World(BaseObject):
             raise RuntimeError(f"{self.name} has already run")
         self._ran = True
         async with contextlib.AsyncExitStack() as stack:
-            for plant in self.plants.values():
-                stack.push_async_callback(plant.stop)
+            stack.push_async_callback(self._stop_plants)
             try:
                 await self.bms.start()
             except OSError as exc:
@@ -275,6 +274,13 @@ class World(BaseObject):
             # The pipeline first: Ctrl+C stops it first, and its end stops the rest. The workers
             # still subscribe before the first tick, whose task starts after theirs.
             await runner.run(self.pipeline, *self.workers)
+
+    async def _stop_plants(self) -> None:
+        """Stop both plants at once; then raise the first failure, if any."""
+        stops = (plant.stop() for plant in self.plants.values())
+        for result in await asyncio.gather(*stops, return_exceptions=True):
+            if isinstance(result, BaseException):
+                raise result
 
     async def _stop_workers(self, worker: PipelineWorker, frame: Frame) -> None:
         """Stop every worker beside the pipeline: the run has ended."""

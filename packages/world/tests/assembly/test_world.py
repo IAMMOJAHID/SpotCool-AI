@@ -19,6 +19,7 @@ from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, 
 from spotcool_world.bus import Subscription
 from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.processors.kpi import RUNS
+from spotcool_world.processors.plant_processor import CONNECTION_RECOVERIES_METRIC
 from spotcool_world.runner.assembly import World
 from spotcool_world.runner.report import (
     REPORT_FILE,
@@ -213,6 +214,34 @@ async def test_a_power_fallback_is_recorded_reported_and_blocks_the_quote(
     assert_all_stopped(world)
 
 
+@pytest.mark.asyncio
+async def test_a_lost_advance_answer_is_recovered_recorded_and_still_quotable(
+    make_settings: MakeSettings, two_hours: str, fake_boptest: Any
+) -> None:
+    clean = World(make_settings(plant="boptest-local", scenario=two_hours), run_id="clean")
+    await asyncio.wait_for(clean.run(handle_sigint=False), 60)
+    world = World(make_settings(plant="boptest-local", scenario=two_hours), run_id="dropped")
+    fake_boptest.clients[2].lost_answers = 1  # SpotCool's first step happens; its answer is lost
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+    run = load_run(world.settings.run_dir, world.run_id)
+    assert run.manifest.ended == "finished"
+    events = recorded(world)
+    errors = [e.data for e in events if e.type is EventType.ERROR]
+    assert [(e["where"], e["fatal"]) for e in errors] == [("PlantProcessor(spotcool)", False)]
+    assert "step 0 (07:00-07:15) was recovered after its connection" in errors[0]["message"]
+    recoveries = [
+        (e.data["value"], e.data["labels"])
+        for e in events
+        if e.type is EventType.METRICS and e.data["name"] == CONNECTION_RECOVERIES_METRIC
+    ]
+    assert recoveries == [(1, {"run": "spotcool"})]
+    expected = load_run(clean.settings.run_dir, clean.run_id)
+    assert run.fallbacks == {"spotcool": 0, "baseline": 0}
+    assert quote_blockers(run) == quote_blockers(expected)  # the report is unaffected
+    assert check_energy(run) == check_energy(expected)  # the recovered state is the plant's own
+    assert_all_stopped(world)
+
+
 @pytest.mark.parametrize("plant", ["boptest-local", "boptest-hosted"])
 @pytest.mark.asyncio
 async def test_both_boptest_tests_are_stopped_after_the_run(
@@ -290,6 +319,63 @@ async def test_a_second_ctrl_c_never_cuts_a_boptest_stop_request(
     await asyncio.gather(*leftovers, return_exceptions=True)
 
 
+def sent_together(fake_boptest: Any) -> bool:
+    """Whether both plants' stop requests went out at once, not one after the other (1 s)."""
+    first, second = (client.stop_sent_s for client in fake_boptest.clients)
+    return first is not None and second is not None and abs(first - second) < 0.5
+
+
+@pytest.mark.asyncio
+async def test_a_ctrl_c_stops_both_slow_boptest_tests_at_once(
+    make_settings: MakeSettings, fake_boptest: Any
+) -> None:
+    fake_boptest.stop_s = 1.0
+    world = World(make_settings(plant="boptest-local", speed=18_000.0), run_id="graceful")
+    events = world.bus.subscribe(EVENTS_TOPIC, maxsize=100_000)
+
+    async def press_ctrl_c() -> None:
+        async for envelope in events:
+            if envelope.type is EventType.TICK and envelope.data["index"] == 2:
+                signal.raise_signal(signal.SIGINT)
+                return
+
+    await asyncio.wait_for(asyncio.gather(world.run(), press_ctrl_c()), 30)
+    events.close()
+    assert manifest(world).ended == "cancelled"
+    assert sent_together(fake_boptest)
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_second_ctrl_c_stops_both_slow_boptest_tests_at_once(
+    make_settings: MakeSettings, fake_boptest: Any
+) -> None:
+    fake_boptest.stop_s, fake_boptest.kpis_s = 1.0, 30.0  # the final KPIs hang: no stop sent yet
+    world = World(make_settings(plant="boptest-local", speed=18_000.0), run_id="forced")
+    events = world.bus.subscribe(EVENTS_TOPIC, maxsize=100_000)
+
+    async def press_ctrl_c_twice() -> None:
+        async for envelope in events:
+            if envelope.type is EventType.TICK and envelope.data["index"] == 2:
+                break
+        signal.raise_signal(signal.SIGINT)
+        await until(lambda: all(c.kpis_asked.is_set() for c in fake_boptest.clients))
+        signal.raise_signal(signal.SIGINT)  # cancels the KPIs: cleanup() stops the plants
+
+    started = time.perf_counter()
+    await asyncio.wait_for(asyncio.gather(world.run(), press_ctrl_c_twice()), 30)
+    events.close()
+    assert time.perf_counter() - started < 20.0  # never waited for the KPIs
+    assert sent_together(fake_boptest)
+    for client in fake_boptest.clients:
+        assert client.events[:4] == ["select", "stop sent", "stop done", "closed"]
+    assert_all_stopped(world, forced=True)
+    leftovers = leftover_tasks()  # uvicorn's lifespan tasks, as above
+    for task in leftovers:
+        task.cancel()
+    await asyncio.gather(*leftovers, return_exceptions=True)
+
+
 class BrokenPlant(RcPlant):
     """An RC plant whose every step fails."""
 
@@ -313,9 +399,10 @@ async def test_an_error_above_the_emitter_is_published_once(
         "PlantProcessor(spotcool)",
     ]
     assert all(e.data["fatal"] and "the plant broke" in e.data["message"] for e in errors)
-    assert manifest(world).ended == "cancelled"
     [(status, message)] = statuses(published)[1:]
     assert status == "failed" and message is not None and "the plant broke" in message
+    done = manifest(world)
+    assert done.ended == "failed" and "the plant broke" in done.end_reason  # as the status says
     assert_all_stopped(world)
 
 
