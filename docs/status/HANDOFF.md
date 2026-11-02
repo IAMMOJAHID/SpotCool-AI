@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-02, about 12:20 IST, by the lead Claude Code session. The WP7 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
+**Last updated:** 2026-11-03, by the lead Claude Code session. The WP1.2 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
 - **WP6.1 (the energy-measurement fix) is merged**, and the **BOPTEST checkpoint passed** (§7): the first full BOPTEST day with the BMS and the stub agent.
-- **WP7 (dashboard) is building.** WP1.2 (BOPTEST survives a dropped connection) and WP3 (VRF gateway) are staged.
+- **WP7 (dashboard) is merged.** WP1.2 (BOPTEST survives a dropped connection) is building; WP3 (VRF gateway) is staged.
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -75,7 +75,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 | WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP6.1 `6159284` (trunk CI `41398321768`). | 820 package tests (plus 6 live) and 45 script tests |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP7 `f184d79` (trunk CI `41503993453`). | 841 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
 | WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
 | WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
 | WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
@@ -85,8 +85,8 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
 | WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
 | WP6.1 step-mean power | Merged `6159284` | `ac8008e` kickoff, `0b1153c` build, `43af1ed` review fixes, `2fab314` docs | Power meters as step means; the report's quote verdict `quote_blockers` (§7) |
-| **WP1.2 BOPTEST dropped connection** | **Staged** | `08e5e2e` kickoff, `5a49d31` amendment (branch cut from `6159284`) | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
-| **WP7 dashboard** | **Building** (agent `aabfde3ea4ebbc64b`, since about 12:00) | `269e026` kickoff, `3b03d39` amendment, `10ed6cd` trunk sync | React app |
+| **WP1.2 BOPTEST dropped connection** | **Building** (agent `a75c42553e10fc1fc`) | `08e5e2e` kickoff, `5a49d31` amendment, `0a0f2c0` trunk sync | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
+| WP7 dashboard | Merged `f184d79` | `269e026` kickoff, `b8662f8` build, `b316faa` review fixes, `0df42e0` docs | React app (operator and video modes); the world replays the run so far to each new viewer; camera CORS for the dashboard's own origin |
 | WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
 | WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
@@ -99,7 +99,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
   - WP11: 2 high, 1 medium, 5 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → **WP7** (building) → WP1.2 → WP3 → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → **WP1.2** (building) → WP3 → WP10 → WP9.
 
 **Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
@@ -266,22 +266,22 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - the forward runs in a restart loop;
      - Docker in the Codespace may need a few seconds after boot before `docker compose up` works;
      - the PC stays on one network for a whole run.
-3. **WP7 dashboard.** Branch `wp/wp7-dashboard` (kickoff `269e026`), worktree `C:\Users\hussa\dev\wt\wp7-dashboard`.
-   1. **Building since about 12:00:** agent `aabfde3ea4ebbc64b`. After a 429, resume it with `SendMessage`.
-      - Synced to the trunk at `10ed6cd`.
-      - **Brief amendments:**
-        - `3b03d39`: power drawn as steps, and the VRF panel's rules;
-        - by message at 12:15: video mode never shows BOPTEST's `tdis_tot`/`idis_tot`, and operator view groups and captions BOPTEST's own KPIs.
-   2. Then the rest of the gate flow. **Facts it relies on:**
-     - the dashboard is served by WP6's app at `/` from `apps/dashboard/dist`;
-     - stub events carry `stub: true`;
-     - the `tick` event comes after its step's results;
-     - each complaint produces two `complaint_cue` events;
-     - `replay --wait-viewer` exists;
-     - `run_status` now carries status, plant and scenario.
+3. **Done: WP7 merged** (`f184d79`; branch CI `41503652753`, trunk CI `41503993453`).
+   - **Review** (agent `aea82254bdb2e3a6f`): approve after fixes, with 1 high, 3 medium and 6 low findings.
+     - **The high was the lead's brief:** `stepped: "before"` drew every mean one step late. It's now `"after"`.
+     - **The rest:** video-mode clipping, duplicate rows on reconnect, voice sent to an agent without CORS, any host accepted in the URL, weak screenshot tests, stale generated types, one bad payload blanking the page, the type sizes, and CPU at 5 Hz.
+   - **Fix round** `b316faa` (builder `aabfde3ea4ebbc64b`), all fixed with tests. Its world side:
+     - `EventFeed` replays the run so far to each new `/ws/events` client;
+     - the camera server's CORS admits `http://<private IP>:<dashboard_port>`.
+   - **Lead docs** `0df42e0`: the brief corrected and amended, and Person A's CORS headers and payload shapes.
+   - **Use:**
+     - `http://<world>:8090/?mode=video&agent=http://<agent>:8002`, in **one** tab: six MJPEG tiles use Edge's six connections per host;
+     - `?cameras=host:port` when the camera server isn't on 8081;
+     - `npm run mock` for the mock feed;
+     - not checked yet: a real microphone (the tests use Edge's fake one), and the AC panel with real WP3 output.
 4. **WP1.2: BOPTEST survives a dropped connection.**
    - Branch `wp/wp12-boptest-resilience`, worktree `C:\Users\hussa\dev\wt\wp12-boptest-resilience`. Kickoff `08e5e2e`, amendment `5a49d31`.
-   - Create its venv (`uv sync --all-packages --all-extras`), then run the full gate flow. Afterwards, re-run the paced BOPTEST checkpoint over the supervised forward.
+   - **Building** (agent `a75c42553e10fc1fc`; venv `wp12-boptest-resilience`; synced at `0a0f2c0`). After a 429, resume it with `SendMessage`. Then the rest of the gate flow, and afterwards re-run the paced BOPTEST checkpoint over the supervised forward.
 5. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
    - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
    - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
@@ -346,6 +346,11 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`, except 
    - the address: the BMS's IP on UDP 47810, which a Who-Is on 47808 won't reach;
    - its `vrf_state` and `bms_write` events.
 10. **The handoff's status tables are current:** the BMS, cameras, complaints, `/ws/agent` and `run` are built.
+11. **CORS for the dashboard** (§9): allow `POST` with the headers `content-type` and `x-spotcool-client` from the dashboard's origin. The dashboard sends `X-SpotCool-Client: dashboard`, so until A allows it, chat and voice are not sent.
+12. **Confirm the agent's event fields** (§9). The dashboard reads the stub's shapes until A says otherwise:
+    - `perception`: `people`, and optional `masks` in frame pixels;
+    - `decision`: `zone`, `point`, `value`, `priority`, `reason`;
+    - `explanation` and `chat`: `text`.
 
 ## 9. Superseded (don't use)
 
