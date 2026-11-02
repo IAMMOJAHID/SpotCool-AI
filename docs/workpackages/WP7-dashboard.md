@@ -52,7 +52,14 @@ All runtime dependencies are MIT-licensed. Versions are pinned exactly in `packa
    - `scripts/mock-feed.mjs` replays a WP6 recording's `{"kind": "event", "envelope": …}` lines (raw records are skipped) over a local WebSocket, at a chosen speed, with gaps scaled from `sim_time_s`.
    - Without a file, it plays a committed synthetic fixture, `fixtures/sample-events.jsonl`. The fixture is small, made by a script in `scripts/`, and covers every event type, including agent ones.
 7. **Production serving.** WP6's dashboard server serves `apps/dashboard/dist` at `/`. Build with relative asset paths.
-8. **VRF panel.** The AC unit follows `vrf_state` (WP3 comes later). The fixture and mock feed include `vrf_state` events, so the panel is built and tested now.
+8. **VRF panel.** The AC unit follows `vrf_state` (WP3 comes later; its decisions are in `WP3-vrf-gateway.md` and the Person A handoff's §6). The fixture and mock feed include `vrf_state` events, so the panel is built and tested now.
+   - `vrf_state` arrives up to 5 times a second while the unit changes, and every 5 s otherwise. Interpolate the angles between events.
+   - `vane_h_pos` and `vane_h_angle_deg` are `None` when the brand has no horizontal louver (Daikin and LG): don't draw that louver. The fixture includes a Mitsubishi state and an LG one.
+   - The VRF's writes appear in the BACnet log as `bms_write` events with `device: "VRF-Gateway-MeetingRoom"`.
+9. **Energy is measured per step (WP6.1).**
+   - `plant_measurements.power_kw` and `total_power_kw` are each meter's **mean over the step that just ended**. Draw them as steps over that step (Chart.js `stepped: "before"`), never as a line between end-of-step samples.
+   - Cumulative energy is `plant_measurements.energy_kwh`, per run. Never integrate power in the browser.
+   - The energy-saved card shows the SpotCool run's `kpi.energy_saved_pct`, tagged "provisional" while `kpi.provisional` is true.
 
 ## Panels
 - **Header:** simulated clock and day, run status, plant (BOPTEST local or hosted, RC, or replay), scenario, connection state.
