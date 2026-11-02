@@ -15,6 +15,7 @@ The lead's first paced BOPTEST checkpoint (Nov 2, 11:45) died four steps in.
 - `packages/world/src/spotcool_world/services/boptest/client.py` and `services/boptest/plant.py`.
 - `processors/plant_processor.py`: only to surface recoveries (decision 4).
 - `processors/recorder.py` and `runner/cli.py`: only for decision 6.
+- `transports/bacnet/bms.py`: only for decision 9.
 - The matching tests under `packages/world/tests/` (`plants/`, `assembly/`, `telemetry/`), the relevant lines of `packages/world/AGENTS.md`, and the changelog fragment `packages/world/changelog/+boptest-dropped-connection.fixed.md`.
 
 `packages/contracts/` is read-only. If you think a contract must change, stop and report it.
@@ -48,6 +49,14 @@ The lead's first paced BOPTEST checkpoint (Nov 2, 11:45) died four steps in.
 8. **The forward is supervised outside the world.** AGENTS.md (BOPTEST section) gives the loop the lead uses, and says why:
    `while :; do gh codespace ports forward 8000:8000 -c <codespace>; sleep 3; done`
    No new code for it.
+   - The same section states the rule the second checkpoint broke: **the PC stays on one network for the whole run.**
+     - The BMS binds the PC's IPv4 when the run starts, and the tunnel dies with the network.
+     - On Nov 2, Windows moved the laptop from one saved Wi-Fi network (192.168.234.x) to another (192.168.1.x) mid-run.
+     - Before a run, set the other saved networks to connect manually: `netsh wlan set profileparameter name="<profile>" connectionmode=manual`.
+9. **The BMS says so when the PC's address changes.**
+   - On each tick, check that the BMS's bound IPv4 is still one of the PC's addresses. A plain check (for example `socket.getaddrinfo` on the host name, or `psutil` if it's already a dependency) is enough; don't add a dependency for it.
+   - The first time it isn't, push a non-fatal error: "the PC's network changed: the BMS at <ip>:<port> is unreachable; restart the run on one network".
+   - Never fatal: the plants and the recording go on.
 
 ## Tests
 Use `httpx.MockTransport` fakes. No live BOPTEST; the lead runs the live check.
@@ -60,6 +69,7 @@ Use `httpx.MockTransport` fakes. No live BOPTEST; the lead runs the live check.
 - **A world run** with the fake BOPTEST dropping one answer: it finishes, the recording holds one non-fatal error and the recovery count, and the report is unaffected.
 - **Decision 6:** a run with a fatal plant error records `ended: failed`, and the printout says so.
 - **Decision 7:** the error text names the exception and its timeout.
+- **Decision 9:** with the address check faked, a vanished address gives one non-fatal error, not one per tick.
 
 Tests never wait in real time for backoff: inject the clock and sleep functions.
 
