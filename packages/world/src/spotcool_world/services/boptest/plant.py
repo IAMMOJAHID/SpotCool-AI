@@ -27,6 +27,8 @@ from spotcool_world.utils.task_manager import TaskManager
 KEEPALIVE_S = 300.0
 """Wall seconds without a call before the plant pings its test. BOPTEST stops a test after 15
 idle minutes, for example while the other run's test is still queued."""
+STOP_WAIT_S = 15.0
+"""Longest a ``stop()`` waits for a stop request already sent before it closes the client."""
 
 
 class BoptestPlant(PlantService):
@@ -62,6 +64,7 @@ class BoptestPlant(PlantService):
         self._testid: str | None = None
         self._step_s: float | None = None
         self._managed: set[str] = set(MANAGED_INPUTS)
+        self._stopping: asyncio.Task[None] | None = None  # the stop request, once sent
 
     @property
     def client(self) -> BoptestClient:
@@ -160,15 +163,18 @@ class BoptestPlant(PlantService):
     async def stop(self) -> None:
         """Stop the test (freeing its worker) and close the client. Safe to call twice.
 
-        The stop request is shielded, so cancelling this call (a second Ctrl+C) does not abort
-        it while the event loop keeps running.
+        The stop request runs as a task kept on the plant. Cancelling this call (a second
+        Ctrl+C) leaves the request running and the client open; the next ``stop()`` waits up to
+        ``STOP_WAIT_S`` for the request before it closes the client, so it is never cut.
         """
         await self._tasks.cancel_all()
         self._step_s = None
         testid, self._testid = self._testid, None
         if testid is not None:
-            # Shielded: a second Ctrl+C must not abort freeing a worker of a shared service.
-            await asyncio.shield(self._client.stop(testid))
+            # Not in _tasks: neither cancel_all() nor a cancelled caller may cut the request.
+            self._stopping = asyncio.ensure_future(self._client.stop(testid))
+        if self._stopping is not None:
+            await asyncio.wait([self._stopping], timeout=STOP_WAIT_S)  # never cancels it
         await self._client.aclose()
 
     def _require_testid(self) -> str:

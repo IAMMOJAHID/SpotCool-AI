@@ -33,16 +33,16 @@ This document replaces the earlier chat notes. Everything in them is folded in h
 
 B builds everything your agent connects to, because there is no real building:
 
-| Part | What it stands in for | Status (Nov 1, 22:00 IST) |
+| Part | What it stands in for | Status (Nov 2, 11:00 IST) |
 |---|---|---|
 | **Physics** | A 5-zone office from BOPTEST (`multizone_office_simple_air`, 1,662.66 m², Chicago weather, peak cooling day), run **twice**: the SpotCool run (your writes) and the baseline run (the building on its own) | **Done** (WP1). A fast RC model replaces BOPTEST for tests and quick runs |
-| **BMS** | Device `SpotCool-Office-BMS` on BACnet/IP | **Built and reviewed** (WP2). The review fixes are done, and it merges into `world/main` tonight once Linux CI is green |
-| **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | Planned (WP3) |
-| **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | Planned (WP4). Footage is being filmed on Nov 2 |
-| **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | Built (WP5); served once the world runs end to end (WP11) |
-| **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | Built (WP5); sent once the world runs end to end (WP11) |
-| **Telemetry and dashboard** | An event stream, the KPIs, and the judges' dashboard | Planned (WP6, WP7) |
-| **Assembly** | `spotcool-world run hybrid_tuesday --plant rc\|boptest-local` | Planned (WP11) |
+| **BMS** | Device `SpotCool-Office-BMS` on BACnet/IP | **Built** (WP2), merged into `world/main` |
+| **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | Planned (WP3); its behaviour is settled in §6 |
+| **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | **Built** (WP4). The zone clips are filmed on Nov 2; until then the cameras show dataset or synthetic frames |
+| **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | **Built** (WP5), served during every run |
+| **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | **Built** (WP5), sent during every run |
+| **Telemetry and dashboard** | An event stream, the KPIs, and the judges' dashboard | Event stream, KPIs and `/ws/agent` **built** (WP6); the dashboard is planned (WP7) |
+| **Assembly** | `spotcool-world run --scenario hybrid_tuesday --plant rc\|boptest-local` | **Built** (WP11), with `replay` and `report`. A stub agent stands in for yours in our test runs, labelled `stub: true` |
 
 **Targets:**
 
@@ -82,12 +82,12 @@ B builds everything your agent connects to, because there is no real building:
 |---|---|---|---|
 | BMS, BACnet/IP | device **1001** `SpotCool-Office-BMS`, UDP **47808** | you read and write | built (§5) |
 | VRF gateway, BACnet/IP | device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810** | you read and write | planned (§6) |
-| Camera catalog | `GET http://<world>:8081/cameras` | you read | planned (§7) |
-| Snapshot | `GET http://<world>:8081/cameras/{id}/snapshot.jpg` | you read | planned (§7) |
+| Camera catalog | `GET http://<world>:8081/cameras` | you read | built (§7) |
+| Snapshot | `GET http://<world>:8081/cameras/{id}/snapshot.jpg` | you read | built (§7) |
 | Room calendar | `GET http://<world>:8081/calendar/rooms/meeting-south/schedule` (also `.ics`) | you read | built (§8) |
-| Complaints, text | `POST http://<agent>:8002/chat` | world calls you | planned (§9) |
-| Complaints, voice | `POST http://<agent>:8002/voice` | world calls you | planned (§9) |
-| Dashboard events | WebSocket on port **8090** | you publish | planned (§9) |
+| Complaints, text | `POST http://<agent>:8002/chat` | world calls you | built (§9) |
+| Complaints, voice | `POST http://<agent>:8002/voice` | world calls you | built (§9) |
+| Dashboard events | WebSocket `ws://<world>:8090/ws/agent` | you publish | built (WP6, §9) |
 
 The world expects your agent at `http://127.0.0.1:8002` by default (`agent_base_url`; tell us if that changes).
 
@@ -200,10 +200,20 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
   - LG has swing only.
 
   Read the capability flags and handle the differences.
-- **Slew:** the louvers move at 15°/s between positions, as real ones do.
+- **Refusals by brand:**
+  - a write to an axis the brand doesn't expose (`IDU-VANE-H` on Daikin and LG) is refused with `write-access-denied`;
+  - a state the brand lacks (Pos1–Pos5 on LG) is refused with `value-out-of-range`;
+  - a NULL release is always accepted;
+  - the angle point of an axis the brand doesn't expose has Reliability `no-sensor`.
+- **Slew:** the louvers move at 15°/s between positions, as real ones do. The angle points lag the command: 0° to −60° takes 4 s.
+- **Real time:** the unit runs on the wall clock, whatever the simulation's speed. A write takes effect at once.
+- **Address:** the BMS's IP, on UDP 47810. A Who-Is sent to 47808 won't reach it, so address it directly.
+- **Events:**
+  - `vrf_state` up to 5 times a second while the unit changes, and every 5 s otherwise;
+  - each write to it also appears as a `bms_write` event with `device: "VRF-Gateway-MeetingRoom"`.
 - **Demo moment:** on the live phone camera, a person sits far away, walks up and says "The AC is blowing right on my face." Your agent re-aims the vanes.
 
-## 7. Cameras (planned, WP4)
+## 7. Cameras (built, WP4)
 
 - **Catalog:** `GET /cameras` returns a `CameraCatalog` of `CameraInfo` entries. Each entry has `id`, `name`, `zone`, `snapshot_url`, optionally `stream_url`, `width`, `height`, `fps_hint` and `source` (`scenario`, `dataset` or `live`).
 - **Ids:** `cam-cor`, `cam-nor`, `cam-sou`, `cam-eas`, `cam-wes`, plus the live phone camera `cam-meeting-live`.
@@ -219,13 +229,14 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **Rooms:** `meeting-south` is the South zone.
 - **Use:** pre-cool before a booking (§11).
 
-## 9. Complaints (built, WP5) and dashboard events (planned, WP6–WP7)
+## 9. Complaints (built, WP5) and dashboard events (built, WP6; the dashboard is WP7)
 
 - **`POST /chat`:** a `ComplaintText` JSON body: `text` (1–280 characters), `source` (`occupant-sim` or `occupant`), an optional `room_hint`, and an optional `sim_time_s`.
 - **`POST /voice`:** `multipart/form-data` with an `audio` file in `VOICE_FORMAT` (WAV, 16 kHz, mono, s16le) and an optional `meta` field holding a `ComplaintText` JSON string. Its `text` is the script line, for logging only. **Transcribe the audio yourself.**
 - **Reply within 10 s** to `/chat` and `/voice`: accept the complaint and answer, then process it (transcription included) in the background. The world waits 10 s and doesn't retry a request that timed out, because you may already have it. It retries only connection failures and 5xx responses, twice.
 - **Allow CORS on `/chat` and `/voice`** from the dashboard's origin (`http://<world>:8090`, and `http://localhost:5173` in development). The dashboard's chat box and hold-to-talk button call you straight from the browser.
 - **Dashboard WebSocket (port 8090):** every message is an `EventEnvelope` `{v: 1, type, source, t_ms, sim_time_s, data}`.
+  - **Publish on `ws://<world>:8090/ws/agent`.** Send one envelope per message, with `source: "agent"` and one of your types below, at most 64 KB each and 20 per second. An invalid message gets `{"error": "..."}` back. That socket never sends you world events, so ground truth stays out of your agent. The dashboard itself reads `/ws/events`.
   - **World types:** `tick`, `run_status`, `scenario_state`, `plant_measurements`, `bms_write`, `kpi`, `vrf_state`, `camera_scene`, `calendar`, `complaint_cue`, `error`, `metrics`.
   - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them.
 - **Don't read ground truth.** `scenario_state` and `camera_scene` carry the true people counts (`people`), the scene, the door state and clothing. They exist for the dashboard and the scoring. **Your agent must not read them**; it has to perceive from the cameras. Use the stream only to publish.
@@ -256,7 +267,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **19:00:** release every priority-10 write. Otherwise you cool an empty building after hours while the baseline floats to 30 °C, which costs SpotCool score.
 - **Debounce your detections.** The BMS already waits 5 minutes before standby, and any Occupied ends it at once, so a missed person fails towards comfort. Still, avoid toggling a zone every step.
 
-## 12. The demo scenario: `hybrid_tuesday` (planned)
+## 12. The demo scenario: `hybrid_tuesday` (built, WP5)
 
 This is the story the video tells. **Don't hardcode it**: the point is that your agent perceives it. The people counts may change if fewer people are available for filming on Nov 2.
 

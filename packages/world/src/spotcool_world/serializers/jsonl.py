@@ -11,20 +11,28 @@ pipeline order. Two kinds of record share the file:
 The recorder writes the file with ``RunWriter``; the replay plant and reports read it back with
 ``read_records``. Records hold JSON only: never image or audio bytes. A process killed while
 writing leaves a torn last line; ``read_records`` skips it with a warning.
+
+When the run ends, the recorder adds ``manifest.json`` (``RunManifest``): what ran, and the
+final KPIs. A run directory without one holds an incomplete record.
 """
 
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from spotcool_contracts.events import EventEnvelope, Run
+from spotcool_contracts.events import EventEnvelope, KpiData, Run
 
 EVENTS_FILE = "events.jsonl"
 """Name of the record file inside a run directory."""
+MANIFEST_FILE = "manifest.json"
+"""Name of the manifest inside a run directory."""
+RUN_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
+"""A run id is a run directory's name: letters, digits, ``_`` and ``-``, so never a path."""
 
 
 class RawRecord(BaseModel):
@@ -65,6 +73,49 @@ class EventRecord(BaseModel):
 
 Record = RawRecord | EventRecord
 """Any line of a run file."""
+
+
+class RunManifest(BaseModel):
+    """What a recorded run was; the recorder writes it as ``manifest.json`` when the run ends.
+
+    Parameters:
+        run_id: The run's identifier, also its directory's name.
+        created_utc: When the run started, wall clock in UTC.
+        ended: ``finished`` after an ``EndFrame``, ``cancelled`` after a ``CancelFrame``.
+        end_reason: The reason the ending frame carried.
+        settings: The run's ``WorldSettings``, with secrets redacted.
+        git_sha: The commit the world ran from, or ``None`` outside a git checkout.
+        world_version: ``spotcool_world`` version.
+        contracts_version: ``spotcool_contracts`` version.
+        scenario: Scenario name.
+        scenario_sha256: SHA-256 of the scenario's file, or ``None`` if no file has that name.
+        plant: Plant provider.
+        step_s: Simulation seconds per step.
+        start_time_s: Simulation time the run started at.
+        end_time_s: Simulation time the run ended at.
+        final_kpis: Each plant run's final KPIs.
+        dropped_events: Events the recorder lost to a full queue; 0 in a valid record.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    created_utc: datetime
+    ended: Literal["finished", "cancelled"]
+    end_reason: str
+    settings: dict[str, Any]
+    git_sha: str | None
+    world_version: str
+    contracts_version: str
+    scenario: str
+    scenario_sha256: str | None
+    plant: str
+    step_s: float
+    start_time_s: float
+    end_time_s: float
+    final_kpis: dict[Run, KpiData]
+    dropped_events: int = Field(ge=0)
+
 
 _RECORD: TypeAdapter[Record] = TypeAdapter(Annotated[Record, Field(discriminator="kind")])
 

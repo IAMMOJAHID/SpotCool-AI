@@ -48,6 +48,9 @@ class WorldSettings(BaseSettings):
         http_port: HTTP port for the camera catalog and the room calendar.
         dashboard_port: Port of the dashboard event stream.
         agent_base_url: Base URL of Person A's agent (``/chat``, ``/voice``).
+        stub_agent: Run the stub agent in the world (``spotcool-world run --stub-agent``): a
+            BACnet client with perfect perception from the scenario script, never Person A's
+            agent. Its run id, printout and report say so.
         run_dir: Directory for recorded runs.
         footage_dir: Filmed footage, outside the repo (usually ``C:/Users/hussa/dev/footage``):
             camera clips in ``clips/``, voice complaints in ``audio/``, and public dataset
@@ -85,6 +88,7 @@ class WorldSettings(BaseSettings):
     http_port: Port = 8081
     dashboard_port: Port = 8090
     agent_base_url: str = "http://127.0.0.1:8002"
+    stub_agent: bool = False
     run_dir: Path = Path("runs")
     footage_dir: Path | None = None
     live_camera_url: str | None = None

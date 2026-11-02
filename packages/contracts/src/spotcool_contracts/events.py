@@ -114,7 +114,7 @@ class RunStatusData(_Payload):
     """Lifecycle of a world run."""
 
     run_id: str
-    status: Literal["starting", "running", "paused", "finished", "failed"]
+    status: Literal["starting", "running", "paused", "finished", "cancelled", "failed"]
     plant: str
     scenario: str
     message: str | None = None
