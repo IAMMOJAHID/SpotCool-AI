@@ -72,7 +72,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
 | **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1), power meters as step means (WP6.1); cameras done (WP4) |
-| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
+| **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6), replaying the run so far to each new viewer (WP7); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |

@@ -234,11 +234,14 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **`POST /chat`:** a `ComplaintText` JSON body: `text` (1–280 characters), `source` (`occupant-sim` or `occupant`), an optional `room_hint`, and an optional `sim_time_s`.
 - **`POST /voice`:** `multipart/form-data` with an `audio` file in `VOICE_FORMAT` (WAV, 16 kHz, mono, s16le) and an optional `meta` field holding a `ComplaintText` JSON string. Its `text` is the script line, for logging only. **Transcribe the audio yourself.**
 - **Reply within 10 s** to `/chat` and `/voice`: accept the complaint and answer, then process it (transcription included) in the background. The world waits 10 s and doesn't retry a request that timed out, because you may already have it. It retries only connection failures and 5xx responses, twice.
-- **Allow CORS on `/chat` and `/voice`** from the dashboard's origin (`http://<world>:8090`, and `http://localhost:5173` in development). The dashboard's chat box and hold-to-talk button call you straight from the browser.
+- **Allow CORS on `/chat` and `/voice`** from the dashboard's origin (`http://<world>:8090`, and `http://localhost:5173` in development), for `POST` with the headers `content-type` and `x-spotcool-client`. The dashboard's chat box and hold-to-talk button call you straight from the browser. They send `X-SpotCool-Client: dashboard`, so the browser asks first: until you allow it, nothing is sent and the dashboard says "Not sent".
 - **Dashboard WebSocket (port 8090):** every message is an `EventEnvelope` `{v: 1, type, source, t_ms, sim_time_s, data}`.
   - **Publish on `ws://<world>:8090/ws/agent`.** Send one envelope per message, with `source: "agent"` and one of your types below, at most 64 KB each and 20 per second. An invalid message gets `{"error": "..."}` back. That socket never sends you world events, so ground truth stays out of your agent. The dashboard itself reads `/ws/events`.
   - **World types:** `tick`, `run_status`, `scenario_state`, `plant_measurements`, `bms_write`, `kpi`, `vrf_state`, `camera_scene`, `calendar`, `complaint_cue`, `error`, `metrics`.
-  - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them.
+  - **Your types, reserved for you:** `perception`, `decision`, `explanation`, `chat`, with `source: "agent"`. Tell us your `data` fields so the dashboard can render them. Until you do, it reads the stub agent's shapes:
+    - `perception`: `people: {zone: count}`, and optionally `masks: {camera_id: [[[x, y], ...], ...]}` in the camera frame's pixels, which the dashboard draws over the tiles;
+    - `decision`: `zone`, `point`, `value` (`null` for a release), `priority` and `reason`;
+    - `explanation` and `chat`: a `text`.
 - **Don't read ground truth.** `scenario_state` and `camera_scene` carry the true people counts (`people`), the scene, the door state and clothing. They exist for the dashboard and the scoring. **Your agent must not read them**; it has to perceive from the cameras. Use the stream only to publish.
 
 ## 10. The building and what we measured (BOPTEST)

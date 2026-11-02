@@ -57,7 +57,7 @@ All runtime dependencies are MIT-licensed. Versions are pinned exactly in `packa
    - `vane_h_pos` and `vane_h_angle_deg` are `None` when the brand has no horizontal louver (Daikin and LG): don't draw that louver. The fixture includes a Mitsubishi state and an LG one.
    - The VRF's writes appear in the BACnet log as `bms_write` events with `device: "VRF-Gateway-MeetingRoom"`.
 9. **Energy is measured per step (WP6.1).**
-   - `plant_measurements.power_kw` and `total_power_kw` are each meter's **mean over the step that just ended**. Draw them as steps over that step (Chart.js `stepped: "before"`), never as a line between end-of-step samples.
+   - `plant_measurements.power_kw` and `total_power_kw` are each meter's **mean over the step that just ended**. Draw them as steps over that step: Chart.js `stepped: "after"`, which draws each point's value over the interval before it. Never draw a line between end-of-step samples. (This first said `"before"`, which in Chart.js holds a value over the *following* interval and drew every mean one step late; the review caught it.)
    - Cumulative energy is `plant_measurements.energy_kwh`, per run. Never integrate power in the browser.
    - The energy-saved card shows the SpotCool run's `kpi.energy_saved_pct`, tagged "provisional" while `kpi.provisional` is true.
 
@@ -80,9 +80,18 @@ All runtime dependencies are MIT-licensed. Versions are pinned exactly in `packa
 - **AC unit:** an SVG wall unit whose vertical and horizontal louvers follow the `vrf_state` angles, interpolated at 60 fps, with the brand profile shown.
 - **Agent panel:** decision 5.
 
+## Amendments by the lead (binding)
+- **BOPTEST's own KPIs:**
+  - video mode never shows `tdis_tot` or `idis_tot`;
+  - the operator view groups BOPTEST's own KPIs under "BOPTEST's own KPIs", captioned "BOPTEST's schedule counts every zone as occupied all day, so its discomfort includes zones the scenario leaves empty."
+- **Stub runs:** when the run's agent events say `stub: true`, the KPI cards show "Stub agent: upper bound with perfect perception" in both modes.
+- **Agent POSTs** send `X-SpotCool-Client: dashboard`. The browser then preflights them, so no audio or text reaches an agent that hasn't allowed CORS.
+- **Local addresses only:** `?agent=`, `?world=`, `?cameras=` and `VITE_AGENT_URL` accept only loopback, RFC 1918, link-local and the page's own host. Video mode shows the agent's host next to hold-to-talk.
+- **Reconnects:** every new connection clears the run's state. The world's `/ws/events` replays the run so far to each new client (`EventFeed`), so a late or refreshed page shows the whole run once.
+
 ## Video mode (`?mode=video`)
 - A fixed 1920×1080 layout.
-- 28 px base type.
+- **Type:** no visible text below 22 px. Panel titles and the headline numbers (energy saved, clock) are 28 px or more. (Amended after the review: 28 px everywhere doesn't fit the panels.)
 - No developer panels.
 - The bottom 12% kept clear for captions.
 - A high-contrast palette that reads on YouTube compression.
