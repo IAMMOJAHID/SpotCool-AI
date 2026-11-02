@@ -1,0 +1,22 @@
+{
+  "occupants": [
+    {
+      "person_id": "P0",
+      "clothing_clo": 0.6,
+      "activity_met": 1.1,
+      "visual_discomfort_cues": [],
+      "posture": "seated",
+      "posture_summary": "One person seated at the table, typing.",
+      "apparent_thermal_sensation": 0.0
+    }
+  ],
+  "door_open_by_frame": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "scene_summary": "One person seated at the table, typing."
+}

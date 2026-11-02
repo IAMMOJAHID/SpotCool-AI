@@ -1,5 +1,60 @@
 # SpotCool-AI
 
+## Closed-loop turn pipeline (`run_turn.py`)
+
+Each recorded clip is one turn. The turn's processing runs in two stages:
+
+1. `sam-3.1` tracks "person" and "open door" on a 1 FPS, 720p copy of the clip, while `muse-voice-transcribe-1.0` transcribes any audio.
+2. `muse-spark-1.3` reads a 3x2 storyboard of keyframes labelled with the SAM IDs.
+
+From there:
+
+- Python estimates each occupant's position and the louver angles.
+- It computes a grounded comfort reward from what it observed.
+- `muse-wonder-1.0` acts as critic and policy for the next turn's settings.
+- A deterministic safety layer applies the overrides, EMA smoothing, the ±1.5 °C clamp, the compressor restart lockout and the VRF quantization.
+
+The code is in `app/spotcool_agent/`.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe run_turn.py --video videos\sample_1.mp4 --turn 1        # live (META_API_KEY in .env)
+.\.venv\Scripts\python.exe run_turn.py --video c1.mp4 c2.mp4 c3.mp4                # one turn per clip, in order
+.\.venv\Scripts\python.exe run_turn.py --video videos\2.mp4 --segment-seconds 60   # long clip -> consecutive turns
+.\.venv\Scripts\python.exe run_turn.py --mode mock --reset --video videos\sample_1.mp4
+.\.venv\Scripts\python.exe -m pytest
+```
+
+**Modes.**
+
+- `--mode live` calls the Meta API. Add `--record` to save the raw responses (masks stripped) under `runs/<episode>/cassette/`.
+- `--mode replay --cassette DIR` replays those responses offline.
+- `--mode mock` returns canned responses and uses the rule-based policy, so it needs no network.
+- `tests/fixtures/cassettes/demo_beats` holds hand-written cassettes for four demo beats: neutral, a cold complaint, the door propped open, and the door closed.
+
+**Clip extras.** Each clip can carry two sidecar files:
+
+- `<clip>.wav`: complaint audio;
+- `<clip>.txt`: typed complaints, one per line, like the world's `POST /chat`.
+
+`--audio` and `--complaint "..."` attach the same to the first clip. Clips can be any length; turns that are not back to back take `--gap-s`. `ffmpeg` comes from `imageio-ffmpeg` when it is not on PATH.
+
+**Outputs** in `runs/<episode>/`:
+
+- `turn_NNN.json`: S_t, A_{t-1}, the critic's and the grounded reward, the proposed and applied settings with reasons, the overrides, and `vrf_command`;
+- `turn_NNN_grid.jpg` and `turn_NNN_hud.jpg` (`--no-previews` turns these off);
+- `episode_history.json`: every turn, with the controller state before and after it. Re-running a turn starts from turn t-1's saved state and drops the later turns; `--reset` starts the episode again.
+
+**Calibration.** `--calibration calib.json` takes partial `settings`, `calibration` and `limits` objects (see `app/spotcool_agent/config.py`). Defaults:
+
+- camera: HFOV 70°, mounted at 2.5 m, tilted 25° down;
+- AC: at the camera, facing the same way;
+- VRF: the Mitsubishi profile.
+
+`vrf_command` follows the teammate contract (`VRF-Gateway-MeetingRoom`): the setpoint on a 0.5 °C grid and vane positions Pos1–Pos5 or Swing for the chosen brand profile.
+
+## RabbitMQ worker
+
 SpotCool's window-processing pipeline runs as a RabbitMQ worker. RabbitMQ accepts
 jobs on `spotcool.jobs`; workers publish durable result records to
 `spotcool.results`. Multiple worker containers can consume jobs concurrently.

@@ -1,0 +1,22 @@
+{
+  "occupants": [
+    {
+      "person_id": "P0",
+      "clothing_clo": 1.0,
+      "activity_met": 1.1,
+      "visual_discomfort_cues": [],
+      "posture": "seated",
+      "posture_summary": "The person now wears a jacket; the door is propped open.",
+      "apparent_thermal_sensation": 0.0
+    }
+  ],
+  "door_open_by_frame": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "scene_summary": "The person now wears a jacket; the door is propped open."
+}

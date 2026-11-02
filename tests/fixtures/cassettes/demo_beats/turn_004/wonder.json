@@ -1,0 +1,22 @@
+{
+  "reward_evaluation": {
+    "score": 0.1,
+    "trend": "unchanged",
+    "explanation": "Door closed again; occupant comfortable."
+  },
+  "updated_preferences": [
+    {
+      "occupant_key": "occ-1",
+      "profile": "Comfortable with indirect airflow at 25 C while wearing a jacket."
+    }
+  ],
+  "manipulated_variables": {
+    "target_temp_c": 25.0,
+    "fan_speed": "low",
+    "louver_yaw_deg": -20.0,
+    "louver_pitch_deg": 0.0,
+    "louver_mode": "fixed",
+    "compressor_mode": "cool"
+  },
+  "rationale": "Resume cooling now that the door is closed."
+}

@@ -1,0 +1,22 @@
+{
+  "reward_evaluation": {
+    "score": -0.6,
+    "trend": "degraded",
+    "explanation": "Occupant shows cold cues and complained after the jet was aimed at them."
+  },
+  "updated_preferences": [
+    {
+      "occupant_key": "occ-1",
+      "profile": "Feels cold under direct airflow; prefers indirect air and a warmer setpoint."
+    }
+  ],
+  "manipulated_variables": {
+    "target_temp_c": 24.0,
+    "fan_speed": "auto",
+    "louver_yaw_deg": 7.0,
+    "louver_pitch_deg": -25.0,
+    "louver_mode": "fixed",
+    "compressor_mode": "cool"
+  },
+  "rationale": "Keep cooling the seated occupant."
+}

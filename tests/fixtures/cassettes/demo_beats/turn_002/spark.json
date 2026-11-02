@@ -1,0 +1,25 @@
+{
+  "occupants": [
+    {
+      "person_id": "P0",
+      "clothing_clo": 0.6,
+      "activity_met": 1.1,
+      "visual_discomfort_cues": [
+        "rubbing_arms",
+        "putting_on_jacket"
+      ],
+      "posture": "seated",
+      "posture_summary": "The person rubs their arms and puts on a jacket.",
+      "apparent_thermal_sensation": -2.0
+    }
+  ],
+  "door_open_by_frame": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "scene_summary": "The person rubs their arms and puts on a jacket."
+}

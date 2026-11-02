@@ -4,3 +4,4 @@ temp/*
 videos/*
 testing_directory/*
 __pycache__
+runs/
