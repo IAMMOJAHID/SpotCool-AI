@@ -1,0 +1,9 @@
+The meeting-room VRF gateway (WP3): `BacnetVrfGateway` serves VRF-Gateway-MeetingRoom (device 2001, UDP 47810) from the `vrf_gateway` point map, behaving like the Mitsubishi, Daikin or LG gateway that `WorldSettings.vrf_profile` names. It lives in wall time, outside the simulation pipeline, so its louvers move at 15 deg/s whatever the run's speed.
+
+- `devices/vrf/model.py`: `VrfUnit`, a pure model. Louver positions are the profile's angles, slewed at 15 deg/s at most (a step is clipped to 0.1 s), `Swing` sweeps the axis's range, and a state the brand lacks holds the angle. The room is first order (tau 120 s, ambient 30 degC) and never cooled below the setpoint. Power is an illustrative compressor and fan term, never quoted as a saving.
+- Commands follow `CommandPolicy` (priorities 8-16, the operator at 8 wins, NULL releases), then the brand: an axis it does not expose is refused with write-access-denied, a louver state or fan speed it lacks with value-out-of-range, a release is always accepted. The angle of a missing axis reads Reliability no-sensor.
+- Every write, accepted or refused, is published at once as a `bms_write` event with the VRF's device name, stamped with the simulation's time.
+- `VrfWorker` ticks the unit at 20 Hz of wall time, refreshes the gateway's inputs, and publishes `vrf_state` at most 5 times a second while it changes and every 5 s otherwise.
+- `World` starts the gateway right after the BMS, on the BMS's address and `vrf_port` (a taken port fails the run at once with `VRF UDP <address>:<port> is in use ...`), runs the worker beside the pipeline, and lists `VRF` among its URLs.
+- `transports/bacnet/server.py` holds the BACnet/IP server code the BMS and the gateway share, moved out of `bms.py` without changing the BMS.
+- The YABE steps and the known replay limit (the VRF plays back once per step) in `AGENTS.md`.

@@ -15,7 +15,13 @@ from typing import Any
 
 import pytest
 
-from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, EventType
+from spotcool_contracts.events import (
+    BmsWriteData,
+    EventEnvelope,
+    EventSource,
+    EventType,
+    VrfStateData,
+)
 from spotcool_world.bus import Subscription
 from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.processors.kpi import RUNS
@@ -106,11 +112,13 @@ def assert_all_stopped(world: World, *, forced: bool = False) -> None:
     assert all(worker.state in done for worker in world.workers)
     assert forced or leftover_tasks() == set()
     assert world.bms.address is None
+    assert world.vrf.address is None
     settings = world.settings
     for kind, port in (
         (socket.SOCK_STREAM, settings.http_port),
         (socket.SOCK_STREAM, settings.dashboard_port),
         (socket.SOCK_DGRAM, settings.bms_port),
+        (socket.SOCK_DGRAM, settings.vrf_port),
     ):
         with socket.socket(socket.AF_INET, kind) as probe:
             probe.bind(("127.0.0.1", port))
@@ -437,3 +445,39 @@ async def test_a_taken_bms_port_names_the_endpoint(make_settings: MakeSettings) 
             await world.run(handle_sigint=False)
     assert world.pipeline.state is WorkerState.IDLE  # nothing ran
     assert not (settings.run_dir / "no-bms").exists()
+
+
+@pytest.mark.asyncio
+async def test_a_run_serves_the_vrf_and_records_its_state(
+    make_settings: MakeSettings, two_hours: str
+) -> None:
+    settings = make_settings(scenario=two_hours, vrf_profile="lg")
+    world = World(settings, run_id="vrf")
+    served: list[str | None] = []
+    world.pipeline.add_event_handler(
+        "on_pipeline_started", lambda *_: served.append(world.vrf.address)
+    )
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+    assert served == [world.vrf_endpoint] == [f"127.0.0.1:{settings.vrf_port}"]
+    states = [
+        VrfStateData.model_validate(e.data)
+        for e in recorded(world)
+        if e.type is EventType.VRF_STATE
+    ]
+    assert states and all(state.profile == "lg" for state in states)
+    assert (states[0].vane_h_pos, states[0].vane_h_angle_deg) == (None, None)
+    assert manifest(world).ended == "finished"
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_a_taken_vrf_port_names_the_endpoint(make_settings: MakeSettings) -> None:
+    settings = make_settings()
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as holder:
+        holder.bind(("127.0.0.1", settings.vrf_port))
+        world = World(settings, run_id="no-vrf")
+        with pytest.raises(OSError, match=f"VRF UDP 127.0.0.1:{settings.vrf_port} is in use"):
+            await world.run(handle_sigint=False)
+    assert world.pipeline.state is WorkerState.IDLE  # nothing ran
+    assert world.bms.address is None  # the BMS, started first, is stopped again
+    assert not (settings.run_dir / "no-vrf").exists()

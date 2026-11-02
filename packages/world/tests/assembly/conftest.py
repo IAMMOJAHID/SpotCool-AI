@@ -83,7 +83,8 @@ def make_settings(tmp_path: Path) -> Callable[..., WorldSettings]:
     """``make_settings(**changes)``: loopback settings on free ports, runs in the tmp dir."""
 
     def make(**changes: Any) -> WorldSettings:
-        http, dashboard, bms = free_ports(socket.SOCK_STREAM, socket.SOCK_STREAM, socket.SOCK_DGRAM)
+        tcp, udp = socket.SOCK_STREAM, socket.SOCK_DGRAM
+        http, dashboard, bms, vrf = free_ports(tcp, tcp, udp, udp)
         values: dict[str, Any] = {
             "speed": None,
             "run_dir": tmp_path / "runs",
@@ -92,6 +93,7 @@ def make_settings(tmp_path: Path) -> Callable[..., WorldSettings]:
             "dashboard_port": dashboard,
             "bms_address": HOST,
             "bms_port": bms,
+            "vrf_port": vrf,
         }
         return WorldSettings(**(values | changes))
 

@@ -33,6 +33,7 @@ from spotcool_world.services.replay import ReplayPlant
 from spotcool_world.stub_agent.worker import StubAgentWorker
 from spotcool_world.workers.http_server import HttpServerWorker
 from spotcool_world.workers.occupant_worker import OccupantWorker
+from spotcool_world.workers.vrf_worker import VrfWorker
 
 DAY_S = 199 * 86_400.0
 LAN = "192.0.2.7"  # a documentation address standing in for this PC's
@@ -97,6 +98,7 @@ def test_the_world_builds_with_every_plant(
         (OccupantWorker, "occupants"),
         (HttpServerWorker, "http"),
         (HttpServerWorker, "dashboard"),
+        (VrfWorker, "vrf"),
         (StubAgentWorker, "stub-agent"),
     ]
 
@@ -123,6 +125,7 @@ def test_urls_name_every_server(make_settings: MakeSettings) -> None:
     assert urls["event stream"] == f"ws://127.0.0.1:{dashboard}/ws/events"
     assert urls["dashboard"].startswith(f"http://127.0.0.1:{dashboard}/")
     assert urls["BMS"] == f"127.0.0.1:{settings.bms_port} (BACnet/IP)"
+    assert urls["VRF"] == f"127.0.0.1:{settings.vrf_port} (BACnet/IP)"
 
 
 def test_a_wildcard_host_shows_the_lan_and_the_loopback_address(
