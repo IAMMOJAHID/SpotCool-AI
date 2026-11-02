@@ -94,8 +94,9 @@ TickSource -> ScenarioProcessor -> bms.input() -> ParallelPipeline[ PlantProcess
          -> BACnet AIs)   camera shows)       KPIs, comfort)        replayable)
 ```
 
-Every processor in this pipeline exists. WP11 assembles them into `spotcool-world run`; the VRF
-gateway arrives with WP3.
+Every processor in this pipeline exists, and `runner/assembly.py` (`World`) assembles them into
+`spotcool-world run`, with `RunStatusProcessor` right after the `TickSource`. The VRF gateway
+arrives with WP3.
 
 ### Lifecycle
 
@@ -660,12 +661,13 @@ truth.
 | Path | Contents |
 |---|---|
 | `src/spotcool_world/frames/` | Frame classes |
-| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `TelemetryProcessor`, `KpiProcessor`, `EventEmitterProcessor`, `RecorderProcessor`, `FramePublisher`, `BusPublisher` |
+| `src/spotcool_world/processors/` | `FrameProcessor`, `TickSource`, `RunStatusProcessor`, `ScenarioProcessor`, `PlantProcessor`, `CameraSceneProcessor`, `TelemetryProcessor`, `KpiProcessor`, `EventEmitterProcessor`, `RecorderProcessor`, `FramePublisher`, `BusPublisher` |
 | `src/spotcool_world/serializers/` | Run-record JSONL format (`RunWriter`, `read_records`) and `RunManifest` |
 | `src/spotcool_world/pipeline/` | `Pipeline`, `ParallelPipeline`, `PipelineParams`, source/sink edges |
 | `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port); the VRF worker arrives with WP3 |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
-| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI, `report.py` (run reports) |
+| `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI (`run`, `replay`, `report`, `lint`, `probe`), `assembly.py` (`World`, `Replay`), `report.py` (run reports) |
+| `src/spotcool_world/stub_agent/` | `StubAgentWorker`: a BACnet client with openly perfect perception, for runs without Person A's agent |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
