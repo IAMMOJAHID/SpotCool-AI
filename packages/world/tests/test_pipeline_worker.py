@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+from spotcool_world.clocks import SimClock, WallPacer
 from spotcool_world.frames import (
     CancelFrame,
     DataFrame,
@@ -10,9 +11,10 @@ from spotcool_world.frames import (
     ErrorFrame,
     Frame,
     StartFrame,
+    TickFrame,
 )
-from spotcool_world.pipeline import Pipeline, PipelineParams
-from spotcool_world.processors import FrameDirection, FrameProcessor
+from spotcool_world.pipeline import ParallelPipeline, Pipeline, PipelineParams
+from spotcool_world.processors import FrameDirection, FrameProcessor, TickSource
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.workers import PipelineWorker, WorkerState
 
@@ -176,6 +178,34 @@ async def test_processor_can_request_cancel() -> None:
     await run(worker)
     assert worker.state is WorkerState.CANCELLED
     assert [type(f) for f in recorder.frames] == [StartFrame, DataFrame, CancelFrame]
+
+
+class CancelMidTick(FrameProcessor):
+    """Asks for a cancel while it handles a tick, then passes the tick on."""
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
+        await super().process_frame(frame, direction)
+        if isinstance(frame, TickFrame):
+            await self.push_frame(CancelFrame(reason="mid-tick"), FrameDirection.UPSTREAM)
+        await self.push_frame(frame, direction)
+
+
+@pytest.mark.parametrize("parallel", [True, False], ids=["below-parallel-branches", "plain"])
+@pytest.mark.asyncio
+async def test_a_cancel_requested_mid_tick_reaches_the_worker(parallel: bool) -> None:
+    # The request travels up inside the tick task (below a ParallelPipeline, inside one of its
+    # gathered branch tasks), so nothing on its way up may cancel that task.
+    clock = SimClock(0.0, 900.0)
+    branches = [ParallelPipeline([Pipeline([])], [Pipeline([])])] if parallel else []
+    recorder = Recorder()
+    pipeline = Pipeline(
+        [TickSource(clock, WallPacer(None), 1000 * 900.0), *branches, CancelMidTick(), recorder]
+    )
+    worker = PipelineWorker(pipeline, params=PipelineParams(clock=clock))
+    await asyncio.wait_for(run(worker), 2)
+    assert worker.state is WorkerState.CANCELLED
+    assert isinstance(recorder.frames[-1], CancelFrame) and recorder.frames[-1].reason == "mid-tick"
+    assert {t for t in asyncio.all_tasks() if t is not asyncio.current_task()} == set()
 
 
 @pytest.mark.asyncio

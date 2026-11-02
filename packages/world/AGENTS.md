@@ -108,8 +108,10 @@ processors are later work packages.
    the whole pipeline, then paced, then the clock advances. At `end_time_s` it pushes `EndFrame`.
 4. The worker finishes when an `EndFrame` leaves the bottom of the pipeline
    (`on_pipeline_finished`, state `finished`). It cancels when a `CancelFrame` is queued, sent by
-   `stop()`, pushed up to the top by a processor, or follows a fatal `ErrorFrame` reaching the
-   top. The `CancelFrame` then goes through the whole pipeline (state `cancelled`).
+   `stop()`, pushed up to the top by a processor (only a request: processors do nothing with it
+   on its way up), or follows a fatal `ErrorFrame` reaching the top. The worker then sends the
+   `CancelFrame` down the whole pipeline, and each processor cancels its background tasks as it
+   passes (state `cancelled`).
 5. `cleanup()` runs on every processor; leftover tasks are cancelled.
 
 ### Frames
@@ -141,8 +143,8 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
 - **Order inside a tick.** Push derived frames (scenario state, setpoint commands) before you
   pass the tick on, so processors further down already have them when the tick arrives.
 - **Background work goes through `self.create_task(coro, name)`**, never `asyncio.create_task`.
-  Tasks are cancelled on `CancelFrame` and in `cleanup()`. An exception escaping such a task
-  becomes a fatal `ErrorFrame`.
+  Tasks are cancelled on a downstream `CancelFrame` and in `cleanup()`. An exception escaping
+  such a task becomes a fatal `ErrorFrame`.
 - **Errors.** Report with `await self.push_error(message, fatal=...)`; it logs and sends an
   `ErrorFrame` upstream. The worker fires `on_pipeline_error`; a fatal error cancels the run
   (unless `PipelineParams(fatal_error_cancels=False)`). Do not raise from `process_frame` for
@@ -151,7 +153,10 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   (a camera snapshot, a post to the agent, the dashboard) uses `fatal=False`. Use `fatal=True`
   only when the run's results would be wrong, such as a failed plant step. A worker outside
   the pipeline logs a failure, reports it in its result, and carries on.
-- **Ask for a cancel from inside** by pushing a `CancelFrame` upstream.
+- **Ask for a cancel from inside** by pushing a `CancelFrame` upstream. It only asks: nothing
+  is cancelled on its way up, because the task carrying it there (the tick task, or a branch
+  task of a `ParallelPipeline`) must deliver it to the worker. The worker then sends the
+  cancel down, and processors cancel their tasks when the downstream `CancelFrame` passes.
 - **ParallelPipeline output is deterministic.** Each downstream frame goes to every branch at
   once; what the branches emit is pushed on in branch order after all branches finish, then the
   original frame (by id) once, if any branch passed it on. A `StartFrame` is the exception: it
