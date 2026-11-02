@@ -1,0 +1,61 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
+    ports:
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  worker:
+    build:
+      context: .
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      META_API_KEY: ${META_API_KEY:?Set META_API_KEY in .env}
+      META_API_BASE_URL: ${META_API_BASE_URL:-https://api.meta.ai/v1}
+      SAM_MODEL: ${SAM_MODEL:-sam-3.1}
+      SCENE_MODEL: ${SCENE_MODEL:-muse-spark-1.3}
+      DECISION_MODEL: ${DECISION_MODEL:-muse-wonder-1.0}
+      SAM_PERSON_CONCEPT: ${SAM_PERSON_CONCEPT:-humans}
+      SAM_SECONDARY_CONCEPT: ${SAM_SECONDARY_CONCEPT:-fan}
+      SCENE_ANALYSIS_PROMPT: '${SCENE_ANALYSIS_PROMPT:-Evaluate room thermal load parameters across these frames.}'
+      DECISION_REASONING_EFFORT: ${DECISION_REASONING_EFFORT:-minimal}
+      CONTROL_SYSTEM_INSTRUCTIONS: '${CONTROL_SYSTEM_INSTRUCTIONS:-You are an automated ASHRAE building management controller. Analyze numeric zone sensor telemetry and active HVAC setpoints. Return the JSON setpoint delta. Set unchanged parameters to null.}'
+      TARGET_CONTROL_VARIABLES: '${TARGET_CONTROL_VARIABLES:-}'
+      INITIAL_MANIPULATED_VARIABLES: '${INITIAL_MANIPULATED_VARIABLES:-}'
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_DEFAULT_USER:?Set RABBITMQ_DEFAULT_USER in .env}
+      RABBITMQ_PASSWORD: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
+      RABBITMQ_VHOST: /
+      RABBITMQ_RECONNECT_INTERVAL_SECONDS: ${RABBITMQ_RECONNECT_INTERVAL_SECONDS:-5}
+      JOB_QUEUE_NAME: ${JOB_QUEUE_NAME:-spotcool.jobs}
+      RESULT_QUEUE_NAME: ${RESULT_QUEUE_NAME:-spotcool.results}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      FRAME_SAMPLE_INTERVAL_SECONDS: ${FRAME_SAMPLE_INTERVAL_SECONDS:-2}
+      MAX_FRAMES_PER_CLIP: ${MAX_FRAMES_PER_CLIP:-30}
+      JPEG_QUALITY: ${JPEG_QUALITY:-85}
+      TURN_HISTORY_LENGTH: ${TURN_HISTORY_LENGTH:-3}
+      TURN_DETAILS_DIRECTORY: ${TURN_DETAILS_DIRECTORY:-/app/turn_details}
+      VIDEO_WORKER_DIRECTORY: ${VIDEO_WORKER_DIRECTORY:-/videos}
+    volumes:
+      - ./app:/app
+      - ${VIDEO_HOST_DIRECTORY:-./videos}:${VIDEO_WORKER_DIRECTORY:-/videos}:ro
+
+volumes:
+  rabbitmq_data:
