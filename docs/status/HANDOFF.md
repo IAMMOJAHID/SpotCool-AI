@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-03, by the lead Claude Code session. The WP1.2 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
+**Last updated:** 2026-11-03, by the lead Claude Code session. The WP3 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
 - **WP6.1 (the energy-measurement fix) is merged**, and the **BOPTEST checkpoint passed** (§7): the first full BOPTEST day with the BMS and the stub agent.
-- **WP7 (dashboard) is merged.** WP1.2 (BOPTEST survives a dropped connection) is building; WP3 (VRF gateway) is staged.
+- **WP7 (dashboard) and WP1.2 (BOPTEST survives a dropped connection) are merged**; WP1.2's recovery is proven live. **WP3 (VRF gateway) is building.**
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -75,7 +75,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 | WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP7 `f184d79` (trunk CI `41503993453`). | 841 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP1.2 `1ed3fcb` (trunk CI `41533384879`). | 874 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
 | WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
 | WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
 | WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
@@ -85,9 +85,9 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
 | WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
 | WP6.1 step-mean power | Merged `6159284` | `ac8008e` kickoff, `0b1153c` build, `43af1ed` review fixes, `2fab314` docs | Power meters as step means; the report's quote verdict `quote_blockers` (§7) |
-| **WP1.2 BOPTEST dropped connection** | **Building** (agent `a75c42553e10fc1fc`) | `08e5e2e` kickoff, `5a49d31` amendment, `0a0f2c0` trunk sync | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
+| WP1.2 BOPTEST dropped connection | Merged `1ed3fcb` | `08e5e2e` kickoff, `f8eac86` build, `fca94ea` review fixes, `380f6aa` docs | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
 | WP7 dashboard | Merged `f184d79` | `269e026` kickoff, `b8662f8` build, `b316faa` review fixes, `0df42e0` docs | React app (operator and video modes); the world replays the run so far to each new viewer; camera CORS for the dashboard's own origin |
-| WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
+| **WP3 VRF gateway** | **Building** (agent `adb8aa9fe786129a4`) | `d794de5` kickoff, `0bbf211` trunk sync | The meeting-room VRF on BACnet, in wall time; the brief is ready |
 | WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
 
@@ -99,7 +99,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
   - WP11: 2 high, 1 medium, 5 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → **WP1.2** (building) → WP3 → WP10 → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → **WP3** (building) → WP10 → WP9.
 
 **Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
@@ -279,10 +279,21 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - `?cameras=host:port` when the camera server isn't on 8081;
      - `npm run mock` for the mock feed;
      - not checked yet: a real microphone (the tests use Edge's fake one), and the AC panel with real WP3 output.
-4. **WP1.2: BOPTEST survives a dropped connection.**
-   - Branch `wp/wp12-boptest-resilience`, worktree `C:\Users\hussa\dev\wt\wp12-boptest-resilience`. Kickoff `08e5e2e`, amendment `5a49d31`.
-   - **Building** (agent `a75c42553e10fc1fc`; venv `wp12-boptest-resilience`; synced at `0a0f2c0`). After a 429, resume it with `SendMessage`. Then the rest of the gate flow, and afterwards re-run the paced BOPTEST checkpoint over the supervised forward.
-5. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
+4. **Done: WP1.2 merged** (`1ed3fcb`; branch CI `41533089785`, trunk CI `41533384879`).
+   - **Review** (agent `ad3e3787a72818ed9`): approve after fixes. No way was found to guess a state, or to resend an advance BOPTEST got. **Fix round** `fca94ea` (builder `a75c42553e10fc1fc`):
+     - every step checks BOPTEST's own time, so a double step fails loudly;
+     - the final KPIs are retried for 60 s;
+     - both plants stop concurrently;
+     - the recovery's reads are capped at `RECOVERY_S`;
+     - HTTP 429 is treated as transient;
+     - the BMS address check is debounced and clears;
+     - duplicate samples take the last.
+   - **Live drop test, Nov 3 03:34** (`runs/wp12-live-drop`: BOPTEST, the stub agent, speed 0). The forward process was killed twice mid-run.
+     - **Kill 1** hit an advance in flight on both plants (`ReadError`). Step 21 was read back from BOPTEST's stored results: the 124-name `/results` read works live.
+     - **Kill 2** gave a `ConnectError` at step 47, and that step was recovered too.
+     - **The run finished:** 2 recoveries per plant, recorded as non-fatal errors and the `plant_connection_recoveries` metric. Both tests were stopped.
+     - **Its totals equal the clean paced checkpoint's to the decimal:** 227.0 against 287.8 kWh, 21.14 %, with a 0.000 % difference. So the recovered steps carried BOPTEST's exact values, and a stub run on BOPTEST reproduces at speed 0 too.
+5. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`, venv `wp3-vrf-gateway`. **Building** (agent `adb8aa9fe786129a4`; synced at `0bbf211`, after WP1.2, because WP3 moves code out of `bms.py`). After a 429, resume it with `SendMessage`. Then the rest of the gate flow. **The brief's binding decisions, and why:**
    - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
    - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
    - **Reuse, never copy:** WP2's `PriorityArray` and `CommandPolicy`, and the BACnet/IP server code moves from `bms.py` into a shared `transports/bacnet/server.py`, with the BMS tests unchanged.
