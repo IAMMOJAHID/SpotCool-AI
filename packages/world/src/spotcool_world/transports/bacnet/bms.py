@@ -67,6 +67,7 @@ from spotcool_world.frames import (
     TickFrame,
 )
 from spotcool_world.processors.frame_processor import FrameDirection, FrameProcessor
+from spotcool_world.processors.telemetry import EnergyMeter
 from spotcool_world.services.boptest.catalog import MANAGED_INPUTS, load_catalog, zone_damper
 from spotcool_world.transports.bacnet.bms_logic import (
     OCCUPIED_HOURS,
@@ -307,8 +308,7 @@ class BacnetBmsTransport(BaseTransport):
         self._sim_clock = self._points["SIM-CLOCK"]
         self._door = self._points["WES-ENTRANCE-DOOR"]
         self._heartbeat = self._points["SPOTCOOL-HEARTBEAT"]
-        self._energy_kwh = 0.0
-        self._last_power: tuple[float, float] | None = None  # (sim time, kW)
+        self._meter = EnergyMeter()  # HVAC-ENERGY: each step's mean power times the step
         self._now_s: float | None = None
         self._writes: list[BmsWriteFrame] = []
         self._app: _BmsApplication | None = None
@@ -596,11 +596,7 @@ class BacnetBmsTransport(BaseTransport):
         total_kw = sum(p.value for p in self._meters if isinstance(p.value, float))
         self._show(self._total, total_kw)
         if t_s is not None:
-            if self._last_power is not None and t_s > self._last_power[0]:
-                t0_s, p0_kw = self._last_power
-                self._energy_kwh += (p0_kw + total_kw) / 2 * (t_s - t0_s) / 3600  # trapezoid
-            self._last_power = (t_s, total_kw)
-            self._show(self._energy, self._energy_kwh)
+            self._show(self._energy, self._meter.add(t_s, total_kw))
             self._show(self._sim_clock, t_s)
 
     def _scenario(self, frame: ScenarioStateFrame) -> None:
@@ -613,8 +609,7 @@ class BacnetBmsTransport(BaseTransport):
     def _started(self, frame: StartFrame) -> None:
         """Begin a run: forget the last one's measurements, energy, schedule and zone states."""
         self._now_s = frame.start_time_s
-        self._energy_kwh = 0.0
-        self._last_power = None
+        self._meter = EnergyMeter()
         unknown = (self._total, self._energy, self._sim_clock, self._door)
         for point in (*(read.point for read in self._reads), *unknown):
             self._show(point, None)

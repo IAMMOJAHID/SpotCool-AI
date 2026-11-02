@@ -21,7 +21,13 @@ from spotcool_contracts import CONTRACTS_VERSION
 from spotcool_world import __version__
 from spotcool_world.processors.kpi import RUNS
 from spotcool_world.runner.probe import probe
-from spotcool_world.runner.report import STUB_AGENT_NOTE, load_run, write_report
+from spotcool_world.runner.report import (
+    STUB_AGENT_NOTE,
+    check_energy,
+    load_run,
+    verdict,
+    write_report,
+)
 from spotcool_world.scenarios import library_names, lint
 from spotcool_world.services.settings import WorldSettings
 from spotcool_world.workers import WorkerState
@@ -250,10 +256,12 @@ def _print_urls(urls: dict[str, str]) -> None:
 
 
 def _print_outcome(settings: WorldSettings, run_id: str, config: Path | None) -> None:
-    """Print how a run ended, each plant run's energy and KPIs, and its report and replay commands.
+    """Print how a run ended, from its recording, and its report and replay commands.
 
-    After a run with ``--config``, the commands carry its run directory and file, since they
-    otherwise read the environment and ``./world.yaml``.
+    Each plant run's energy (the step-mean integration, its plant's own and their difference)
+    and comfort, energy saved both ways, then the verdict (``verdict``) on quoting it. After a
+    run with ``--config``, the commands carry its run directory and file, since they otherwise
+    read the environment and ``./world.yaml``.
     """
     run_dir = settings.run_dir
     try:
@@ -261,26 +269,37 @@ def _print_outcome(settings: WorldSettings, run_id: str, config: Path | None) ->
     except (OSError, ValueError) as exc:
         print(f"run {run_id} left no complete record: {exc}")
         return
-    manifest = recorded.manifest
+    manifest, check = recorded.manifest, check_energy(recorded)
     print(f"run {run_id} {manifest.ended} ({manifest.end_reason}); recorded in {run_dir / run_id}")
     if manifest.settings.get("stub_agent"):
         print(f"  {STUB_AGENT_NOTE}")
     for run in RUNS:
-        samples, kpi = recorded.samples.get(run), manifest.final_kpis.get(run)
-        energy = "n/a" if not samples else f"{samples[-1].summary.energy_kwh:.1f} kWh"
+        kpi = manifest.final_kpis.get(run)
         comfort = kpi.comfort_where_people_kh if kpi is not None else None
-        saved = kpi.energy_saved_pct if kpi is not None else None
-        line = f"  {run:<9} energy {energy}, comfort where people were "
-        line += "n/a" if comfort is None else f"{comfort:.2f} K h"
-        if saved is not None:
-            line += f", energy saved {saved:.1f} %"
-        print(line)
+        print(
+            f"  {run:<9} energy {_amount(check.integrated.get(run), 'kWh')} (plant's own "
+            f"{_amount(check.own[run], 'kWh')}, difference {_amount(check.differences[run], '%', 3)}"
+            f"), comfort where people were {_amount(comfort, 'K h', 2)}"
+        )
+    print(
+        f"  energy saved {_amount(check.saved_own, '%', 2)} by the plants' own energy, "
+        f"{_amount(check.saved_integrated, '%', 2)} by the step-mean integration"
+    )
+    head, *blockers = verdict(recorded)
+    print(f"  {head}")
+    for blocker in blockers:
+        print(f"    - {blocker}")
     report, replay = f"spotcool-world report {run_id}", f"spotcool-world replay {run_id}"
     if config is not None:
         report = f"SPOTCOOL_WORLD_RUN_DIR={_quoted(run_dir)} {report}"
         replay += f" --config {_quoted(config)}"
     print(f"report: {report}")
     print(f"replay: {replay}")
+
+
+def _amount(value: float | None, unit: str, digits: int = 1) -> str:
+    # + 0.0 turns a rounded -0.0 into 0.0
+    return "n/a" if value is None else f"{round(value, digits) + 0.0:.{digits}f} {unit}"
 
 
 def _quoted(path: Path) -> str:

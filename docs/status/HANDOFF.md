@@ -84,7 +84,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP4 cameras | Merged `d469ab5` | `e821ad1` kickoff, `b248dff`, `e041637` | `CameraSystem` (sources: own clip, then dataset, then synthetic); snapshot and MJPEG; `HttpServerWorker(app, host, port)`; the live phone proxy; `CameraSceneProcessor`; the privacy test |
 | WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
 | WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
-| **WP6.1 step-mean power** | **Built and pushed; review running** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
+| **WP6.1 step-mean power** | **Reviewed: approve after fixes; fix round running** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
 | WP7 dashboard | **Staged** | `269e026` kickoff (branch cut from `42e0409`) | React app; the brief is ready |
 | WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
 | WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
@@ -235,7 +235,9 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
   - **Caveats:**
     - This is the RC plant, not BOPTEST.
     - At `--speed 0` the stub's BACnet writes land asynchronously, so SpotCool's energy varies by machine. WP11's run gave 134.6 kWh.
-    - **Quote only a paced (speed 60) BOPTEST run** whose report says it's cross-checked: §8 step 2.
+    - **Quote only a report whose verdict says "Quotable"** (after WP6.1's fix round: the plants' own saving, from a finished, paced BOPTEST run with no fallbacks, cross-checked within 0.1 %).
+    - **A stub-agent BOPTEST run** (§8 step 2) can be quoted only as the policy's **upper bound with perfect perception**, labelled so.
+    - **SpotCool's own figure needs Person A's agent** on a paced BOPTEST run (the Nov 3 integration).
 - **Superseded figures, never quote:**
   - **18.2 %** (WP11's first stub run, which was sensor-only);
   - **27.1 %** (the sampling error);
@@ -245,20 +247,30 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
 
 1. **WP6.1 gates.** Branch `wp/wp61-step-mean-power`, worktree `C:\Users\hussa\dev\wt\wp61-step-mean-power`, venv `wp61-step-mean-power`.
    1. Its branch CI is **green**: run `41391438090` on `0b1153c`. The lead's re-run passed too: 806 tests with `-W error::RuntimeWarning`, plus ruff, format, pyright and the lock.
-   2. **Running since 11:00:** an **independent reviewer** agent on `0b1153c`. Its focus:
-      - the BOPTEST `results` request and the time-weighted mean;
-      - fallback behaviour and its counting;
-      - the RC per-meter means;
-      - the telemetry rectangle integration from step 1;
-      - the cross-check maths and the 2 % warning;
-      - the report's new rows and quotable note;
-      - the tests.
-
-      Tell it what's already known (below) and that nothing has run on live BOPTEST.
-   3. **Builder fix commit** (resume the WP6.1 builder via `SendMessage`, or start a fresh agent): the review findings, plus three known follow-ups:
-      - the BMS `HVAC-ENERGY` point (`transports/bacnet/bms.py`) should integrate step means as rectangles, not a trapezoid;
-      - the `PlantService.step()` docstring should state the step-mean rule;
-      - `run`'s printout should also show each plant's own energy.
+   2. **Reviewed** (agent `a05b0b2b8cb4d5dcf`, about 20 min): **approve after fixes**, with 1 high, 2 medium and 3 low findings. The measurement itself is right: BOPTEST's own `get_results` through `step_means` and `EnergyMeter` reproduces BOPTEST's `get_energy` to −0.00008 %. The REST shape, the 30 s window (31 samples with both ends), the `ener_tot` scope and the RC means were checked against the clone. **The findings are all about the report's "figure to quote" verdict:**
+      - **High:** ±2 % per run doesn't bound the saving (up to about 3.6 pp). Two failed `results` calls produced 8.42 % called quotable, where the plants' own energy gives 7.07 %.
+      - **Medium:** `power_fallbacks` never reaches the recording.
+      - **Medium:** the verdict ignores the run: a stub agent, a cancelled run, dropped events and RC (where the check is circular) were all called quotable.
+      - **Low:** the saving row is read from the manifest, not the energy rows; the tolerances are 2 % on identities that hold to 1e-9; the `results` deadline doesn't cap each attempt.
+   3. **Fix round running since about 11:45:** the builder `ae6ae39590ba8953d` was resumed with the lead's decisions:
+      - **A. Quote the plants' own saving** (`ener_tot` × area, both runs). The world's step-mean integration is the check, and the report shows both savings.
+      - **B. `CROSS_CHECK_PCT` = 0.1 %.** Healthy runs match to about 1e-6. The builder confirms in the clone that `/kpi` doesn't round `ener_tot`.
+      - **C. One verdict function, `quote_blockers(run)`,** used by the report and `run`'s printout. It blocks when:
+        - the plant isn't BOPTEST;
+        - the run didn't finish;
+        - events were dropped;
+        - a run, a plant energy or the saving is missing;
+        - any fallback happened;
+        - either run is over 0.1 % off its plant's own;
+        - the run was unpaced (speed 0);
+        - a **stub agent** ran it: "quote it only as an upper bound with perfect perception, labelled so".
+      - **D. Fallbacks surface:** a non-fatal `push_error` plus a metrics sample per run, and a report row.
+      - **E. The `results` deadline** bounds the whole call.
+      - **F. The three known follow-ups:**
+        - the BMS `HVAC-ENERGY` point uses rectangles;
+        - the `PlantService.step()` docstring states the step-mean rule;
+        - `run`'s printout shows each plant's own energy and the verdict.
+      - **G. Tests:** RC tolerances at 1e-9, a saving that's off while both runs pass 2 %, a fallback reaching the report, and one test per blocker.
    4. **Lead:** sync `world/main` into the branch, run the checks, and add a docs commit. Its contents:
       - **Person A handoff:** the BMS power points AI 501–507 and 510 now report the **mean power over the last step**, not an instantaneous sample.
       - **AGENTS.md:** the status cells.
@@ -269,7 +281,7 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
    3. Run `uv run spotcool-world run --plant boptest-local --stub-agent --speed 60`. That's 48 steps at about 15 s each, plus about 5 minutes of warm-up.
    4. **Verify:**
       - the log shows no `no power means` and no `off its plant's own` warnings;
-      - `spotcool-world report <run_id>` shows both cross-check differences within 2 %;
+      - `spotcool-world report <run_id>` shows both cross-check differences within 0.1 %, no fallbacks, and a verdict whose only blocker is the stub agent;
       - the BMS and BOPTEST work together (never verified before);
       - the stub's writes are accepted.
    5. **Record** the KPIs here (§7). This is the first quotable number.

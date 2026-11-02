@@ -11,11 +11,18 @@ overrides) gets only ``<x>_activate = 0``.
 Measurements keep BOPTEST's REST names. The REST API reports an overwritten signal under its
 input's name ``<x>_u``, with the value actually applied (BOPTEST's own control when released,
 the override when active); the point maps read those ``_u`` keys.
+
+After a step, the seven ElectricPower meters are their means over the step, from BOPTEST's
+stored results (``step_means``); every other value is the one at the end of the step. Power
+can spike inside a step (a VAV box opening wide after its damper reopens), so a value at the
+end of the step can be far from the step's mean.
 """
 
 import asyncio
+import itertools
+import math
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from loguru import logger
 
@@ -65,11 +72,20 @@ class BoptestPlant(PlantService):
         self._step_s: float | None = None
         self._managed: set[str] = set(MANAGED_INPUTS)
         self._stopping: asyncio.Task[None] | None = None  # the stop request, once sent
+        self._power_fallbacks = 0
 
     @property
     def client(self) -> BoptestClient:
         """The BOPTEST service this plant calls."""
         return self._client
+
+    @property
+    def power_fallbacks(self) -> int:
+        """Steps whose meters are their values at the end of the step, not their means.
+
+        A step falls back when BOPTEST's results call fails; each one is logged as a warning.
+        """
+        return self._power_fallbacks
 
     @property
     def testid(self) -> str | None:
@@ -136,11 +152,12 @@ class BoptestPlant(PlantService):
                 releases it.
 
         Returns:
-            The measurements at the end of the step.
+            The measurements at the end of the step, the seven meters' means over the step
+            (their values at the end if BOPTEST's results call fails: see ``power_fallbacks``).
 
         Raises:
             ValueError: If an override is not an input of the test case (nothing is sent).
-            BoptestError: If BOPTEST fails, or the scenario period is over.
+            BoptestError: If BOPTEST fails to advance, or the scenario period is over.
         """
         testid = self._require_testid()
         self._catalog.check_overrides(overrides)
@@ -154,6 +171,7 @@ class BoptestPlant(PlantService):
         state = await self._client.advance(testid, inputs)
         if not state:
             raise BoptestError("advance: the BOPTEST scenario period is over", status=200)
+        await self._mean_power(testid, state)
         return state
 
     async def kpis(self) -> dict[str, float | None]:
@@ -182,6 +200,25 @@ class BoptestPlant(PlantService):
             raise RuntimeError("the plant has not been started, or has been stopped")
         return self._testid
 
+    async def _mean_power(self, testid: str, state: dict[str, float]) -> None:
+        """Replace the meters in ``state`` with their means over the step that ends at its time.
+
+        On failure the meters keep their values at the end of the step; the step is logged and
+        counted, never failed.
+        """
+        meters = self._catalog.electric_power
+        try:
+            final_s = state["time"]
+            samples = await self._client.results(testid, meters, final_s - self.step_s, final_s)
+            state.update(step_means(samples, meters))
+        except (BoptestError, KeyError, ValueError) as exc:  # KeyError: a state without time
+            self._power_fallbacks += 1
+            logger.warning(
+                f"BOPTEST: no power means for test {testid}'s step to {state.get('time')} s "
+                f"({type(exc).__name__}: {exc}); its meters are the values at the end of the "
+                f"step (power fallbacks so far: {self._power_fallbacks})"
+            )
+
     async def _keep_alive(self) -> None:
         while True:
             await asyncio.sleep(self._keepalive_s)
@@ -191,3 +228,36 @@ class BoptestPlant(PlantService):
                     await self._client.keep_alive(testid)
                 except BoptestError as exc:
                     logger.warning(f"BOPTEST: keep-alive of test {testid} failed: {exc}")
+
+
+def step_means(samples: Mapping[str, Sequence[float]], names: Sequence[str]) -> dict[str, float]:
+    """Each point's time-weighted mean over its samples: the trapezoid rule over their span.
+
+    Args:
+        samples: Each point's samples and, under ``time``, their times, as
+            ``BoptestClient.results`` returns them.
+        names: The points to average.
+
+    Raises:
+        ValueError: If the times span no time or go backwards, a point lacks a sample for each
+            time, or a mean is not finite.
+    """
+    times = samples.get("time", [])
+    if len(times) < 2:
+        raise ValueError(f"{len(times)} samples, too few to average")
+    if any(t1 < t0 for t0, t1 in itertools.pairwise(times)):
+        raise ValueError("the samples' times go backwards")
+    span = times[-1] - times[0]
+    if span <= 0:
+        raise ValueError(f"the samples span no time: all at {times[0]} s")
+    means: dict[str, float] = {}
+    for name in names:
+        values = samples.get(name, [])
+        if len(values) != len(times):
+            raise ValueError(f"{name}: {len(values)} samples for {len(times)} times")
+        pairs = itertools.pairwise(zip(times, values, strict=True))
+        mean = sum((y0 + y1) / 2 * (t1 - t0) for (t0, y0), (t1, y1) in pairs) / span
+        if not math.isfinite(mean):
+            raise ValueError(f"{name}: the mean is {mean}")
+        means[name] = mean
+    return means

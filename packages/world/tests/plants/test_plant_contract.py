@@ -126,6 +126,21 @@ async def test_kpis_have_the_boptest_keys(plant: PlantService) -> None:
 
 
 @pytest.mark.asyncio
+async def test_the_meters_add_up_to_the_plants_own_energy(plant: PlantService) -> None:
+    # Each meter is its mean over the step, so mean x step, summed, is the plant's own energy.
+    await plant.start(PARAMS)
+    steps = [await plant.step({SOUTH_DAMPER: 0.0}) for _ in range(2)]
+    steps += [await plant.step({}) for _ in range(2)]  # the box opens again, wide at first
+    catalog = load_catalog()
+    watts = sum(raw[name] for raw in steps for name in catalog.electric_power)
+    ener_tot = (await plant.kpis())["ener_tot"]
+    assert ener_tot is not None
+    # RC sums the same sub-steps both ways; BOPTEST's J-to-kWh factor (2.77778e-7) is 8e-7 high.
+    rel = 1e-9 if isinstance(plant, RcPlant) else 1e-5
+    assert watts * PARAMS.step_s / 3.6e6 == pytest.approx(ener_tot * catalog.area_m2, rel=rel)
+
+
+@pytest.mark.asyncio
 async def test_unknown_inputs_are_rejected(plant: PlantService) -> None:
     await plant.start(PARAMS)
     with pytest.raises(ValueError, match="unknown BOPTEST inputs"):

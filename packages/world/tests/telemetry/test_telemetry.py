@@ -64,12 +64,15 @@ def test_a_missing_value_is_a_key_error_and_the_outdoor_temperature_is_optional(
             summarize("spotcool", raw)
 
 
-def test_energy_is_the_trapezoid_integral_from_the_first_sample() -> None:
+def test_energy_is_each_steps_mean_power_times_the_step_from_the_first_step() -> None:
     meter = EnergyMeter()
-    profile = [(0.0, 0.0), (900.0, 4.0), (1800.0, 4.0), (2700.0, 0.0)]  # (s, kW)
-    assert [meter.add(t_s, kw) for t_s, kw in profile] == pytest.approx([0.0, 0.5, 1.5, 2.0])
-    assert meter.add(2700.0, 50.0) == pytest.approx(2.0)  # the same stamp again adds nothing
-    assert meter.kwh == pytest.approx(2.0)
+    # (stamp s, kW): the initial state's 50 kW, an instantaneous value, then each step's mean.
+    profile = [(0.0, 50.0), (900.0, 4.0), (1800.0, 2.0), (2700.0, 0.0)]
+    assert [meter.add(t_s, kw) for t_s, kw in profile] == pytest.approx([0.0, 1.0, 1.5, 1.5])
+    assert meter.add(2700.0, 50.0) == pytest.approx(1.5)  # the same stamp again adds nothing
+    assert meter.add(1800.0, 50.0) == pytest.approx(1.5)  # nor does an earlier one...
+    assert meter.add(3600.0, 4.0) == pytest.approx(2.5)  # ...which moves no step boundary
+    assert meter.kwh == pytest.approx(2.5)
 
 
 def measured(run: Run, t_s: float, raw: dict[str, float]) -> PlantMeasurementsFrame:
@@ -80,7 +83,7 @@ def measured(run: Run, t_s: float, raw: dict[str, float]) -> PlantMeasurementsFr
 async def test_the_processor_meters_each_run_from_its_initial_state(make_raw: Raw) -> None:
     one_kw, two_kw = make_raw(meter_w=1000 / 7), make_raw(meter_w=2000 / 7)
     frames = [
-        measured("spotcool", 0.0, one_kw),  # the initial states
+        measured("spotcool", 0.0, make_raw(meter_w=5000 / 7)),  # initial states: not counted
         measured("baseline", 0.0, two_kw),
         measured("spotcool", 900.0, one_kw),
         measured("baseline", 900.0, two_kw),
@@ -97,7 +100,7 @@ async def test_the_processor_meters_each_run_from_its_initial_state(make_raw: Ra
         ("spotcool", pytest.approx(0.5)),
     ]
     assert frames[0].summary is not None
-    assert frames[0].summary.total_power_kw == pytest.approx(1.0)
+    assert frames[0].summary.total_power_kw == pytest.approx(5.0)  # shown, never integrated
 
 
 @pytest.mark.asyncio

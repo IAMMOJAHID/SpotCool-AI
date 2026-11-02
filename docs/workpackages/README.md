@@ -54,6 +54,7 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 | WP9 | [video production](WP9-video.md) | Antigravity + people | `wp/wp9-video` |
 | WP10 | [evals, CI, docs, release](WP10-evals-release.md) | Claude Code | `wp/wp10-evals-release` |
 | WP11 | [world assembly and CLI](WP11-assembly.md) | Claude Code (lead) | `wp/wp11-assembly` |
+| WP6.1 | [step-mean power](WP6.1-step-mean-power.md) | Claude Code | `wp/wp61-step-mean-power` |
 
 ## Starting a WP (copy-paste)
 

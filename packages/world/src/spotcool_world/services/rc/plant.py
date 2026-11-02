@@ -6,7 +6,9 @@ every point the office BMS map reads: zone temperatures in K, CO2 in ppm, VAV ai
 m3/s, the seven power meters in W, outdoor air temperature (K) and humidity (fraction) and
 AHU supply-air temperature (K). The zone setpoints (K), zone dampers and AHU fan speed
 (fractions) come under their inputs' ``_u`` keys, as BOPTEST reports overwritten signals.
-Nothing downstream can tell it from BOPTEST by the names.
+Nothing downstream can tell it from BOPTEST by the names. After a step, each power meter is its
+mean over the step (its energy over the 60-second sub-steps divided by the step), as on the
+BOPTEST plant; every other value is the one at the end of the step.
 
 Model, one 1R1C node per zone (zones do not exchange heat):
 
@@ -42,6 +44,7 @@ bracket, where its "people heat" matches the cameras. It does not replace BOPTES
 """
 
 import math
+from collections import defaultdict
 from collections.abc import Callable, Mapping
 
 import numpy as np
@@ -201,7 +204,7 @@ class RcPlant(PlantService):
             overrides: Input name (``..._u``) to value; ``None`` or leaving it out releases it.
 
         Returns:
-            The measurements at the end of the step.
+            The measurements at the end of the step, the power meters' means over the step.
 
         Raises:
             ValueError: If an override is not an input of the test case.
@@ -211,9 +214,9 @@ class RcPlant(PlantService):
         self._overrides = {
             name: self._clip(name, value) for name, value in overrides.items() if value is not None
         }
-        energy_before = self._energy_j
-        self._advance(step_s)
-        self._peak_w = max(self._peak_w, (self._energy_j - energy_before) / step_s)
+        means = {name: joules / step_s for name, joules in self._advance(step_s).items()}
+        self._outputs.update(means)
+        self._peak_w = max(self._peak_w, sum(means.values()))
         return dict(self._outputs)
 
     async def kpis(self) -> dict[str, float | None]:
@@ -248,15 +251,24 @@ class RcPlant(PlantService):
     def _inputs(self, names: list[str], default: float) -> _Array:
         return np.array([self._overrides.get(name, default) for name in names])
 
-    def _advance(self, duration_s: float) -> None:
+    def _advance(self, duration_s: float) -> dict[str, float]:
+        """Run ``duration_s`` in sub-steps; return each power meter's energy over them (J)."""
         end_s = self._time_s + duration_s
         count = max(1, math.ceil(duration_s / _SUBSTEP_S - 1e-9))
+        dt = duration_s / count
+        energy_j: defaultdict[str, float] = defaultdict(float)
         for _ in range(count):
-            self._substep(duration_s / count)
+            for name, watts in self._substep(dt).items():
+                energy_j[name] += watts * dt
         self._time_s = self._outputs["time"] = end_s  # exact, whatever the sub-steps summed to
+        return energy_j
 
-    def _substep(self, dt: float) -> None:
-        """Advance ``dt`` seconds; 0 only reports the state, with nothing delivered yet."""
+    def _substep(self, dt: float) -> dict[str, float]:
+        """Advance ``dt`` seconds; 0 only reports the state, with nothing delivered yet.
+
+        Returns:
+            Each power meter's power over the sub-step (W).
+        """
         mid_s = self._time_s + dt / 2
         hour = mid_s % 86_400 / 3600
         occupied = _OCCUPIED_H[0] <= hour < _OCCUPIED_H[1]
@@ -342,3 +354,4 @@ class RcPlant(PlantService):
         outputs[_SUPPLY_T_Y] = _SUPPLY_K if total_flow > 0 else return_k
         outputs[_FAN_SPEED] = fan_speed
         self._outputs = outputs
+        return power

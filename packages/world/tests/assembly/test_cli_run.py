@@ -113,12 +113,23 @@ def test_run_replay_and_report_with_a_config_file(
     assert f"  BMS           127.0.0.1:{ports.bms_port} (BACnet/IP)\n" in out
     assert "run cli-run finished (end time reached)" in out
     assert f"\n  {STUB_AGENT_NOTE}\n" in out
-    kpis = (
-        r"  spotcool  energy [\d.]+ kWh, comfort where people were [\d.]+ K h, "
-        r"energy saved [\d.]+ %"
+    for run in ("spotcool", "baseline"):  # the RC plant's own energy is the same sum
+        energy = rf"  {run:<9} energy ([\d.]+) kWh \(plant's own \1 kWh, difference 0\.000 %\), "
+        assert re.search(energy + r"comfort where people were [\d.]+ K h\n", out), out
+    saved = (
+        r"  energy saved ([\d.]+) % by the plants' own energy, \1 % by the step-mean "
+        r"integration\n"
     )
-    assert re.search(kpis, out)
-    assert re.search(r"  baseline  energy [\d.]+ kWh, comfort where people were [\d.]+ K h\n", out)
+    assert re.search(saved, out), out
+    assert (
+        "  Not quotable:\n"
+        "    - The plant is rc, our own reduced model, and its cross-check is circular: both "
+        "energies come from the same sub-step sums.\n"
+        "    - The run was unpaced (speed 0): the agent's writes land at random points between "
+        "steps, so it does not reproduce.\n"
+        "    - A stub agent ran it, with perfect perception: quote it only as an upper bound with "
+        "perfect perception, labelled so.\n"
+    ) in out
     run_dir, config_file = (shlex.quote(p.resolve().as_posix()) for p in (runs, config))
     assert out.endswith(
         f"report: SPOTCOOL_WORLD_RUN_DIR={run_dir} spotcool-world report cli-run\n"

@@ -5,6 +5,7 @@ import time
 from loguru import logger
 
 from spotcool_contracts.events import KpiData, MetricsData, Run
+from spotcool_world.clocks import SimClock
 from spotcool_world.frames import (
     CancelFrame,
     EndFrame,
@@ -24,6 +25,8 @@ DEFAULT_WARMUP_S = 3 * 86_400.0
 """Simulated warm-up before the first tick. BOPTEST's zones need about three days to settle
 from its initial state: after one, they are still at 22-23 degC at 10:00 on the peak cooling
 day. It costs about a minute on BOPTEST and well under a second on the RC plant."""
+POWER_FALLBACKS_METRIC = "plant_power_fallbacks"
+"""The metric that counts a run's steps whose power is the end-of-step value, not the mean."""
 
 
 class PlantProcessor(FrameProcessor):
@@ -38,7 +41,9 @@ class PlantProcessor(FrameProcessor):
     - ``TickFrame``: steps the plant (the baseline always with no overrides), then pushes a
       ``PlantMeasurementsFrame`` stamped with the end of the step (tick time plus ``step_s``,
       the time the values describe), a ``MetricsFrame`` stamped with the tick's time (step
-      latency, simulated seconds per wall second), then the tick.
+      latency, simulated seconds per wall second), then the tick. A step whose power fell back
+      to its end-of-step value (the plant's ``power_fallbacks`` rose) adds a non-fatal error
+      naming the run and the step, and the run's count as a ``POWER_FALLBACKS_METRIC`` sample.
     - ``EndFrame`` or ``CancelFrame``: pushes the plant's final ``KpiFrame``, then stops it.
 
     A plant that fails to start or step is a fatal error: the run cannot go on without it.
@@ -69,6 +74,7 @@ class PlantProcessor(FrameProcessor):
         self._overrides: dict[str, float | None] = {}
         self._started = False
         self._stopped = False
+        self._fallbacks = 0  # the plant's power_fallbacks after the last step
 
     async def process_frame(self, frame: Frame, direction: FrameDirection) -> None:
         """Start, command, step and stop the plant as frames arrive; pass every frame on."""
@@ -141,6 +147,17 @@ class PlantProcessor(FrameProcessor):
             ratio = frame.step_s / latency_s
             samples.append(
                 MetricsData(name="plant_time_ratio", value=ratio, unit="1", labels=labels)
+            )
+        fallbacks = self._service.power_fallbacks
+        if fallbacks > self._fallbacks:
+            self._fallbacks = fallbacks
+            span = f"{SimClock.clock_text(frame.sim_time_s)}-{SimClock.clock_text(end_s)}"
+            await self.push_error(
+                f"{self._run} plant: step {frame.index} ({span}) reports its end-of-step power, "
+                f"not its mean over the step (power fallbacks so far: {fallbacks})"
+            )
+            samples.append(
+                MetricsData(name=POWER_FALLBACKS_METRIC, value=fallbacks, unit="1", labels=labels)
             )
         await self.push_frame(MetricsFrame(samples=samples, sim_time_s=frame.sim_time_s))
 
