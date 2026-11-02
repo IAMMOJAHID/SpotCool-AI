@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseCatalog, mjpegUrl } from './cameras';
 import { inkFor, tempColor } from './colors';
-import { readConfig } from './config';
+import { isLocalHost, readConfig } from './config';
 import { backoffMs } from './feed';
 import { bmsValue, calendarDate, clockText, dayOfYear, fixed, plantLabel, scenarioLabel, simSeconds } from './format';
 import { initialState } from './state/reducer';
@@ -39,33 +39,77 @@ describe('format', () => {
 });
 
 describe('readConfig', () => {
-  const page = { host: '192.168.1.20:8090', protocol: 'http:' };
+  const page = { host: '192.168.1.20:8090', hostname: '192.168.1.20', protocol: 'http:' };
+  const prod = { agentUrl: undefined, dev: false };
 
   it('uses the page host in production and 127.0.0.1:8090 in development', () => {
-    const prod = readConfig('', page, { agentUrl: undefined, dev: false });
-    expect(prod.eventsUrl).toBe('ws://192.168.1.20:8090/ws/events');
-    expect(prod.camerasUrl).toBe('http://192.168.1.20:8081');
+    const c = readConfig('', page, prod);
+    expect(c.eventsUrl).toBe('ws://192.168.1.20:8090/ws/events');
+    expect(c.camerasUrl).toBe('http://192.168.1.20:8081');
+    expect(c.problems).toEqual([]);
     expect(readConfig('', page, { agentUrl: undefined, dev: true }).eventsUrl).toBe('ws://127.0.0.1:8090/ws/events');
   });
 
   it('takes ?world=, ?cameras=, ?agent= and ?mode=video', () => {
-    const c = readConfig('?world=127.0.0.1:18190&cameras=127.0.0.1:18181&agent=http://127.0.0.1:8002/&mode=video', page, { agentUrl: 'http://env:1', dev: false });
+    const c = readConfig('?world=127.0.0.1:18190&cameras=127.0.0.1:18181&agent=http://127.0.0.1:8002/&mode=video', page, {
+      agentUrl: 'http://10.0.0.9:1',
+      dev: false,
+    });
     expect(c.eventsUrl).toBe('ws://127.0.0.1:18190/ws/events');
     expect(c.camerasUrl).toBe('http://127.0.0.1:18181');
     expect(c.agentUrl).toBe('http://127.0.0.1:8002');
+    expect(c.agentHost).toBe('127.0.0.1:8002');
     expect(c.video).toBe(true);
   });
 
   it('falls back to VITE_AGENT_URL, and reports a bad agent URL instead of using it', () => {
-    expect(readConfig('', page, { agentUrl: 'http://a:8002', dev: false }).agentUrl).toBe('http://a:8002');
-    const bad = readConfig('?agent=javascript:alert(1)', page, { agentUrl: undefined, dev: false });
+    expect(readConfig('', page, { agentUrl: 'http://10.1.2.3:8002', dev: false }).agentUrl).toBe('http://10.1.2.3:8002');
+    const bad = readConfig('?agent=javascript:alert(1)', page, prod);
     expect(bad.agentUrl).toBeNull();
     expect(bad.agentProblem).toContain('not an http');
-    expect(readConfig('', page, { agentUrl: undefined, dev: false }).agentUrl).toBeNull();
+    expect(readConfig('', page, prod).agentUrl).toBeNull();
   });
 
-  it('ignores a world that is not host:port', () => {
-    expect(readConfig('?world=evil.example/x?y', page, { agentUrl: undefined, dev: false }).world).toBe('192.168.1.20:8090');
+  it('refuses an agent, a world or a camera server off this network, and says so', () => {
+    const agent = readConfig('?agent=https://evil.example/collect', page, prod);
+    expect(agent.agentUrl).toBeNull();
+    expect(agent.agentProblem).toContain('not on this machine, a private (RFC 1918) or link-local address');
+    expect(readConfig('', page, { agentUrl: 'http://8.8.8.8:8002', dev: false }).agentProblem).toContain('8.8.8.8');
+    const world = readConfig('?world=evil.example:8090&cameras=203.0.113.5:8081', page, prod);
+    expect(world.world).toBe('192.168.1.20:8090');
+    expect(world.camerasUrl).toBe('http://192.168.1.20:8081');
+    expect(world.problems).toHaveLength(2);
+    expect(world.problems[0]).toContain('?world="evil.example:8090" is not');
+    expect(readConfig('?world=192.168.1.20:8090/x?y', page, prod).problems[0]).toContain('is not host:port');
+  });
+});
+
+describe('isLocalHost', () => {
+  it.each([
+    ['127.0.0.1', true],
+    ['127.255.0.9', true],
+    ['localhost', true],
+    ['[::1]', true],
+    ['10.0.0.1', true],
+    ['172.16.0.1', true],
+    ['172.31.255.255', true],
+    ['192.168.43.1', true],
+    ['169.254.1.1', true],
+    ['[fe80::1]', true],
+    ['[febf::1]', true],
+    ['spotcool-pc', true], // the page's own host
+    ['172.15.0.1', false],
+    ['172.32.0.1', false],
+    ['192.169.0.1', false],
+    ['8.8.8.8', false],
+    ['0.0.0.0', false],
+    ['300.1.1.1', false],
+    ['[fec0::1]', false],
+    ['[2001:db8::1]', false],
+    ['evil.example', false],
+    ['localhost.evil.example', false],
+  ])('%s: %s', (host, allowed) => {
+    expect(isLocalHost(host, 'spotcool-pc')).toBe(allowed);
   });
 });
 
@@ -92,9 +136,9 @@ describe('selectors', () => {
   });
 
   it('spans the default day 07:00-19:00, widened to the data', () => {
-    expect(dayWindow(initialState)).toBeNull();
-    expect(dayWindow({ ...initialState, simNow: DAY + 9 * 3600 })).toEqual([DAY + 7 * 3600, DAY + 19 * 3600]);
-    expect(dayWindow({ ...initialState, simNow: DAY + 20 * 3600 })).toEqual([DAY + 7 * 3600, DAY + 20 * 3600]);
+    expect(dayWindow(null, initialState.power)).toBeNull();
+    expect(dayWindow(DAY + 9 * 3600, initialState.power)).toEqual([DAY + 7 * 3600, DAY + 19 * 3600]);
+    expect(dayWindow(DAY + 20 * 3600, initialState.power)).toEqual([DAY + 7 * 3600, DAY + 20 * 3600]);
   });
 });
 

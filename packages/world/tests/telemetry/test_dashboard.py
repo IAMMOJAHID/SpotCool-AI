@@ -11,11 +11,20 @@ from typing import Any
 import httpx
 import pytest
 from fastapi import FastAPI
+from loguru import logger
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 from websockets.typing import Origin
 
-from spotcool_contracts.events import EventEnvelope, EventSource, EventType, TickData
+from spotcool_contracts.events import (
+    EventEnvelope,
+    EventSource,
+    EventType,
+    MetricsData,
+    RunStatusData,
+    TickData,
+    VrfStateData,
+)
 from spotcool_world.bus import InProcessBus, Subscription
 from spotcool_world.frames import Frame, TickFrame
 from spotcool_world.processors import FrameDirection, FrameProcessor
@@ -108,7 +117,7 @@ async def test_every_client_gets_every_event_and_what_it_sends_is_ignored(tmp_pa
         connect(f"{base}/ws/events") as first,
         connect(f"{base}/ws/events") as second,
     ):
-        assert bus.subscriber_count("events") == 2  # subscribed before the handshake ended
+        assert bus.subscriber_count("events") == 1  # the feed's, made with the app
         await first.send("hello")
         await first.send(b"\x00\x01")
         events = [world_event(i) for i in range(3)]
@@ -376,3 +385,156 @@ async def test_an_agent_event_sent_during_a_run_lands_in_its_record(
         run = await asyncio.wait_for(recording, 30)
     records = read_records(run.folder / EVENTS_FILE)
     assert published in [r.envelope for r in records if isinstance(r, EventRecord)]
+
+
+def run_status(run_id: str) -> EventEnvelope:
+    status = RunStatusData(run_id=run_id, status="running", plant="rc", scenario="hybrid_tuesday")
+    return EventEnvelope.build(EventType.RUN_STATUS, EventSource.WORLD, status, 17_218_800.0)
+
+
+def vrf_state(angle_deg: float) -> EventEnvelope:
+    state = VrfStateData(
+        profile="mitsubishi",
+        power_on=True,
+        mode="Cool",
+        setpoint_c=24.0,
+        fan="Auto",
+        vane_v_pos="Pos3",
+        vane_h_pos="Pos3",
+        vane_v_angle_deg=angle_deg,
+        vane_h_angle_deg=0.0,
+        room_temp_c=25.0,
+        power_kw=1.0,
+    )
+    return EventEnvelope.build(EventType.VRF_STATE, EventSource.WORLD, state, None)
+
+
+def metric(run: str, value: float) -> EventEnvelope:
+    sample = MetricsData(name="plant_step_latency", value=value, unit="s", labels={"run": run})
+    return EventEnvelope.build(EventType.METRICS, EventSource.WORLD, sample, 17_218_800.0)
+
+
+async def kept(app: FastAPI, count: int) -> list[EventEnvelope]:
+    """The feed's history once it holds ``count`` events (the feed takes them in a task)."""
+    for _ in range(500):
+        history = app.state.feed.history()
+        if len(history) == count:
+            return [EventEnvelope.model_validate_json(text) for text in history]
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"the history holds {len(app.state.feed.history())}, not {count}")
+
+
+@pytest.mark.asyncio
+async def test_a_viewer_who_joins_mid_run_gets_the_run_so_far_then_the_live_events(
+    tmp_path: Path,
+) -> None:
+    bus = InProcessBus()
+    app = create_dashboard_app(bus, tmp_path)
+    before = [run_status("run-1"), *(world_event(i) for i in range(3))]
+    for event in before[:2]:  # published before the server is up: the feed has subscribed
+        await bus.publish("events", event)
+    async with serving(app) as (_, base):
+        for event in before[2:]:
+            await bus.publish("events", event)
+        await kept(app, len(before))
+        async with connect(f"{base}/ws/events") as late:
+            after = [world_event(i) for i in range(3, 6)]
+            for event in after:
+                await bus.publish("events", event)
+            assert await received(late, len(before) + len(after)) == before + after
+            assert await silent(late)
+
+
+@pytest.mark.asyncio
+async def test_viewers_who_join_while_events_are_published_get_each_event_once_in_order(
+    tmp_path: Path,
+) -> None:
+    bus = InProcessBus()
+    app = create_dashboard_app(bus, tmp_path)
+    events = [world_event(i) for i in range(300)]
+    async with serving(app) as (_, base):
+
+        async def publish() -> None:
+            for i, event in enumerate(events):
+                await bus.publish("events", event)
+                if i % 10 == 0:
+                    await asyncio.sleep(0.002)  # joins land between the feed's takes
+
+        publishing = asyncio.ensure_future(publish())
+        viewers: list[ClientConnection] = []
+        joined_at: list[int] = []
+        while not publishing.done():
+            joined_at.append(len(app.state.feed.history()))
+            viewers.append(await connect(f"{base}/ws/events"))
+        await publishing
+        assert any(0 < n < len(events) for n in joined_at)  # some joined mid-stream
+        for viewer in viewers:
+            assert await received(viewer, len(events)) == events  # no gap, no duplicate
+            assert await silent(viewer, 0.05)
+            await viewer.close()
+
+
+@pytest.mark.asyncio
+async def test_a_new_run_clears_the_history(tmp_path: Path) -> None:
+    bus = InProcessBus()
+    app = create_dashboard_app(bus, tmp_path)
+    async with serving(app) as (_, base):
+        for event in [run_status("run-1"), world_event(0), world_event(1)]:
+            await bus.publish("events", event)
+        await kept(app, 3)
+        await bus.publish("events", run_status("run-1"))  # the same run: kept, nothing cleared
+        await kept(app, 4)
+        second = [run_status("run-2"), world_event(0)]
+        for event in second:
+            await bus.publish("events", event)
+        assert await kept(app, 2) == second
+        async with connect(f"{base}/ws/events") as viewer:
+            assert await received(viewer, 2) == second
+            assert await silent(viewer)
+
+
+@pytest.mark.asyncio
+async def test_the_history_holds_at_most_its_limit_and_says_so_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(dashboard, "HISTORY_LIMIT", 5)
+    warnings: list[str] = []
+    sink = logger.add(lambda m: warnings.append(m.record["message"]), level="WARNING")
+    try:
+        bus = InProcessBus()
+        app = create_dashboard_app(bus, tmp_path)
+        events = [world_event(i) for i in range(9)]
+        async with serving(app) as (_, base):
+            for event in events:
+                await bus.publish("events", event)
+            assert await kept(app, 5) == events[-5:]  # the oldest went first
+            async with connect(f"{base}/ws/events") as viewer:
+                assert await received(viewer, 5) == events[-5:]
+    finally:
+        logger.remove(sink)
+    assert len([w for w in warnings if "history is full" in w]) == 1
+
+
+@pytest.mark.asyncio
+async def test_the_history_keeps_only_the_latest_vrf_state_and_the_latest_of_each_metric(
+    tmp_path: Path,
+) -> None:
+    bus = InProcessBus()
+    app = create_dashboard_app(bus, tmp_path)
+    stream = [
+        vrf_state(0.0),
+        metric("spotcool", 0.1),
+        world_event(0),
+        vrf_state(-15.0),
+        metric("baseline", 0.2),
+        metric("spotcool", 0.3),
+        world_event(1),
+        vrf_state(-30.0),
+    ]
+    async with serving(app) as (_, base):
+        for event in stream:
+            await bus.publish("events", event)
+        expected = [stream[2], stream[4], stream[5], stream[6], stream[7]]  # in arrival order
+        assert await kept(app, len(expected)) == expected
+        async with connect(f"{base}/ws/events") as viewer:
+            assert await received(viewer, len(expected)) == expected

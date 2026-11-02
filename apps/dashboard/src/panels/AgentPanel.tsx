@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { memo, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { MAX_COMPLAINT_CHARS, sendChat, sendVoice } from '../agent';
 import { startRecording } from '../audio/record';
@@ -8,20 +8,25 @@ import { bmsValue, clockText } from '../format';
 import type { AgentItem, DashboardState } from '../state/reducer';
 import { Empty, Panel, StubTag } from '../ui';
 
+/** Items drawn: the newest; the state keeps more. */
+export const SHOWN_ITEMS = 50;
 const VIDEO_ITEMS = 2;
 const SHORTEST_MS = 300;
 
-export function AgentPanel({ state, config }: { state: DashboardState; config: Config }) {
-  const items = [...state.agent].reverse();
-  const shown = config.video ? items.filter((i) => i.type !== 'decision').slice(0, VIDEO_ITEMS) : items;
+export const AgentPanel = memo(function AgentPanel(props: { items: DashboardState['agent']; stub: boolean; config: Config }) {
+  const { items, config } = props;
+  // Video mode tells the story in explanations; the operator view also lists each decision.
+  const shown = config.video
+    ? items.filter((i) => i.type !== 'decision').slice(-VIDEO_ITEMS).reverse()
+    : items.slice(-SHOWN_ITEMS).reverse();
   return (
-    <Panel id="agent" title="Agent" populated={items.length > 0} tags={state.stubAgent ? <StubTag /> : undefined}>
+    <Panel id="agent" title="Agent" populated={items.length > 0} tags={props.stub ? <StubTag /> : undefined}>
       {shown.length === 0 ? (
         <Empty>No decisions from the agent yet.</Empty>
       ) : (
         <ol className="feed" aria-label="The agent's decisions and explanations, newest first">
-          {shown.map((item, i) => (
-            <li key={`${item.tMs}-${i}`} className={`feed-${item.type}`}>
+          {shown.map((item) => (
+            <li key={item.id} className={`feed-${item.type}`}>
               <span className="feed-time">{item.t === null ? '' : clockText(item.t)}</span>
               <span className="feed-kind">{item.type}</span>
               <span className="feed-text">{describe(item)}</span>
@@ -34,20 +39,22 @@ export function AgentPanel({ state, config }: { state: DashboardState; config: C
         {config.agentUrl === null ? (
           <p className="no-agent" role="status">
             {config.agentProblem
-              ? `Agent not configured: ${config.agentProblem}.`
-              : 'No agent configured: add ?agent=http://<host>:8002 to the URL or set VITE_AGENT_URL.'}
+              ? `Agent not configured: ${config.video ? 'not on this network' : config.agentProblem}.`
+              : config.video
+                ? 'No agent configured.'
+                : 'No agent configured: add ?agent=http://<host>:8002 to the URL or set VITE_AGENT_URL.'}
           </p>
         ) : (
           <>
             <ChatBox agentUrl={config.agentUrl} />
-            <TalkButton agentUrl={config.agentUrl} />
+            <TalkButton agentUrl={config.agentUrl} host={config.video ? config.agentHost : null} />
             {!config.video && <p className="sub">Sent only to the agent at {config.agentUrl}; nothing is stored.</p>}
           </>
         )}
       </div>
     </Panel>
   );
-}
+});
 
 /** One line for an agent event: the stub's fields, or Person A's `text`, or the data itself. */
 export function describe(item: AgentItem): string {
@@ -116,7 +123,7 @@ function ChatBox({ agentUrl }: { agentUrl: string }) {
 type TalkState = 'idle' | 'starting' | 'recording' | 'sending';
 
 /** Hold to record, release to send: by pointer, or Space or Enter while the button has focus. */
-function TalkButton({ agentUrl }: { agentUrl: string }) {
+function TalkButton({ agentUrl, host }: { agentUrl: string; host: string | null }) {
   const [talk, setTalk] = useState<TalkState>('idle');
   const [status, setStatus] = useState('');
   const recording = useRef<{ recording: Recording | null; held: boolean }>({ recording: null, held: false });
@@ -209,6 +216,11 @@ function TalkButton({ agentUrl }: { agentUrl: string }) {
       >
         {talk === 'recording' ? 'Recording…' : 'Hold to talk'}
       </button>
+      {host && (
+        <span className="talk-host" data-testid="talk-host">
+          to {host}
+        </span>
+      )}
       <span id="talk-help" className="sub talk-help">
         Hold the button, or hold Space or Enter on it, while you speak.
       </span>

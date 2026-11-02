@@ -53,16 +53,27 @@ const PUBLISHER: Record<EventType, EventSource> = {
 /** Every event type, in the contract's order. */
 export const EVENT_TYPES = Object.keys(PUBLISHER) as EventType[];
 
+/** The largest /ws/events message read; a longer one is dropped unparsed. */
+export const MAX_MESSAGE_BYTES = 1024 * 1024;
+const encoder = new TextEncoder();
+
+/** Whether a message is longer than `MAX_MESSAGE_BYTES` in UTF-8 (at most 3 bytes per char). */
+function tooLong(text: string): boolean {
+  if (text.length > MAX_MESSAGE_BYTES) return true;
+  return text.length * 3 > MAX_MESSAGE_BYTES && encoder.encode(text).length > MAX_MESSAGE_BYTES;
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**
- * One /ws/events message as an envelope, or null when it is not one: a version other than 1, an
- * unknown type, a type from the wrong publisher (an agent type must come from the agent), a
- * missing time, or data that is not an object.
+ * One /ws/events message as an envelope, or null when it is not one: over `MAX_MESSAGE_BYTES`, a
+ * version other than 1, an unknown type, a type from the wrong publisher (an agent type must
+ * come from the agent), a missing time, or data that is not an object.
  */
 export function parseEnvelope(text: string): Envelope | null {
+  if (tooLong(text)) return null;
   let raw: unknown;
   try {
     raw = JSON.parse(text);

@@ -5,6 +5,9 @@
 // - wall-clock state (the VRF unit, the agent's perception) keeps the latest `t_ms`;
 // - lists (BACnet log, agent feed, errors) are kept in `t_ms` order, a late event inserted where
 //   its `t_ms` puts it, and hold the newest `MAX_ROWS`.
+// Every new connection starts from a clear screen: the world sends each new viewer the run so
+// far, so nothing is shown twice. A world event whose data lacks what the panels read is dropped
+// and counted (`guards.ts`).
 import type {
   BmsWriteData,
   CalendarData,
@@ -27,6 +30,7 @@ import type {
 } from '../wire';
 import { isRecord } from '../wire';
 import { isZone } from '../zones';
+import { isWorldType, VALID } from './guards';
 
 export const MAX_ROWS = 500;
 
@@ -69,6 +73,8 @@ export interface Complaint {
 }
 
 export interface Row<T> {
+  /** Unique within the state: a stable key for the panels. */
+  id: number;
   tMs: number;
   t: number | null;
   data: T;
@@ -98,8 +104,12 @@ export interface Masks {
 export interface DashboardState {
   connection: Connection;
   attempt: number;
-  /** Messages that were not valid envelopes. */
+  /** Messages that were not valid envelopes, or world events the panels could not read. */
   dropped: number;
+  /** Counts the clears: the panels' error boundaries start afresh with each. */
+  epoch: number;
+  /** The next row id. */
+  nextId: number;
   run: RunInfo | null;
   /** The end of the latest step closed (its `tick`), or the run's start before the first one. */
   simNow: number | null;
@@ -140,6 +150,8 @@ export const initialState: DashboardState = {
   connection: 'connecting',
   attempt: 0,
   dropped: 0,
+  epoch: 0,
+  nextId: 0,
   run: null,
   simNow: null,
   stepS: null,
@@ -161,21 +173,22 @@ export const initialState: DashboardState = {
   metrics: {},
 };
 
-/** Everything of a run cleared, the connection kept. */
+/** Everything of a run cleared, the connection, the counts and the row ids kept. */
 function cleared(state: DashboardState): DashboardState {
   return {
     ...initialState,
     connection: state.connection,
     attempt: state.attempt,
     dropped: state.dropped,
+    epoch: state.epoch + 1,
+    nextId: state.nextId,
   };
 }
 
 export function reducer(state: DashboardState, action: Action): DashboardState {
   if (action.kind === 'connection') {
-    // The world serves one run and stops: a new connection after a run's end is a new world.
-    const restarted = action.connection === 'live' && state.run !== null && isFinal(state.run.status);
-    const base = restarted ? cleared(state) : state;
+    // A new connection gets the run so far from the world: keeping the old rows would show them twice.
+    const base = action.connection === 'live' ? cleared(state) : state;
     return { ...base, connection: action.connection, attempt: action.attempt };
   }
   const folded = action.envelopes.reduce(applyEvent, state);
@@ -207,9 +220,11 @@ export function upsertByT<T extends { t: number }>(list: readonly T[], item: T):
 }
 
 export function applyEvent(state: DashboardState, env: Envelope): DashboardState {
+  if (isWorldType(env.type) && !VALID[env.type](env.data)) return { ...state, dropped: state.dropped + 1 };
   const t = env.sim_time_s;
   const tMs = env.t_ms;
-  // World payloads are validated against the contracts by the world before it publishes them.
+  const id = state.nextId;
+  // Checked above, against what the panels read; the world validates the rest.
   const data: unknown = env.data;
   switch (env.type) {
     case 'tick': {
@@ -257,7 +272,11 @@ export function applyEvent(state: DashboardState, env: Envelope): DashboardState
       };
     }
     case 'bms_write':
-      return { ...state, bacnet: insertBy(state.bacnet, { tMs, t, data: data as BmsWriteData }, byTMs) };
+      return {
+        ...state,
+        nextId: id + 1,
+        bacnet: insertBy(state.bacnet, { id, tMs, t, data: data as BmsWriteData }, byTMs),
+      };
     case 'kpi': {
       const kpi = data as KpiData;
       const held = state.kpi[kpi.run];
@@ -289,14 +308,14 @@ export function applyEvent(state: DashboardState, env: Envelope): DashboardState
     case 'complaint_cue':
       return { ...state, complaints: complaint(state.complaints, data as ComplaintCueData, t) };
     case 'error':
-      return { ...state, errors: insertBy(state.errors, { tMs, t, data: data as ErrorData }, byTMs) };
+      return { ...state, nextId: id + 1, errors: insertBy(state.errors, { id, tMs, t, data: data as ErrorData }, byTMs) };
     case 'metrics': {
       const metric = data as MetricsData;
       const labels = Object.entries(metric.labels ?? {}).sort(([a], [b]) => a.localeCompare(b));
       const key = `${metric.name} ${labels.map(([k, v]) => `${k}=${v}`).join(' ')}`.trim();
       const held = state.metrics[key];
       if (held && held.tMs > tMs) return state;
-      return { ...state, metrics: { ...state.metrics, [key]: { tMs, t, data: metric } } };
+      return { ...state, metrics: { ...state.metrics, [key]: { id: held?.id ?? id, tMs, t, data: metric } }, nextId: id + 1 };
     }
     case 'perception':
       return perception(state, env.data, tMs);
@@ -304,8 +323,13 @@ export function applyEvent(state: DashboardState, env: Envelope): DashboardState
     case 'explanation':
     case 'chat': {
       const stub = env.data.stub === true;
-      const item: AgentItem = { type: env.type, tMs, t, data: env.data, stub };
-      return { ...state, agent: insertBy(state.agent, item, byTMs), stubAgent: state.stubAgent || stub };
+      const item: AgentItem = { id, type: env.type, tMs, t, data: env.data, stub };
+      return {
+        ...state,
+        nextId: id + 1,
+        agent: insertBy(state.agent, item, byTMs),
+        stubAgent: state.stubAgent || stub,
+      };
     }
     default: {
       const unknownType: never = env.type;

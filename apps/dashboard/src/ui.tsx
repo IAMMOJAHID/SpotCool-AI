@@ -1,3 +1,4 @@
+import { Component } from 'react';
 import type { ReactNode } from 'react';
 
 /** One dashboard panel: a labelled section whose `data-populated` says it has data to show. */
@@ -42,4 +43,27 @@ export function StubTag() {
 
 export function Empty({ children }: { children: ReactNode }) {
   return <p className="empty">{children}</p>;
+}
+
+/**
+ * A panel that failed to render shows why, in its place, while the others carry on. Key it by
+ * the state's `epoch`, so a clear screen gives it a new start.
+ */
+export class PanelBoundary extends Component<{ id: string; title: string; children: ReactNode }, { error: string | null }> {
+  override state = { error: null as string | null };
+
+  static getDerivedStateFromError(error: unknown): { error: string } {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  override render(): ReactNode {
+    if (this.state.error === null) return this.props.children;
+    return (
+      <Panel id={this.props.id} title={this.props.title} populated={false}>
+        <p className="panel-error" role="alert" data-testid="panel-error">
+          This panel failed to draw: {this.state.error}
+        </p>
+      </Panel>
+    );
+  }
 }

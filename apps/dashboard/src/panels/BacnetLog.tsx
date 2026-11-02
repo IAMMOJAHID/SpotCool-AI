@@ -1,12 +1,15 @@
+import { memo } from 'react';
 import { bmsValue, clockText } from '../format';
 import type { DashboardState } from '../state/reducer';
 import { Empty, Panel } from '../ui';
 
+/** Rows drawn: the newest; the state keeps more. */
+export const SHOWN_ROWS = 50;
 const VIDEO_ROWS = 3;
 
-export function BacnetLog({ state, video }: { state: DashboardState; video: boolean }) {
-  const rows = [...state.bacnet].reverse();
-  const shown = video ? rows.slice(0, VIDEO_ROWS) : rows;
+export const BacnetLog = memo(function BacnetLog(props: { rows: DashboardState['bacnet']; video: boolean }) {
+  const { rows, video } = props;
+  const shown = rows.slice(-(video ? VIDEO_ROWS : SHOWN_ROWS)).reverse();
   return (
     <Panel id="bacnet" title="BACnet writes" populated={rows.length > 0}>
       {rows.length === 0 ? (
@@ -14,6 +17,15 @@ export function BacnetLog({ state, video }: { state: DashboardState; video: bool
       ) : (
         <div className="scroll">
           <table className="log">
+            {video && (
+              <colgroup>
+                <col className="col-time" />
+                <col className="col-object" />
+                <col className="col-pri" />
+                <col className="col-value" />
+                <col className="col-result" />
+              </colgroup>
+            )}
             <thead>
               <tr>
                 <th scope="col">Time</th>
@@ -26,27 +38,30 @@ export function BacnetLog({ state, video }: { state: DashboardState; video: bool
               </tr>
             </thead>
             <tbody>
-              {shown.map(({ tMs, t, data }, i) => (
-                <tr key={`${tMs}-${i}`} className={data.accepted ? '' : 'rejected'}>
-                  <td>{t === null ? '—' : clockText(t)}</td>
-                  {!video && <td>{data.device}</td>}
-                  <td>
-                    {data.object_name}
-                    {!video && <span className="sub"> {data.object_id}</span>}
-                  </td>
-                  <td>{data.priority}</td>
-                  <td className={data.value === null ? 'release' : ''}>{bmsValue(data.value)}</td>
-                  {!video && <td>{data.client}</td>}
-                  <td>
-                    {data.accepted ? 'accepted' : 'rejected'}
-                    {data.reason && <span className="sub">: {data.reason}</span>}
-                  </td>
-                </tr>
-              ))}
+              {shown.map(({ id, t, data }) => {
+                const value = bmsValue(data.value);
+                const result = `${data.accepted ? 'accepted' : 'rejected'}${data.reason ? `: ${data.reason}` : ''}`;
+                return (
+                  <tr key={id} className={data.accepted ? '' : 'rejected'}>
+                    <td>{t === null ? '—' : clockText(t)}</td>
+                    {!video && <td>{data.device}</td>}
+                    <td title={data.object_name}>
+                      {data.object_name}
+                      {!video && <span className="sub"> {data.object_id}</span>}
+                    </td>
+                    <td>{data.priority}</td>
+                    <td className={data.value === null ? 'release' : ''} title={value}>
+                      {value}
+                    </td>
+                    {!video && <td>{data.client}</td>}
+                    <td title={result}>{result}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </Panel>
   );
-}
+});

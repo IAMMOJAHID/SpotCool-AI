@@ -3,8 +3,6 @@ import { defineConfig } from '@playwright/test';
 /** The mock feed (events and cameras) and the built app, each on a free port of its own. */
 export const MOCK = '127.0.0.1:41731';
 export const APP = 'http://127.0.0.1:41730';
-/** Nobody listens here: the tests answer the agent's requests themselves. */
-export const AGENT = 'http://127.0.0.1:41739';
 
 export default defineConfig({
   testDir: 'e2e',

@@ -1,19 +1,24 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { LIVE_CAMERA_ID, mjpegUrl } from '../cameras';
 import type { DashboardState, Masks } from '../state/reducer';
 import { Empty, Panel, StubTag, Tag } from '../ui';
 import type { CameraCatalog, CameraInfo } from '../wire';
+import { zoneName } from '../zones';
 
 const SNAPSHOT_POLL_MS = 1000;
 
-export function CameraWall(props: {
-  state: DashboardState;
+export const CameraWall = memo(function CameraWall(props: {
   catalog: CameraCatalog | null;
   error: string | null;
   camerasUrl: string;
+  runId: string | null;
+  people: DashboardState['people'];
+  masks: DashboardState['masks'];
+  scenes: DashboardState['scenes'];
+  script: DashboardState['script'];
   video: boolean;
 }) {
-  const { state, catalog } = props;
+  const { catalog, video } = props;
   // Zone cameras always; the live phone only when the catalog lists it.
   const cameras = catalog?.cameras.filter((c) => c.zone != null || c.id === LIVE_CAMERA_ID) ?? [];
   return (
@@ -24,39 +29,46 @@ export function CameraWall(props: {
         <div className="tiles">
           {cameras.map((camera) => (
             <CameraTile
-              key={`${state.run?.id ?? ''}-${camera.id}`}
+              key={`${props.runId ?? ''}-${camera.id}`}
               camera={camera}
+              // A video tile is too narrow for the catalog's name beside the count: its zone's name.
+              label={video && camera.zone ? zoneName(camera.zone) : camera.name}
               camerasUrl={props.camerasUrl}
-              people={camera.zone ? state.people[camera.zone] : undefined}
-              masks={state.masks[camera.id]}
+              people={camera.zone ? props.people[camera.zone] : undefined}
+              masks={props.masks[camera.id]}
               script={
-                props.video
+                video
                   ? null
                   : {
-                      scene: state.scenes[camera.id]?.scene ?? null,
-                      people: state.script?.zones.find((z) => z.zone === camera.zone)?.people ?? null,
+                      scene: props.scenes[camera.id]?.scene ?? null,
+                      people: props.script?.zones.find((z) => z.zone === camera.zone)?.people ?? null,
                     }
               }
             />
           ))}
         </div>
       )}
-      {catalog?.privacy_notice && <p className="privacy">{catalog.privacy_notice}</p>}
+      {/* The catalog's notice is for operators (contracts' cameras.py). */}
+      {!video && catalog?.privacy_notice && <p className="privacy">{catalog.privacy_notice}</p>}
     </Panel>
   );
-}
+});
 
 function CameraTile(props: {
   camera: CameraInfo;
+  label: string;
   camerasUrl: string;
   people: { people: number; stub: boolean } | undefined;
   masks: Masks | undefined;
   script: { scene: string | null; people: number | null } | null;
 }) {
   const { camera, people, masks, script } = props;
-  // MJPEG first (an <img> needs no CORS); if the stream fails, a snapshot every second.
+  // MJPEG first (an <img> needs no CORS); if the stream fails, a snapshot every second. A frame
+  // that failed is hidden behind "no signal" (a broken image would show its alt text) until the
+  // next one loads.
   const [polling, setPolling] = useState(false);
   const [frame, setFrame] = useState(0);
+  const [lost, setLost] = useState(false);
   useEffect(() => {
     if (!polling) return;
     const timer = window.setInterval(() => {
@@ -77,10 +89,16 @@ function CameraTile(props: {
           src={src}
           alt={`${camera.name} camera`}
           decoding="async"
+          className={lost ? 'lost' : undefined}
+          onLoad={() => {
+            setLost(false);
+          }}
           onError={() => {
             setPolling(true);
+            setLost(true);
           }}
         />
+        {lost && <span className="cam-lost">no signal</span>}
         {masks && masks.polygons.length > 0 && (
           <svg
             className="masks"
@@ -94,15 +112,17 @@ function CameraTile(props: {
           </svg>
         )}
         {live && <Tag kind="live">live</Tag>}
-      </div>
-      <figcaption>
-        <span className="cam-name">{camera.name}</span>
         {people && (
           <span className="cam-count" data-testid="camera-count">
             {people.people} {people.people === 1 ? 'person' : 'people'}
             {people.stub && <StubTag />}
           </span>
         )}
+      </div>
+      <figcaption>
+        <span className="cam-name" title={camera.name}>
+          {props.label}
+        </span>
         {script && (script.scene !== null || script.people !== null) && (
           <span className="cam-script">
             <Tag kind="script">script</Tag> {script.scene ?? '?'} {'·'} {script.people ?? '?'}

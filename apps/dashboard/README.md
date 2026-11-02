@@ -16,7 +16,7 @@ repo's Python workspace (set `UV_PROJECT_ENVIRONMENT` as in `packages/world/AGEN
 
 ```bash
 npm ci                      # install the pinned dependencies
-npm run gen:types           # contracts -> src/contracts/schemas (JSON Schema) -> src/contracts/types (TypeScript)
+npm run gen:types           # clears src/contracts, then contracts -> schemas (JSON Schema) -> types (TypeScript)
 npm run mock                # mock feed on 127.0.0.1:8790, playing fixtures/sample-events.jsonl at speed 300
 npm run dev                 # Vite on http://localhost:5173
 #   open http://localhost:5173/?world=127.0.0.1:8790&cameras=127.0.0.1:8790
@@ -35,9 +35,12 @@ npm run test:e2e            # Playwright on the installed Microsoft Edge; run `n
   `scripts/make-fixture.ts`: a synthetic day with every event type, the stub-labelled agent's
   included. A Vitest test fails if the committed file is stale.
 - **Playwright** never downloads browsers (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` for installs). It
-  starts the mock feed on `127.0.0.1:41731` and `vite preview` on `127.0.0.1:41730`. Screenshot
-  baselines (`e2e/__screenshots__`) are Edge on Windows at half device scale; update them with
-  `npx playwright test --update-snapshots=all -g screenshot`.
+  starts the mock feed on `127.0.0.1:41731` and `vite preview` on `127.0.0.1:41730`; the agent
+  tests start a stand-in agent on a free port. Screenshot baselines (`e2e/__screenshots__`) are
+  Edge on Windows at half device scale, and the tests also check the key numbers as text; update
+  the baselines with `npx playwright test --update-snapshots=all -g screenshot`. `e2e/video.spec.ts`
+  checks that in video mode nothing is cut off and no text is under 22 px, on the fixture and on
+  the longest texts the world and the agent send.
 
 ## Where it connects
 
@@ -45,8 +48,15 @@ npm run test:e2e            # Playwright on the installed Microsoft Edge; run `n
 |---|---|---|
 | `world=host:port` | the page's host (served by the world); `127.0.0.1:8090` under `npm run dev` | WP6's dashboard server: `ws://<world>/ws/events` |
 | `cameras=host:port` | the world's host, port 8081 | WP4's camera server: `/cameras`, `/cameras/{id}/mjpeg`, `/cameras/{id}/snapshot.jpg` |
-| `agent=http://host:port` | `VITE_AGENT_URL`, else none | Person A's agent: `POST /chat` and `POST /voice` (it must allow CORS from this page) |
+| `agent=http://host:port` | `VITE_AGENT_URL`, else none | Person A's agent: `POST /chat` and `POST /voice` |
 | `mode=video` | operator view | the 1920×1080 video layout |
+
+`world`, `cameras` and `agent` (`VITE_AGENT_URL` too) must be on this machine (loopback), a
+private RFC 1918 or link-local address (IPv4 or IPv6), or the page's own host; anything else is
+reported on the page and not used, so a crafted link cannot send complaints or audio elsewhere.
+Both POSTs carry `X-SpotCool-Client: dashboard`, so the browser asks the agent first (a CORS
+preflight): the agent must allow this page's origin, `POST` and that header, and until it does
+no text or audio leaves the page. Video mode shows the agent's host next to hold-to-talk.
 
 In production `spotcool-world run` serves `dist/` at `/` on its dashboard port (8090), so
 `http://<world>:8090/` needs no parameters; `?mode=video&agent=http://<agent>:8002` for a take.
@@ -57,17 +67,30 @@ where the camera server is).
 
 - **One reducer** (`src/state/reducer.ts`) folds every envelope into the state. World state keeps
   the latest sim time, wall-clock state (VRF, perception) the latest `t_ms`, and lists are kept in
-  `t_ms` order. A `tick` closes its step, so the clock shows the step's end. A new run id, or a
-  new connection after a run ended, clears the screen.
-- **Energy** is drawn as each step's mean power over that step (`stepped: "before"`), and
-  cumulative energy is the world's `energy_kwh`; nothing is integrated in the browser.
+  `t_ms` order. A `tick` closes its step, so the clock shows the step's end. Every new connection
+  starts from a clear screen, because the world sends each new viewer the run so far (and the
+  mock feed replays from the start), and a new run id clears it too.
+- **Robust to bad input:** a message over 1 MB, or a world event whose data lacks what the panels
+  read (`src/state/guards.ts`), is dropped and counted in the operator view. Each panel has an
+  error boundary: one that fails to draw says so, and the others carry on.
+- **Energy** is drawn as each step's mean power over that step, and cumulative energy is the
+  world's `energy_kwh`; nothing is integrated in the browser. A point is stamped at the end of
+  its step, so the chart uses Chart.js's `stepped: "after"`, which draws a point's value over
+  the interval before it.
+- **Video mode** is a fixed 1920×1080 frame with the bottom 130 px clear for captions. No visible
+  text is under 22 px; panel titles, the clock and energy saved are 28 px or more. Long texts end
+  in an ellipsis or are clamped to their lines.
+- **Load:** each panel gets only its slice of the state and is memoized, the BACnet log and the
+  agent feed draw their newest 50 rows, and each panel contains its own layout and paint. The VRF
+  unit's 5 Hz state, eased in at 60 fps, re-draws only the AC unit.
 - **Ground truth:** people on the floor plan and the camera tiles come from the agent's
   `perception` (`people: {zone: n}`; masks from `masks: {camera_id: [[[x, y], ...], ...]}` in the
   camera's frame pixels). The script's counts and scenes appear only in the operator view,
   labelled "script". Agent events with `stub: true` carry a "stub" tag wherever they appear.
 - **KPIs:** video mode shows energy saved and comfort where people were. BOPTEST's own KPIs
   appear only in the operator view, under a caption: BOPTEST's schedule counts every zone as
-  occupied all day.
+  occupied all day. On a stub run, the KPI cards say "Stub agent: upper bound with perfect
+  perception", as the world's quote verdict does.
 - **Law 6:** camera frames are `<img>` streams (MJPEG, or snapshots once a second if a stream
   fails) and the hold-to-talk recording stays in memory until its one POST to the agent. Nothing
   uses browser storage, caches or a service worker (a Vitest test checks the sources).

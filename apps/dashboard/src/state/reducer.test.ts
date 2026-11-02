@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Envelope, EventType } from '../wire';
-import { EVENT_TYPES, parseEnvelope } from '../wire';
+import { EVENT_TYPES, MAX_MESSAGE_BYTES, parseEnvelope } from '../wire';
 import type { DashboardState } from './reducer';
 import { applyEvent, initialState, insertBy, MAX_ROWS, reducer, upsertByT } from './reducer';
 
@@ -153,16 +153,29 @@ describe('reducer', () => {
     expect(next.bacnet).toEqual([]);
   });
 
-  it('clears a finished run when the socket opens again (a new world), not on a mid-run reconnect', () => {
+  it('keeps the screen while reconnecting, and clears it when the socket is live again', () => {
     const running = fold(env('run_status', status('r1', 'running')), env('bms_write', ONE_OF_EACH.bms_write.data));
-    const back = reducer(running, { kind: 'connection', connection: 'live', attempt: 0 });
-    expect(back.bacnet).toHaveLength(1);
-    const finished = reducer(running, { kind: 'events', envelopes: [env('run_status', status('r1', 'finished'))], dropped: 0 });
-    const reconnecting = reducer(finished, { kind: 'connection', connection: 'reconnecting', attempt: 1 });
-    expect(reconnecting.run?.status).toBe('finished'); // the result stays on screen
-    const fresh = reducer(reconnecting, { kind: 'connection', connection: 'live', attempt: 0 });
-    expect(fresh.run).toBeNull();
-    expect(fresh.connection).toBe('live');
+    const reconnecting = reducer(running, { kind: 'connection', connection: 'reconnecting', attempt: 1 });
+    expect(reconnecting.bacnet).toHaveLength(1); // the last state stays on screen
+    const live = reducer(reconnecting, { kind: 'connection', connection: 'live', attempt: 0 });
+    expect(live.run).toBeNull();
+    expect(live.bacnet).toEqual([]);
+    expect(live.connection).toBe('live');
+    expect(live.epoch).toBe(reconnecting.epoch + 1);
+  });
+
+  it('shows no row twice when a reconnect replays the run so far', () => {
+    const write = (name: string) =>
+      env('bms_write', { device: 'd', object_id: 'o', object_name: name, priority: 10, value: 1, client: 'c', accepted: true, reason: null });
+    const run = [env('run_status', status('r1', 'running')), write('a'), env('explanation', { text: 'x' }), write('b')];
+    const feed = (state: DashboardState, envelopes: Envelope[]) => reducer(state, { kind: 'events', envelopes, dropped: 0 });
+    const first = feed(reducer(initialState, { kind: 'connection', connection: 'live', attempt: 0 }), run.slice(0, 3));
+    const dropped = reducer(first, { kind: 'connection', connection: 'reconnecting', attempt: 1 });
+    // The world sends each new viewer the run so far, then what follows.
+    const again = feed(reducer(dropped, { kind: 'connection', connection: 'live', attempt: 0 }), run);
+    expect(again.bacnet.map((r) => r.data.object_name)).toEqual(['a', 'b']);
+    expect(again.agent).toHaveLength(1);
+    expect(new Set(again.bacnet.map((r) => r.id)).size).toBe(2); // stable, unique keys
   });
 
   it('keeps the masks of each camera, dropping malformed polygons', () => {
@@ -175,6 +188,28 @@ describe('reducer', () => {
 
   it('counts dropped messages', () => {
     expect(reducer(initialState, { kind: 'events', envelopes: [], dropped: 2 }).dropped).toBe(2);
+  });
+
+  it('drops a world event whose data the panels cannot read, and keeps going', () => {
+    const before = fold(ONE_OF_EACH.plant_measurements, ONE_OF_EACH.tick);
+    const bad = [
+      env('plant_measurements', { ...measurement('spotcool', 5, 1), zones: null }),
+      env('tick', { index: 1, clock: '07:15', day_of_year: 200 }), // no step_s
+      env('tick', { index: 1, step_s: 'x', clock: '07:15', day_of_year: 200 }),
+      env('plant_measurements', { ...measurement('spotcool', Number.NaN, 1) }),
+      env('kpi', { run: 'spotcool', boptest: null }),
+      env('scenario_state', { zones: [{ zone: 'mars', scene: 'x', people: 1 }] }),
+      env('calendar', { room: 'meeting-south', items: [{ status: 'busy' }] }),
+      env('metrics', { name: 'm', value: 'fast', unit: 's' }),
+      env('vrf_state', { ...vrf(-30), profile: 7 }),
+      env('complaint_cue', { ...cue(false, null), zone: 'nowhere' }),
+      env('bms_write', { ...ONE_OF_EACH.bms_write.data, object_name: { a: 1 } }),
+      env('run_status', { ...status('r1', 'running'), status: 'exploded' }),
+    ];
+    const after = reducer(before, { kind: 'events', envelopes: bad, dropped: 0 });
+    expect(after.dropped).toBe(bad.length);
+    expect({ ...after, dropped: 0 }).toEqual({ ...before, dropped: 0 }); // nothing else changed
+    expect(fold(...Object.values(ONE_OF_EACH)).dropped).toBe(0); // the contract's shapes pass
   });
 });
 
@@ -209,7 +244,16 @@ describe('parseEnvelope', () => {
     ['no t_ms', text({ ...good, t_ms: 'x' })],
     ['a bad sim time', text({ ...good, sim_time_s: 'x' })],
     ['data that is not an object', text({ ...good, data: [] })],
+    ['a message over 1 MB', text({ ...good, data: { blob: 'x'.repeat(MAX_MESSAGE_BYTES) } })],
+    ['a message over 1 MB in UTF-8', text({ ...good, data: { blob: 'é'.repeat(MAX_MESSAGE_BYTES / 2) } })],
   ])('refuses %s', (_, message) => {
     expect(parseEnvelope(message)).toBeNull();
+  });
+
+  it('reads a message just under 1 MB', () => {
+    const message = text({ ...good, data: { blob: '' } });
+    const padded = text({ ...good, data: { blob: 'x'.repeat(MAX_MESSAGE_BYTES - message.length) } });
+    expect(padded.length).toBe(MAX_MESSAGE_BYTES);
+    expect(parseEnvelope(padded)).not.toBeNull();
   });
 });

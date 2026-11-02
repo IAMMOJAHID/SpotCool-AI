@@ -1,12 +1,20 @@
+import { memo } from 'react';
 import type { Config } from '../config';
 import { backoffMs } from '../feed';
 import { calendarDate, capitalize, clockText, dayOfYear, plantLabel, scenarioLabel } from '../format';
-import type { DashboardState } from '../state/reducer';
+import type { Connection, RunInfo } from '../state/reducer';
 import { Tag } from '../ui';
 
-export function Header({ state, config }: { state: DashboardState; config: Config }) {
-  const { run, simNow, connection, attempt } = state;
-  // A dashboard that joins mid-run has missed the run's `running` event, but ticks show it runs.
+export const Header = memo(function Header(props: {
+  run: RunInfo | null;
+  simNow: number | null;
+  connection: Connection;
+  attempt: number;
+  stub: boolean;
+  config: Config;
+}) {
+  const { run, simNow, connection, attempt, config } = props;
+  // Ticks without a run status (a world that does not send the run so far) still show it runs.
   const status = run?.status ?? (simNow !== null ? 'running' : 'waiting');
   const link =
     connection === 'live'
@@ -14,12 +22,13 @@ export function Header({ state, config }: { state: DashboardState; config: Confi
       : connection === 'connecting'
         ? 'connecting'
         : `reconnecting (attempt ${attempt}, every ${backoffMs(attempt - 1) / 1000} s)`;
+  const scenario = run ? scenarioLabel(run.scenario) : 'Scenario —';
   return (
     <header className="top" data-testid="panel-header" data-populated={simNow !== null}>
       <div className="brand">
         <span className="logo">SpotCool</span>
-        <span className="scenario" data-testid="scenario">
-          {run ? scenarioLabel(run.scenario) : 'Scenario —'}
+        <span className="scenario" data-testid="scenario" title={scenario}>
+          {scenario}
         </span>
         <span className="plant">{run ? plantLabel(run.plant) : 'Plant —'}</span>
       </div>
@@ -27,12 +36,12 @@ export function Header({ state, config }: { state: DashboardState; config: Confi
         <span className="time" data-testid="clock">
           {simNow === null ? '--:--' : clockText(simNow)}
         </span>
-        <span className="day">
+        <span className="day" data-testid="day">
           {simNow === null ? 'waiting for the world' : `Day ${dayOfYear(simNow)} · ${calendarDate(simNow)}`}
         </span>
       </div>
       <div className="status">
-        {state.stubAgent && (
+        {props.stub && (
           <Tag kind="stub">
             <span title="Perfect perception from the scenario script, not Person A's agent">Stub agent</span>
           </Tag>
@@ -51,6 +60,11 @@ export function Header({ state, config }: { state: DashboardState; config: Confi
           </span>
         )}
       </div>
+      {config.problems.length > 0 && (
+        <p className="config-problems" role="alert" data-testid="config-problems">
+          {config.problems.join(' · ')}
+        </p>
+      )}
     </header>
   );
-}
+});

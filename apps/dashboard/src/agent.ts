@@ -1,6 +1,13 @@
 // Posts to Person A's agent (`AGENT_CHAT_PATH` and `AGENT_VOICE_PATH` in the contracts). The agent
-// must allow CORS from the dashboard's origin.
+// must allow CORS from the dashboard's origin, `CLIENT_HEADER` included.
 import type { ComplaintText } from './wire';
+
+/**
+ * Sent with every POST. A custom header makes the browser ask the agent first (a CORS
+ * preflight), so no text or audio leaves unless the agent allows this page; a multipart POST
+ * alone would be sent, and only its answer hidden.
+ */
+export const CLIENT_HEADER: readonly [string, string] = ['X-SpotCool-Client', 'dashboard'];
 
 const TIMEOUT_MS = 15_000;
 /** `ComplaintText.text` limit. */
@@ -25,10 +32,13 @@ export async function sendVoice(agentUrl: string, wav: Blob): Promise<void> {
 }
 
 async function post(url: string, init: RequestInit): Promise<void> {
+  const headers = new Headers(init.headers);
+  headers.set(...CLIENT_HEADER);
   let response: Response;
   try {
     response = await fetch(url, {
       ...init,
+      headers,
       method: 'POST',
       cache: 'no-store',
       credentials: 'omit',

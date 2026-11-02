@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { fixed } from '../format';
 import type { DashboardState } from '../state/reducer';
 import { Empty, Panel, Tag } from '../ui';
@@ -18,15 +19,18 @@ const BOPTEST_UNITS: Record<string, string> = {
 /** Why BOPTEST's discomfort KPIs are never shown bare (the lead's amendment to WP7). */
 export const BOPTEST_CAPTION =
   "BOPTEST's schedule counts every zone as occupied all day, so its discomfort includes zones the scenario leaves empty.";
+/** What a stub run's KPIs are worth, as the world's quote verdict says. */
+export const STUB_KPI_NOTE = 'Stub agent: upper bound with perfect perception';
 
 function Provisional({ kpi }: { kpi: KpiData | undefined }) {
   if (!kpi) return null;
   return kpi.provisional === false ? <Tag kind="final">final</Tag> : <Tag kind="provisional">provisional</Tag>;
 }
 
-export function KpiCards({ state, video }: { state: DashboardState; video: boolean }) {
-  const spotcool = state.kpi.spotcool?.data;
-  const baseline = state.kpi.baseline?.data;
+export const KpiCards = memo(function KpiCards(props: { kpi: DashboardState['kpi']; stub: boolean; video: boolean }) {
+  const { kpi, video } = props;
+  const spotcool = kpi.spotcool?.data;
+  const baseline = kpi.baseline?.data;
   const saved = spotcool?.energy_saved_pct;
   return (
     <Panel id="kpis" title="Results" populated={spotcool !== undefined}>
@@ -34,6 +38,11 @@ export function KpiCards({ state, video }: { state: DashboardState; video: boole
         <Empty>The first KPIs arrive after four steps.</Empty>
       ) : (
         <div className="cards">
+          {props.stub && (
+            <p className="kpi-stub" data-testid="kpi-stub">
+              {STUB_KPI_NOTE}
+            </p>
+          )}
           <article className="card card-saved" aria-label="Energy saved">
             <h3>
               Energy saved <Provisional kpi={spotcool} />
@@ -52,7 +61,10 @@ export function KpiCards({ state, video }: { state: DashboardState; video: boole
                 <div key={run} className={`pair-${run}`}>
                   <dt>{run === 'spotcool' ? 'SpotCool' : 'Baseline'}</dt>
                   <dd>
-                    <span className="kpi-mid">{fixed(state.kpi[run]?.data.comfort_where_people_kh, 2)}</span> K{'·'}h
+                    <span className="kpi-mid" data-testid={`comfort-${run}`}>
+                      {fixed(kpi[run]?.data.comfort_where_people_kh, 2)}
+                    </span>{' '}
+                    K{'·'}h
                   </dd>
                 </div>
               ))}
@@ -66,7 +78,7 @@ export function KpiCards({ state, video }: { state: DashboardState; video: boole
       )}
     </Panel>
   );
-}
+});
 
 /** Operator view only: BOPTEST's own KPIs once final, with the caption that qualifies them. */
 function BoptestKpis({ spotcool, baseline }: { spotcool: KpiData | undefined; baseline: KpiData | undefined }) {

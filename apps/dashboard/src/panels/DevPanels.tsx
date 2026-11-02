@@ -1,25 +1,30 @@
+import { memo } from 'react';
 import { clockText } from '../format';
 import type { DashboardState } from '../state/reducer';
 import { Empty, Panel, Tag } from '../ui';
 
 /** Operator view only: the world's errors and metrics, and what the feed dropped. */
-export function DevPanels({ state }: { state: DashboardState }) {
-  const errors = [...state.errors].reverse();
-  const metrics = Object.entries(state.metrics).sort(([a], [b]) => a.localeCompare(b));
+export const DevPanels = memo(function DevPanels(props: {
+  errors: DashboardState['errors'];
+  metrics: DashboardState['metrics'];
+  dropped: number;
+}) {
+  const errors = props.errors.slice(-50).reverse();
+  const metrics = Object.entries(props.metrics).sort(([a], [b]) => a.localeCompare(b));
   return (
     <>
       <Panel
         id="errors"
         title="World errors"
         populated
-        tags={state.dropped > 0 ? <Tag kind="warn">{state.dropped} invalid messages dropped</Tag> : undefined}
+        tags={props.dropped > 0 ? <Tag kind="warn">{props.dropped} invalid messages dropped</Tag> : undefined}
       >
         {errors.length === 0 ? (
           <Empty>No errors.</Empty>
         ) : (
           <ul className="errors">
-            {errors.map(({ tMs, t, data }, i) => (
-              <li key={`${tMs}-${i}`} className={data.fatal ? 'fatal' : ''}>
+            {errors.map(({ id, t, data }) => (
+              <li key={id} className={data.fatal ? 'fatal' : ''}>
                 <span className="feed-time">{t === null ? '' : clockText(t)}</span>
                 {data.fatal && <Tag kind="warn">fatal</Tag>} <strong>{data.where}</strong>: {data.message}
               </li>
@@ -47,4 +52,4 @@ export function DevPanels({ state }: { state: DashboardState }) {
       </Panel>
     </>
   );
-}
+});

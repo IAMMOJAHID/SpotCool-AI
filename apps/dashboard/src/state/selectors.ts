@@ -48,9 +48,12 @@ export function meetings(calendar: DashboardState['calendar']): Meeting[] {
 const DAY_START_S = 7 * 3600;
 const DAY_END_S = 19 * 3600;
 
+/** A sim-time span: its first and last second. */
+export type Axis = readonly [number, number];
+
 /** The sim-time axis of the timeline and the energy chart: the default day, widened to the data. */
-export function dayWindow(state: DashboardState): [number, number] | null {
-  const times = [state.simNow, ...Object.values(state.power).flatMap((points) => points.map((p) => p.t))].filter(
+export function dayWindow(simNow: number | null, power: DashboardState['power']): Axis | null {
+  const times = [simNow, ...Object.values(power).flatMap((points) => points.map((p) => p.t))].filter(
     (t): t is number => t !== null,
   );
   if (times.length === 0) return null;
