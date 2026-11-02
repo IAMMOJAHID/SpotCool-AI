@@ -71,7 +71,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **PipelineWorker / WorkerRunner / bus** | Runnable units on an in-process pub/sub bus; the runner handles signals and shutdown | `workers/`, `runner/`, `bus/` | done |
 | **Observer** | Watches pushes without changing anything | `observers/` | done (log, step timing) |
 | **Clock** | Simulation time (authoritative) and wall-clock pacing | `clocks/`, `processors/tick_source.py` | done |
-| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1); cameras done (WP4) |
+| **Service** (abstract base + one sub-package per provider) | Swappable engines | `services/plant_service.py`, `services/camera_service.py` | bases done; plants done (WP1), power meters as step means (WP6.1); cameras done (WP4) |
 | **Transport** (`input()` / `output()` processors) | Every protocol the agent touches | `transports/base_transport.py` | base done; BACnet BMS done (WP2); HTTP calendar router (WP5) and cameras (WP4) done; WebSocket dashboard feed done (WP6); VRF WP3 |
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |

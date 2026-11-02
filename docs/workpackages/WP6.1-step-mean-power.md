@@ -35,15 +35,18 @@ A wrong savings figure is the worst defect the video could ship, so this fix com
    - `power_kw` and `total_power_kw` show the step means.
 5. **Cross-check at the end of the run.**
    - Compare each run's integrated `energy_kwh` with the plant's own KPI: `ener_tot` (kWh/m²) × the floor area, 1662.66 m², from `PlantService.kpis()` / the merged final KPIs.
-   - If they differ by more than 2 %, log a warning. Show both numbers, and their difference, in the report's KPI table. The manifest records them too, if that fits naturally.
-6. **The savings figure the video may quote** is the cross-checked one. The report says which number it uses.
+   - If they differ by more than **0.1 %** (`CROSS_CHECK_PCT`), log a warning. Healthy runs agree to about 1e-6. Show both numbers, and their difference, in the report's KPI table.
+6. **The savings figure the video may quote is the plants' own:** `ener_tot` × area for both runs. The world's step-mean integration is its check.
+   - It is quotable only when the report's verdict (`quote_blockers`) says "Quotable": a paced, finished BOPTEST run with no dropped events, no power fallbacks and no stub agent, whose integration agrees within 0.1 % on both runs.
+   - A stub-agent run may be quoted only as the policy's upper bound with perfect perception, labelled so.
+   - **Amended by the lead after the independent review.** At first this was a 2 % check that called the integrated saving quotable. The review showed that 2 % per run doesn't bound the saving (two failed `results` calls gave 8.42 % against the plants' own 7.07 %), and that the verdict ignored the run. The fix is commit `43af1ed`.
 
 ## Tests
 - **A fake plant whose power spikes within a step:** the step mean, the integrated energy, and an end-of-step sample that would have been wrong.
-- **RC:** the meter means equal the substep energy / step_s. The cross-check holds within 2 % on a full `hybrid_tuesday` run with the stub agent.
+- **RC:** the meter means equal the substep energy / step_s. The cross-check holds within 0.1 % on a full `hybrid_tuesday` run with the stub agent (it agrees to 1e-9).
 - **BOPTEST client `results`** against `httpx.MockTransport`: the request shape, the time-weighted mean, and the fallback on failure.
 - **Telemetry:** the rectangle integration from step 1, and the initial state never integrated.
-- **Report:** the cross-check columns, and the warning above 2 %.
+- **Report:** the cross-check columns, the warning above 0.1 %, and each of the verdict's blockers.
 
 ## Done when
 - **The four checks are green** with all extras installed:
@@ -51,5 +54,5 @@ A wrong savings figure is the worst defect the video could ship, so this fix com
   - `uv run ruff format --check packages`
   - `uv run pyright packages`
   - `uv run pytest packages`
-- `spotcool-world run --plant rc --speed 0 --stub-agent` reports a saving that matches the RC plant's own `ener_tot` ratio within 2 %. Put both numbers in your report.
+- `spotcool-world run --plant rc --speed 0 --stub-agent` reports a saving that matches the RC plant's own `ener_tot` ratio within 0.1 %. Put both numbers in your report.
 - The changelog fragment is written. The lead runs the live BOPTEST check at the BOPTEST checkpoint.
