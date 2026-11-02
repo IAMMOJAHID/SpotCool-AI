@@ -1,15 +1,15 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-02, about 06:30 IST, by the lead Claude Code session. **WP6 is merged; WP11 is being built; WP7 is staged.** State:
-- **`world/main` (`3c0ca84`) holds WP0, WP8, WP1, WP2, WP5, WP4 and WP6.** It also has `AGENTS.md` aligned with pipecat (`ac49bf5`), the `eas_few` footage fix (`2a65685`), and a core fix: an upstream `CancelFrame` only requests a cancel (`03f9684`). Every merge had green World CI (§2).
-- **WP11 (assembly, CLI, stub agent) is in progress.** It's on `wp/wp11-assembly` (kickoff `9fa5ad1`, trunk synced in `142fe4b`) in worktree `C:\Users\hussa\dev\wt\wp11-assembly`, and one build agent is working there. If this session is lost, check that worktree's `git log` and status before restarting anything.
-- **WP7 (dashboard) is staged.** `wp/wp7-dashboard` (kickoff `269e026`, pushed) holds the brief's binding decisions. Sync `world/main` into it after WP11 merges, then start its agent.
-- **Queue (lead's decision, Nov 2):** ~~WP4~~ → ~~WP6~~ → **WP11** → **WP7 → WP3** → WP10 → WP9. WP7 moved ahead of WP3, because the Nov 2 18:00 checkpoint needs the dashboard live, while the VRF louvers are part 2.
-- **WP6's example on RC** (with a stand-in agent): SpotCool used 95.4 kWh against the baseline's 142.0, saving 32.8 %. Comfort where people were is 5.59 K·h against 0, because the South meeting room floated to 31 °C over the empty morning and never recovered during the 14:00 meeting. **Pre-cooling from the calendar is essential.** WP11's stub agent pre-cools booked rooms 30 minutes ahead, and Person A's policy must too.
-- **Tomorrow's shoot has 14 rows:** `eas_few` was added for the `all_hands_day` honesty check (`docs/footage/shot_list.md`, row 14).
-- **The BOPTEST Codespace is stopped** and stays off until a WP needs it (WP5 doesn't). Restart it with the steps in §8.
-- **Person A's integration handoff** is at `docs/integration/PERSON_A_HANDOFF.md`, and the user is sending it to A.
-**Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history.
+**Last updated:** 2026-11-02, about 11:00 IST, by the lead Claude Code session, after the context compaction. The WP6.1 reviewer is running; every worktree is committed and pushed.
+
+**State in one breath:**
+- **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
+- **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
+- **WP6.1 (the energy-measurement fix) is built and pushed; its independent review is running.**
+- **WP7 (dashboard) and WP3 (VRF gateway) are staged.**
+- **Next:** §8 step 1.
+
+**Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
 
 ---
 
@@ -18,331 +18,355 @@
 - **Who:** the user is **Person B** on a 2-person team in the Meta AI Developer Hackathon.
   - **Person B** builds the simulated building ("world") and the demo video.
   - **Person A** builds the agent and owns the Meta credits.
-  - **Submit by Nov 4, 21:00 IST.** The portal closes Nov 5, 07:30 IST, which is Nov 4, 21:00 ET.
-- **Approved plan:** `C:\Users\hussa\.claude\plans\pasted-content-id-a80f-role-you-recursive-church.md` ("Person B Plan"). Don't re-plan; execute it.
-- **Work-package briefs:** `docs/workpackages/` (index in `README.md`). Each WP brief is self-contained.
-- **Shared contracts with A:** `packages/contracts/` (v0.1, read its `README.md`). **Core framework:** `packages/world/` (read its `AGENTS.md`).
-- **Working rules from the user** (also saved as Claude memory notes):
-  1. **Claude Code for everything.** Flag anywhere Antigravity, a browser or a person is really needed.
-  2. **One subagent at a time, sequentially**, because of usage limits. The user has several accounts and switches when a limit hits. If an agent dies with HTTP 429 "spend limit", resume it with `SendMessage` after the switch; its work is saved.
-  3. **Every piece of work goes on its own new branch named after the work** (`wp/<id>-<slug>`).
-     - **Person B's trunk is `world/main`** (user, Nov 1: "for person B we will have a world main branch… after each worker finishes the work, merge in main of person B, and stack the sequential work").
-     - **The flow:** cut each WP from the latest local `world/main`, verify it and have it reviewed, push it, then `git merge --no-ff` it into `world/main`, re-run the checks on the trunk, and push. The roles of `main`, `dev`, `world/main`, `wp/*` and the handoff branch are in `docs/workpackages/README.md` → "Branches".
-     - **Merges are local; there are no PRs between B's branches.** A PR runs the Claude review workflows, which spend `ANTHROPIC_API_KEY` credits.
-     - **Where things are checked out:** the main checkout `C:\Users\hussa\dev\SpotCool-AI` is on `world/main`. This handoff is edited in the worktree `C:\Users\hussa\dev\wt\docs-person-b-handoff`.
-  4. **Engineering decisions are the lead's call** (user, Nov 1: "it's engineering decision, and you are leading the engineering part"). That covers architecture, and branch integration such as fast-forwarding or merging between B's WP branches. Push `wp/*` branches after their checks pass.
-     - **Still ask the user** for destructive or irreversible actions (force-push, deleting branches or data) and for anything outside engineering (spend, people, external communication).
-     - Coordinate merges into the shared `main`/`dev` with Person A through the user.
-  5. **Zero spend** for B: free, open-source and free-tier tools only.
-  6. Never store camera frames or audio. Always stop BOPTEST tests you start.
-- **The repo moved** out of OneDrive to **`C:\Users\hussa\dev\SpotCool-AI`**.
-  - The old copy at `C:\Users\hussa\OneDrive\Desktop\Spot-cool-ai\SpotCool-AI` is **stale** (behind by at least `e82e7c3`). Don't use it.
-  - Checked on Nov 1 at 21:07 IST: it holds nothing that isn't in dev or on GitHub, so the user can delete it.
-  - The lead session moved to dev with `/cd` (it's now session `441270a4…`). The day-1 transcripts and the scratchpad archive (BOPTEST probe scripts and raw results) are listed in the memory note `day1-session-archive`.
+  - **Submit by Nov 4, 21:00 IST.** The portal closes Nov 5, 07:30 IST.
+- **Approved plan:** `C:\Users\hussa\.claude\plans\pasted-content-id-a80f-role-you-recursive-church.md`. Don't re-plan; execute it.
+- **Briefs:** `docs/workpackages/`, indexed in `README.md`. Every brief that has been started carries a lead "kickoff" commit with **binding decisions**.
+- **Contracts shared with A:** `packages/contracts/` (now **v0.1.1**). **The world:** `packages/world/`; read its `AGENTS.md` first. It's aligned with pipecat's guide, the user's chosen model.
+- **Working rules from the user** (also saved as memory notes):
+  1. **Claude Code for everything.** Flag anywhere a browser or a person is really needed.
+  2. **One subagent at a time**, because of usage limits.
+     - The user switches between accounts when a limit hits.
+     - An agent that dies with HTTP 429 ("spend limit") keeps its work. After the switch, resume it with `SendMessage` to its agent id, saying where it stopped. This worked many times on Nov 2.
+  3. **Every piece of work gets its own branch**, `wp/<id>-<slug>`, cut from the latest local **`world/main`**, Person B's trunk.
+     - Merges are local, with `git merge --no-ff`. There are no PRs between B's branches: a PR triggers paid Claude review workflows.
+  4. **Engineering decisions are the lead's.**
+     - Still ask the user before destructive or irreversible actions (force-push, deleting branches or data) and before anything outside engineering (spend, people, external communication).
+     - Merges into the shared `main` and `dev` are coordinated with Person A through the user.
+  5. **Zero spend:** free and open-source tools only.
+  6. **Law 6:** never store or log camera frames or audio. Always stop BOPTEST tests you start.
+- **The lead's per-WP gate flow** (practiced on WP5, WP4, WP6, WP11 and WP6.1):
+  1. **Kickoff commit by the lead.** Rewrite the brief with binding decisions, and update any docs it touches, such as the Person A handoff. Stage the next WP's kickoff while the current WP builds.
+  2. **Build agent** (`general-purpose`, run in the background). It gets the brief, AGENTS.md, a reading list, the definition of done and a report format. It commits, but doesn't push.
+  3. **Lead re-runs the checks:** ruff, format, pyright, `pytest packages -W error::RuntimeWarning` and `uv lock --check`, plus the scope (lane and contracts).
+  4. **Independent reviewer agent.** Tell it about issues already known, so it looks elsewhere. It verifies its findings by experiment and edits nothing. At the same time, push the branch for an early Linux CI run.
+  5. **Fix commit by the builder,** resumed with `SendMessage`, carrying the findings and the lead's decided items.
+  6. **Lead:** sync `world/main` into the branch, re-run the checks, and add a docs commit (the AGENTS.md status cells, plus brief or handoff notes).
+  7. **Push, wait for green World CI on the branch, then merge.** Check that the merged tree is identical to the CI-verified branch (`git diff --quiet wp/<x> HEAD`), push, confirm the trunk's CI, and update this handoff.
+- **Where things live:**
+  - main checkout `C:\Users\hussa\dev\SpotCool-AI` (on `world/main`);
+  - worktrees `C:\Users\hussa\dev\wt\<wp>`;
+  - virtualenvs `C:\Users\hussa\dev\venvs\<wp>`;
+  - this file is edited in the worktree `docs-person-b-handoff`, then merged into `world/main`.
+- **The old OneDrive copy** of the repo is stale. It was verified on Nov 1 to hold nothing missing from dev or GitHub, so the user can delete it. The day-1 transcripts and scratchpad archive are listed in the memory note `day1-session-archive`.
 
 ## 1. Environment (this laptop)
 
 | Item | Value |
 |---|---|
 | OS / shell | Windows 11, Git Bash (also PowerShell) |
-| Python | uv-managed **3.11.11**; uv **0.6.5**; system Python 3.13 is not used |
-| Virtualenv | `export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/spotcool-ai"` before **every** `uv` command (one venv per worktree: `C:/Users/hussa/dev/venvs/<wp>`) |
-| Node / npm | 24.4.1 / 11.6.2 |
-| Media | ffmpeg 8.0.1 (gyan full build), OBS Studio (`C:\Program Files\obs-studio`) |
-| Other CLIs | AWS CLI 2.36, gh 2.92 (accounts: `mhussam-ai`, active and with the **codespace** scope; `hussam-zeng`), winget |
-| Docker | Desktop 29.8.2. C: now has about 41 GB free, so a local BOPTEST stack is possible, but it isn't built yet because the Codespace works (§3) |
-| Git remote | `origin = git@github.com-iammojahid:IAMMOJAHID/SpotCool-AI.git`, identity "Mojahid Hussain" (local config; don't change it) |
-| Folders outside the repo | `C:\Users\hussa\dev\boptest` (BOPTEST clone, 813 MB); `dev\footage\{raw,clips,audio,datasets}`; `dev\venvs\`; `dev\wt\` (worktrees) |
+| Python | uv-managed **3.11.11**; uv **0.6.5** |
+| Virtualenv | `export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/<wp>"` before **every** `uv` command. The trunk venv is `spotcool-ai`. Sync with `uv sync --all-packages --all-extras`; CI uses `--frozen`. |
+| Node / npm | 24.4.1 / 11.6.2. **Edge** is installed; Playwright must use `channel: "msedge"` and download no browsers. |
+| Media | ffmpeg 8.0.1, OBS Studio (`C:\Program Files\obs-studio`) |
+| CLIs | gh 2.92 (account `mhussam-ai`, with the codespace scope), AWS CLI, winget |
+| Docker | Desktop 29.8.2, with about 41 GB free on C:. A local BOPTEST stack isn't built; the Codespace is used. |
+| Git | `origin = git@github.com-iammojahid:IAMMOJAHID/SpotCool-AI.git`, identity "Mojahid Hussain" in the local config; don't change it. **World CI** runs on pushes that touch `packages/**`, `pyproject.toml`, `uv.lock` or the workflow. |
+| Outside the repo | `C:\Users\hussa\dev\boptest` (BOPTEST clone at `a29024f`, the REST reference); `dev\footage\{raw,clips,audio,datasets}`; `dev\spotcool-archive\` (day-1 probe evidence) |
 
-**Checks every WP must pass**, run from the repo root with the env var set:
+**Checks every WP must pass**, from the repo root with the env var set:
 - `uv run ruff check packages`
 - `uv run ruff format --check packages`
 - `uv run pyright packages`
-- `uv run pytest packages`
+- `uv run pytest packages`, also with `-W error::RuntimeWarning`
 
-Pytest uses `--import-mode=importlib` and deselects `live` tests by default.
+Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 ## 2. Status board
 
-| WP | Status | Branch / location | Notes |
+| WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk** | **`world/main` `3c0ca84`, pushed** | Holds:<br>- WP0 (with the contracts fixes);<br>- WP8 (merge `b71ff99`);<br>- the branching docs (`6289312`);<br>- WP1 (`c6f7204`);<br>- the POSIX SIGINT fix (`fbe5cdd`);<br>- the CI-gate docs (`ce3e749`);<br>- the WP2 brief decisions (`c9386aa`);<br>- the Person A handoff (`351e189`);<br>- **WP2 (`f4c147e`)**;<br>- `AGENTS.md` aligned with pipecat (`ac49bf5`);<br>- **WP5 (`00d3d75`)**;<br>- **WP4 (`d469ab5`)**;<br>- **WP6 (`3c0ca84`)**, with the core upstream-cancel fix;<br>- this handoff at each milestone. | Trunk checks with `--all-extras`: ruff and format (`packages` + `scripts`), pyright, 737 package tests and 45 script tests, all green. **World CI on GitHub is green** since `fbe5cdd`, after it had failed on every push from WP0 on with a Linux-only SIGINT bug. It contains all of shared `main` and `dev` (0 behind). |
-| **WP0** contracts + core | **Done, pushed** | `wp/wp0-core-contracts`, commits `bac5163`, `d670e67`, `e8cc7a8`, `e82e7c3` | Contracts v0.1 (19 tests). World core: 132 tests in total; ruff and pyright clean; examples 01–04 run. Reviewed by the lead. |
-| **WP8** footage | **Done, pushed** | `wp/wp8-footage` commit `28f2788` (worktree `C:\Users\hussa\dev\wt\wp8-footage`) | 45 tests; ruff clean. Shot list (`docs/footage/shot_list.md`, 14 rows: 13 zone clips plus the live phone) and consent form are print-ready for filming on Nov 2 morning. **Decisions adopted** (WP5 must use them): file names use zone ids (`sou_meeting.mp4`, not `south_meeting`); the extra clip `wes_empty`; people counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. **The shoot needs 4–5 people** (roles A–E); with fewer, film the real count and update WP5's numbers. Follow-ups: WP10 adds `scripts` to pytest `testpaths`. 4TU was unreachable, so WiseNET's CC0 and download URL are unconfirmed. MEVA indoor keys are listed in `scripts/footage/meva_fetch.py`. |
-| **WP0 fix** contracts REST keys + standby | **Done, pushed** | `wp/wp0-contracts-rest-keys` (worktree `C:\Users\hussa\dev\wt\wp0-contracts-rest-keys`). Commits: `d1a52f7` (16 BOPTEST read bindings `_y` → `_u`, test and docstring), `c0ca27e` (measured facts and WP1 brief), `5a4aa23` (90.1 occupied-standby airflow shut-off: OCC-SENSOR text and WP1/WP2 briefs) | 132 tests; ruff and pyright clean. A's BACnet interface is unchanged (objects, names, units). Also `f2d849b` (the recipe base). **`wp/wp0-core-contracts` was fast-forwarded to `f2d849b` and pushed (lead's decision, Nov 1)**, so both branches are identical, and Person A's branch has the fixes. |
-| **WP1 plants** | **Done, pushed, merged into `world/main` (`c6f7204`)** | `wp/wp1-plants`:<br>- `4b1905f` (build);<br>- `f7e953a` (review fixes);<br>- `714e5e2` (brief amendments);<br>- on top of the cherry-picked fixes `a4e4bb2 694b0b5 91de2bc`.<br><br>Worktree `C:\Users\hussa\dev\wt\wp1-plants`. | Lead re-ran everything after the fixes:<br>- ruff, format and pyright clean;<br>- 191 tests (with `-W error::RuntimeWarning`, and in the CI-equivalent `ci-check` venv);<br>- live suite 5 passed in 119 s.<br><br>The reviewer agent's 1 medium and 10 low findings are fixed, each with a regression test. Decisions:<br>- measurements and raw records are stamped with the end of the step;<br>- start latencies are logged.<br><br>Lead's changes:<br>- RC heating now 20/12 °C, as BOPTEST;<br>- CI installs `--all-extras` (otherwise `tests/plants` and pyright fail on GitHub).<br><br>Key API: `create_plant(settings, run)`, `PlantProcessor(service, run, warmup_s=3 days)`, `BoptestClient`, `RcPlant(occupancy)`, `ReplayPlant(path, run)`, `serializers.jsonl` (`RunWriter`, `read_records`), `services.boptest.catalog` (`MANAGED_INPUTS`, `zone_damper`, `bms_signal`), and `spotcool-world probe`.<br><br>**Known gap (follow-up WP1.1):** on an all-empty day the RC plant shows −32 to −38 % for the damper lever vs BOPTEST's −81 %, because BOPTEST's heavy mass absorbs a day of gains. A slow mass node per zone would close it. |
-| **WP2 BMS (BACnet)** | **Done, pushed, merged into `world/main` (`f4c147e`)** | `wp/wp2-bms-bacnet`:<br>- `734a6c9` (build);<br>- `38a6447` (review fixes);<br>- `8a68f0f` (trunk synced in).<br><br>Worktree `C:\Users\hussa\dev\wt\wp2-bms-bacnet`. | `SpotCool-Office-BMS` (1001, UDP 47808) from the point map, with priority arrays, COV and the command policy. Plus:<br>- **occupied-standby** with airflow shut-off. The hysteresis sits **above** the setpoint; the reviewer found the brief's rule worked only once (H1). It is guarded by the occupied hours 06:00–19:00, because BOPTEST reports values one stamp late (M1);<br>- the heartbeat watchdog;<br>- fault flags until data;<br>- plants publish their initial state, and ParallelPipeline keeps the `StartFrame` first.<br><br>Lead verified: 403 tests (17 bacnet), the CI-equivalent run, example 06, and green CI (run `41319431833`).<br><br>Measured on RC, standby alone with South empty: damper shut on 55 % of standby ticks, airflow −30 %.<br><br>**Not verified:** YABE (manual; steps in `packages/world/AGENTS.md`), LAN discovery from another PC, BOPTEST with the BMS. |
-| **WP5 scenarios** | **Done, pushed, merged into `world/main` (`00d3d75`)** | `wp/wp5-scenarios`:<br>- `6235d68` (kickoff decisions);<br>- `9c59dac` (build);<br>- `fac49f2` (review fixes);<br>- `dce063f` (trunk synced in);<br>- `8fb37b0` (docs).<br><br>Worktree `C:\Users\hussa\dev\wt\wp5-scenarios`. | What it adds:<br>- the scenario format, loader (safe YAML, no aliases), linter and compiler;<br>- the library: `hybrid_tuesday`, `all_hands_day`, `empty_friday`, all on day 199 on the 15-minute grid, with `start <= t < end`;<br>- `ScenarioProcessor`;<br>- `FramePublisher`: internal frames to bus workers on `"world"`, while `BusPublisher` keeps dashboard envelopes on `"events"`;<br>- the calendar router (Graph `getSchedule` and ICS; dates are 2026-01-01 plus the sim seconds);<br>- `OccupantWorker` (`/chat` and `/voice`; non-fatal; no audio in logs; retries only connection errors and 5xx);<br>- `spotcool-world lint`.<br><br>Timeline: door open 10:00–10:45; complaint at 14:15; South shows `complaint` 14:15–15:00.<br><br>Review: 1 medium (a cue at `end` never fired) and 8 low findings, all fixed with tests. 553 tests; CI run `41334675843`. Details in `packages/world/AGENTS.md` → "Scenarios, calendar and occupants". |
-| **WP4 cameras** | **Done, pushed, merged into `world/main` (`d469ab5`)** | `wp/wp4-cameras`:<br>- `e821ad1` (kickoff decisions);<br>- `b248dff` (build);<br>- `e041637` (review fixes);<br>- `e6113a3` (trunk synced in);<br>- `157c92d` (docs).<br><br>Worktree `C:\Users\hussa\dev\wt\wp4-cameras`. | What it adds:<br>- `CameraSystem` and `create_cameras(settings)`;<br>- per-camera sources: own clip, then dataset segment, then synthetic frames;<br>- wall-time playback in worker threads (five clip cameras use 0.5 core; p50 snapshot about 10 ms);<br>- catalog, snapshot and MJPEG routes;<br>- `create_http_app` (cameras plus calendar);<br>- `HttpServerWorker(app, host, port)`, with WebSockets and lifespan on; it fails fast on a taken port, Windows wildcard clashes included;<br>- the live phone proxy;<br>- `CameraSceneProcessor`;<br>- the privacy test.<br><br>Review: 2 medium and 7 low findings, fixed with tests. 668 tests; CI run `41355101622`.<br><br>**Not verified:** a real phone over the hotspot (a manual step for the user), and real filmed clips. |
-| **WP6 telemetry** | **Done, pushed, merged into `world/main` (`3c0ca84`)** | `wp/wp6-telemetry`:<br>- `1959cd7` (kickoff);<br>- `f702417` (build);<br>- `03f9684` (core: an upstream CancelFrame only requests a cancel);<br>- `8a6c242` (review fixes);<br>- `92c4b81` (docs). | What it adds:<br>- telemetry in BMS units (tolerant of missing values);<br>- KPIs: comfort where people were for both runs, energy saved, provisional KPIs every 4 steps, and one merged final per run;<br>- the recorder: one event stream plus raw records and a manifest, losing nothing on stop or cancel;<br>- the dashboard app: `/ws/events` (read-only), `/ws/agent` (publish-only; validated, rate-limited, Origin-checked, no images) and `/runs`;<br>- `spotcool-world report`.<br><br>Review: 2 medium, 1 low, plus a core hang below `ParallelPipeline`; all fixed with tests. 737 tests; CI run `41366551783`. |
-| WP11 assembly | Queued | `wp/wp11-assembly` | |
-| WP3 VRF | Queued | `wp/wp3-vrf-gateway` | Uses WP2's `priority.py` |
-| WP7 dashboard | Queued | `wp/wp7-dashboard` | Playwright uses the installed Edge (`channel: "msedge"`) |
-| WP10 evals + release | Queued | `wp/wp10-evals-release` | |
-| WP9 video | Queued | `wp/wp9-video` | HyperFrames, OBS websocket and Shotcut. People: narration, review |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP11 `56430cb` (trunk CI `41377191119`). Later merges are this handoff only. | 789 package tests and 45 script tests |
+| WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
+| WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
+| WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
+| WP2 BMS | Merged `f4c147e` | `734a6c9`, `38a6447` | SpotCool-Office-BMS (BACnet device 1001, UDP 47808): priority arrays, COV, occupied-standby (90.1 §6.5.3.8), heartbeat watchdog |
+| WP5 scenarios | Merged `00d3d75` | `6235d68` kickoff, `9c59dac`, `fac49f2` | Scenario format, linter and compiler; 3 library days; `ScenarioProcessor`; `FramePublisher`; the calendar router; `OccupantWorker`; `spotcool-world lint` |
+| WP4 cameras | Merged `d469ab5` | `e821ad1` kickoff, `b248dff`, `e041637` | `CameraSystem` (sources: own clip, then dataset, then synthetic); snapshot and MJPEG; `HttpServerWorker(app, host, port)`; the live phone proxy; `CameraSceneProcessor`; the privacy test |
+| WP6 telemetry | Merged `3c0ca84` | `1959cd7` kickoff, `f702417`, `03f9684` (core cancel fix), `8a6c242` | Telemetry, KPIs (comfort where people were, energy saved), recorder (one event stream plus manifest), the dashboard app (`/ws/events` read-only, `/ws/agent` publish-only), `spotcool-world report` |
+| WP11 assembly | Merged `56430cb` | `9fa5ad1` kickoff, `b7a321e`, `eceae05`, `8607ab6` (contracts 0.1.1) | `World` and `Replay`; `run` and `replay`; the **stub agent**; `RunStatusProcessor`; RC occupancy from the scenario |
+| **WP6.1 step-mean power** | **Reviewed: approve after fixes; fix round running** | `ac8008e` kickoff, `372c525` trunk sync, **`0b1153c`** build | The fix that makes energy and savings correct (§7) |
+| WP7 dashboard | **Staged** | `269e026` kickoff (branch cut from `42e0409`) | React app; the brief is ready |
+| WP3 VRF gateway | **Staged** | `d794de5` kickoff (branch cut from `5046340`) | The meeting-room VRF on BACnet, in wall time; the brief is ready |
+| WP10 evals + release | Queued | — | Brief exists; needs a kickoff (see §8) |
+| WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → **WP11** → WP7 → WP3 → WP10 → WP9.
+**Every merged WP went through the whole flow:**
+- an independent review whose findings were all fixed with tests:
+  - WP5: 1 medium, 8 low;
+  - WP4: 2 medium, 7 low;
+  - WP6: 2 medium, 1 low, plus a core hang;
+  - WP11: 2 high, 1 medium, 5 low;
+- green branch and trunk CI on Linux.
 
-**BOPTEST Codespace build: resolved (Nov 1, 17:09 IST).**
-- **History:** the first build of the `worker` image failed at its Miniconda/pip step. The cause was `ReadTimeoutError`s from PyPI inside the Codespace, not the conda terms of service. The second `docker compose up -d web worker provision` succeeded (worker image 5.02 GB).
-- **Fix if it recurs** (inside the Codespace only, not upstream): in `service/worker/Dockerfile`, make the pip step `python -m pip install --default-timeout=120 --retries 10 -r /boptest/production.txt`, then rebuild.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → **WP6.1** (review) → the BOPTEST checkpoint → **WP7** → WP3 → WP10 → WP9.
 
-**How to start a WP:** follow the recipe in `docs/workpackages/README.md` ("Starting a WP"), then hand the agent its brief.
+**Why WP7 comes before WP3:** the dashboard is the video's main visual and part of the plan's Nov 2 checkpoint. The VRF louvers are part 2 of the video.
 
-**Schedule checkpoints (IST):**
+**Schedule (IST):**
 
-| When | Checkpoint |
-|---|---|
-| Nov 2, 18:00 | `spotcool-world run hybrid_tuesday --plant rc` end to end with the stub agent |
-| Nov 2, 22:00 | The same on BOPTEST |
-| Nov 3 | Integrate with A's agent; 21:00 first automated take |
-| Nov 4 | Final takes, QA, submit by 21:00 |
+| When | Checkpoint | State |
+|---|---|---|
+| Nov 2, 18:00 | `hybrid_tuesday` on RC end to end with the stub agent, plus the dashboard live | The world part is **done** (WP11). The dashboard (WP7) is pending. |
+| Nov 2, 22:00 | The same on BOPTEST | §8 step 2 |
+| Nov 3 | Integrate with A's agent; 21:00 first automated take | |
+| Nov 4 | Final takes, QA, submit by 21:00 | |
 
-## 3. BOPTEST: what works and what doesn't
+## 3. BOPTEST: what works
 
-**Hosted `api.boptest.net`: unusable today.**
-- Its HTTPS certificate expired on 2026-10-26; plain HTTP answers `/version` and `/testcases`.
-- `POST /testcases/multizone_office_simple_air/select` **timed out at 300 s and again at 900 s** on Nov 1, because the service has no worker capacity.
-- **Bug to remember:** the service returns HTTP 500 "Unexpected end of JSON input" if `Content-Type: application/json` is sent with an empty body. Send the header only with a body.
+- **Hosted `api.boptest.net` is unusable.** Its HTTPS certificate expired on 2026-10-26, and `select` queues past 900 s. It also answers HTTP 500 if `Content-Type: application/json` comes with an empty body.
+- **GitHub Codespace `spotcool-boptest-qxxjjj94x672rp`** (repo `ibpsa/project1-boptest`, master; 2-core; 2 workers; images built).
+  - It's **stopped**. Restart it in §8 step 2. Its quota is the free 120 core-hours a month; stop it when idle.
+  - **Restart:** `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision && docker compose ps'`
+  - **Forward** (background job): `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp`. Then `curl http://127.0.0.1:8000/version` should report `1.0.0-dev`.
+  - **In the world:** `--plant boptest-local` with `boptest_local_url: http://127.0.0.1:8000`. For live tests: `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000`.
+  - **If the worker build fails on PyPI timeouts:** in `service/worker/Dockerfile`, use `pip install --default-timeout=120 --retries 10`.
+- **Measured facts** (Nov 1; details in `docs/workpackages/README.md` → "Facts"):
+  - **Timings:** select about 8 s; warm-up 283 s; `/advance` p50 0.24 s; the default step is 3600 s, so set 900.
+  - **Scenario period:** `peak_cool_day` starts at day index 192, and the peak day is index 199.
+  - **Baseline schedule:** cooling setpoint 24 °C from 06:00 to 19:00, 30 °C otherwise.
+  - **Read keys and latching:** overwritten signals read back under their `_u` keys, and inputs latch until `_activate: 0`.
+  - **Stamp lag:** values describe the step that just ended, so schedule edges show one stamp late.
+  - **The levers on an all-empty day:** setpoint 28 °C alone saves −29 %; adding a closed damper below 27.5 °C saves −81 %.
+- **Results endpoint** (verified in the clone by WP6.1; not yet live):
+  - **Request:** `PUT /results/{testid}` with the body `{"point_names": [...], "start_time": t0, "final_time": t1}`. The answer's payload holds each point's series plus `time`, one sample every 30 s (`ncp = step/30`).
+  - **Energy KPI:** BOPTEST's `ener_tot` uses `np.trapezoid` over the same samples, from the initialization time.
+- **Test case facts:**
+  - **Building:** 5 zones, 1,662.66 m², Chicago weather.
+  - **Power:** ElectricPower is the sum of 7 meters.
+  - **Inputs:** the world manages 10 of them: the zone cooling setpoints and the zone dampers.
 
-**GitHub Codespace: built, 2 workers. Stopped on the evening of Nov 1 (restart: §8 item 1).**
-- Name **`spotcool-boptest-qxxjjj94x672rp`**: repo `ibpsa/project1-boptest`, branch `master`, 2-core `basicLinux32gb` (7.8 GB RAM), idle timeout 90 minutes, paid from `mhussam-ai`'s free quota (120 core-hours and 15 GB-month per month; blocked at the limit, never billed).
-- **Images are built.** worker 5.02 GB, web 1.17 GB, provision 682 MB. All 12 test cases are provisioned, and `/version` is `1.0.0-dev`.
-- **Concurrency:** one worker runs one test. The second worker was added with `docker compose up -d --no-recreate --scale worker=2 worker`. Check with:
-  - `gh codespace list`
-  - `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose ps'`
-- **After a Codespace stop and start**, bring the stack back with `docker compose up -d --scale worker=2 web worker provision`. It reuses the built images.
-- **To use it from the laptop:** `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` (keep it running; at handover it ran as background job `bcpdg0vce` of the lead session). BOPTEST is then at **`http://127.0.0.1:8000`**. In the world: `plant: boptest-local`, `boptest_local_url: http://127.0.0.1:8000`. For live tests: `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000`.
-- **Save quota:** `gh codespace stop -c <name>` when idle; delete it after the hackathon.
+## 4. Contracts (v0.1.1, `packages/contracts`)
 
-**Local Docker:** the clone at `C:\Users\hussa\dev\boptest` is on master `a29024f` (2026-10-26). That commit fixes MinIO; release v0.9.0 pulls MinIO images that no longer exist.
-- Compose services: `web` (port 8000), `worker`, `redis`, `minio` (9000/9001), `mc`, `provision`.
-- Start with `docker compose up -d --scale worker=2 web worker provision`.
-- C: has about 41 GB free, so this is now possible. It isn't built yet, because the Codespace works. It's the planned primary plant for the recording runs (no tunnel latency).
-
-**Live probes (Nov 1, 17:15–17:40 IST).** Scripts and outputs are in the session scratchpad: `probe_local.py` and `probe_levers.py`, outputs in `boptest_probe_local/` and `boptest_probe_levers/`. They're temporary; their jobs move into `spotcool-world probe` (WP1) and WP10's evals. The measured facts are recorded permanently in `docs/workpackages/README.md` → "Facts" (on `wp/wp0-contracts-rest-keys`). The headlines:
-- **Speed:**
-  - select about 8 s;
-  - `PUT /scenario` warm-up 283 s;
-  - `/advance` p50 0.24 s, p95 1.0 s, max 5.6 s, about 1,900 times real time;
-  - the default step is 3600 s, so set 900 explicitly.
-- **Scenario period:** `peak_cool_day` starts at day index 192, 00:00 (`time` 16,588,800 s), 7 days before the peak day, and lasts 14 days.
-- **Baseline schedule:** cooling setpoint 24 °C from 06:00 to 19:00 and 30 °C otherwise. The first day uses about 195 kWh (`ener_tot` 0.1166 kWh/m²), with a peak of about 18 kW at 14:00.
-- **`_u` read keys:** the override blocks' `_y` outputs aren't in `/advance` or `/results`. The applied value comes back as the input's `_u` key. The contracts are fixed (`d1a52f7`).
-- **Inputs latch.** An empty `/advance` body keeps the last override active; send `_activate: 0` to release. (The earlier note "defaults to 0 on every advance" was wrong.)
-- **`PUT /stop`** returns 200 with a non-JSON body.
-- **Savings levers**, with every zone empty all day:
-  - setpoint 28 °C alone: **−29 %**. The VAV boxes sit at minimum airflow, and the zones float only to about 26 °C.
-  - plus the zone dampers closed (`hvac_oveZonAct<Z>_yDam_u = 0`) while below 27.5 °C: **−81 %**.
-  - The core zone alone barely responds to a setpoint (0.00 °C after a 1-hour override at 10:00).
-  - → Decision in §5.
-
-**Test-case facts**, verified from the clone's `wrapped.fmu` (`multizone_office_simple_air`). The full catalog snapshot is `packages/contracts/src/spotcool_contracts/data/boptest_multizone_office_simple_air.json`.
-- **Building:** 5 zones (`cor, nor, sou, eas, wes`), 1,662.66 m², Chicago weather. Default step 3600 s; warm-up 0.
-- **Scenario days:** the peak days are `peak_cool_day` 199, `typical_cool_day` 144, `peak_heat_day` 26, `typical_heat_day` 18 and `mix_day` 84. Each scenario's 14-day period starts 7 days earlier (measured for `peak_cool_day`: day index 192).
-- **29 inputs.** The world manages ten of them:
-  - the cooling setpoints `hvac_oveZonSup{Cor,Nor,Sou,Eas,Wes}_TZonCooSet_u` (K, written from the BMS priority arrays);
-  - the zone dampers `hvac_oveZonAct{Z}_yDam_u` (0–1, closed by the BMS's occupied-standby);
-  - each with `_activate`.
-
-  The others (heating setpoints, AHU, reheat) are not used.
-- **Override semantics:** inputs **latch**. Every step, send `_activate` (1 or 0) for every managed input, and `_u` for the active ones. Unknown input names return 400.
-- **Outputs used:**
-  - zone temperature `hvac_reaZon{Z}_TZon_y` (K);
-  - applied setpoints under the `_u` keys `hvac_oveZonSup{Z}_TZon{Coo,Hea}Set_u` (K);
-  - CO₂ `hvac_reaZon{Z}_CO2Zon_y` (ppm);
-  - airflow `hvac_reaZon{Z}_V_flow_y` (m³/s);
-  - weather `weaSta_reaWeaTDryBul_y` (K) and `weaSta_reaWeaRelHum_y` (fraction);
-  - AHU `hvac_reaAhu_TSup_y` and `hvac_oveAhu_yFan_u` (the applied fan speed).
-- **BOPTEST's ElectricPower KPI** sums 7 meters (W): `chi_reaPChi_y`, `chi_reaPPumDis_y`, `heaPum_reaPHeaPum_y`, `heaPum_reaPPumDis_y`, `hvac_reaAhu_PFanSup_y`, `hvac_reaAhu_PPumCoo_y`, `hvac_reaAhu_PPumHea_y`.
-- **BOPTEST's own BACnet bridge** (`bacnet/BopTestProxy.py`, legacy bacpypes, needs Python 3.11 or older) is a raw mapping:
-  - device 599;
-  - analog-output 1 = `advance`;
-  - inputs as analog outputs and outputs as analog inputs, in K.
-  - It's a reference only. **Our** BMS (WP2) is the realistic one.
-- **Pinned by the live probes** (see above): the baseline occupied cooling setpoint is 24 °C (06:00–19:00); the step latency is measured; two tests run at once with 2 workers. All of this is recorded in `docs/workpackages/README.md` → "Facts" and in the WP1 brief.
-
-## 4. What the contracts say (v0.1, `packages/contracts`)
-
-- **`office_bms.yaml`:** device `SpotCool-Office-BMS`, instance **1001**, UDP **47808**, **51 objects**.
+- **BMS `office_bms.yaml`:** device 1001, UDP 47808, 51 objects.
   - **Per zone** (i = 1–5 for cor, nor, sou, eas, wes):
-    - AI 100+i `ZN-<Z>-T` (°C);
-    - AV 200+i `ZN-<Z>-CLG-SP` (**commandable**, 16–30 °C on a 0.5 grid; relinquish default comes from the baseline run's `hvac_oveZonSup<Z>_TZonCooSet_u`);
-    - AV 250+i `ZN-<Z>-HTG-SP` (read-only);
-    - AI 300+i `ZN-<Z>-CO2`;
-    - AI 350+i `ZN-<Z>-SA-FLOW` (L/s);
-    - MSV 400+i `ZN-<Z>-OCC-MODE` (Occupied / Standby / Unoccupied, set by the BMS);
-    - BV 450+i `ZN-<Z>-OCC-SENSOR` (commandable; relinquish default Occupied, i.e. fail to comfort). It drives the BMS's occupied-standby (ASHRAE 90.1-2019 §6.5.3.8, G36): 5 minutes after the zone empties during scheduled occupancy, the cooling setpoint goes up 0.5 K and the heating setpoint back 0.5 K, and **the zone airflow is shut off** while the zone temperature is between them (`5a4aa23`).
+    - AI 100+i temperature;
+    - AV 200+i `CLG-SP` (commandable, 16–30 °C on a 0.5 grid);
+    - AV 250+i heating setpoint;
+    - AI 300+i CO₂;
+    - AI 350+i airflow;
+    - MSV 400+i `OCC-MODE`;
+    - BV 450+i `OCC-SENSOR` (commandable; drives occupied-standby).
   - **Building:**
-    - AI 501–507: the 7 power meters (kW);
-    - AI 510 `HVAC-TOTAL-PWR`, AI 511 `HVAC-ENERGY` (kWh);
-    - AI 520 `OA-T`, AI 521 `OA-RH`, AI 530 `AHU-SAT`, AI 531 `AHU-SF-SPD`;
-    - BI 601 `WES-ENTRANCE-DOOR` (scenario-driven);
-    - BV 901 `SPOTCOOL-HEARTBEAT` (the watchdog releases priority 10 after 120 s without a toggle);
-    - AV 950 `SIM-CLOCK`.
-- **`vrf_gateway.yaml`:** `VRF-Gateway-MeetingRoom`, instance **2001**, UDP **47810**. Points: ON/OFF, SP, MODE, FAN, VANE-V, VANE-H (Pos1–5 plus Swing), ROOM-T, PWR, and both vane angles.
-- **`vrf_profiles.yaml`:**
-  - Mitsubishi: both axes; vertical angles 0/−15/−30/−45/−60, horizontal −40…40.
-  - Daikin: vertical only.
-  - LG: swing only.
-- **Priorities:** operator 8, agent **10**, schedules 16; release with NULL. The agent never overwrites slots at 8 or more urgent.
-- **Cameras:** `GET /cameras` (catalog) and `GET /cameras/{id}/snapshot.jpg`, port **8081**. Ids: `cam-cor`, `cam-nor`, `cam-sou`, `cam-eas`, `cam-wes`, plus the live phone `cam-meeting-live`.
-- **Calendar:** Microsoft Graph `getSchedule` shape at `/calendar/rooms/{room}/schedule` and `.ics`; room `meeting-south`.
-- **Occupants:** `POST {agent}/chat` (`ComplaintText`) and `POST {agent}/voice` (16 kHz mono s16le WAV).
-- **Dashboard events:** envelope `{v, type, source, t_ms, sim_time_s, data}`. World payload models live in `events.py`; agent types are reserved (perception, decision, explanation, chat). Ground-truth fields (`people`, camera scenes) must not be read by the agent.
-- **World ports:** BMS 47808, VRF 47810, HTTP (cameras and calendar) 8081, dashboard 8090, agent 8002 (A).
+    - AI 501–507: the 7 meters;
+    - AI 510 total power and 511 `HVAC-ENERGY`;
+    - BI 601 West door;
+    - BV 901 heartbeat (120 s watchdog);
+    - AV 950 `SIM-CLOCK`, in seconds since 1 January.
+- **Priorities:** operator 8, agent **10**, schedules 16. Release with NULL; slots 1–7 are refused.
+- **VRF gateway** (2001, UDP 47810) and the vendor profiles: not built yet (WP3).
+- **HTTP (port 8081):**
+  - **Cameras:** `/cameras`, `/cameras/{id}/snapshot.jpg` and `/mjpeg`.
+  - **Calendar:** `/calendar/rooms/meeting-south/schedule` (Graph `getSchedule`) and `.ics`. **Dates are 2026-01-01 00:00 plus `SIM-CLOCK` seconds**, labelled `timeZone: "UTC"`; day 199 is 2026-07-19.
+- **Occupants:** `POST {agent}/chat` (`ComplaintText`) and `/voice` (16 kHz mono s16le WAV). The world waits 10 s and retries only connection errors and 5xx.
+- **Dashboard (port 8090):**
+  - `/ws/events`: read-only, every envelope `{v, type, source, t_ms, sim_time_s, data}`;
+  - **`/ws/agent`**: publish-only for A's agent;
+  - `/runs`.
+- **Run status:** `starting`, `running`, `paused`, `finished`, **`cancelled`** (new in 0.1.1) or `failed`.
 
 ## 5. Key decisions (why things are the way they are)
 
-- **Product:** SpotCool is a **supervisory agent that plugs into a building's existing CCTV and BMS** (BACnet), with no new hardware. It cools occupied zones, relaxes empty ones, takes complaints, and explains itself.
-  - **Main demo:** a 5-zone office.
-  - **Part 2:** louver aiming on a VRF unit.
-- **B's world = a stand-in with the same interfaces as a real building.** A's code must not change when it's swapped for real hardware.
-  - **Physics:** BOPTEST twice (SpotCool and baseline).
-  - **BMS:** our own BACpypes3 device with real priority arrays.
-  - **Cameras:** catalog plus snapshots.
-  - **Calendar, occupants, telemetry and recorder/replay.**
-- **Architecture:** pipecat patterns (frames, processors, pipelines, workers, bus, observers, services and transports with providers, extras). One deliberate deviation: **direct-await lockstep push** instead of processor queues, so runs are deterministic.
-- **Fairness:** SpotCool uses the baseline's own occupied setpoint where people are, so savings come only from empty zones.
-- **Occupied-standby with airflow shut-off is the main lever** (decided Nov 1, 17:45, from the lever probe in §3).
-  - **What the BMS does:** WP2's BMS implements ASHRAE 90.1-2019 §6.5.3.8. When SpotCool's camera counts mark a zone `OCC-SENSOR` = Unoccupied, the BMS closes that zone's damper (BOPTEST `hvac_oveZonAct<Z>_yDam_u = 0`) while the temperature is inside its setpoints, with hysteresis.
-  - **The baseline** is the same BMS without occupancy sensors, so it never enters standby.
-  - **The story:** code-compliant BMSs already support standby, but zone occupancy sensors are rarely installed because of cost (PNNL 2023). SpotCool turns existing CCTV into those sensors, with no new hardware and no direct actuator control by the agent.
-  - **For Person A:** writing `OCC-SENSOR` = Unoccupied for empty zones is now SpotCool's biggest lever. Raising their setpoints on top of that widens the band, which is the measured −81 % case. Pre-cooling from the calendar covers recovery before meetings.
-  - **No interface change for A.** `OCC-SENSOR` was already in contracts v0.1; only its description became exact.
-- **Honesty note** (README and video): BOPTEST's occupant heat follows its fixed schedule, so savings in zones the cameras show empty can be overstated. The answers:
-  - the **comfort-where-people-were** metric;
-  - the **all_hands_day** scenario (savings about 0);
-  - the RC plant as a bracket.
-- **Footage:**
-  - own recordings (shot list from WP8);
-  - **WiseNET** (CC0; 6 indoor cameras on one floor, plus BIM);
-  - **MEVA** (CC BY 4.0);
-  - Pexels for b-roll only.
-  - Not allowed: EPFL lab, CITIC-MTMC, PIROPO.
-  - WiseNET is a single 10.7 GB zip, so extract it in a Codespace.
-- **Video:** under 3:00, uploaded unlisted to YouTube.
-  - **Motion graphics:** HyperFrames (Apache-2.0; skills installed).
-  - **Takes:** OBS with an obs-websocket script replaying a recorded run.
-  - **Captions:** an SRT generated from the narration text.
-  - **Music:** Pixabay or the YouTube Audio Library.
-  - **Edit:** Shotcut.
+**Product and architecture (day 1):**
+- **The product:** SpotCool is a supervisory agent on a building's existing CCTV and BMS. B's world is a stand-in with the same interfaces, so A's code doesn't change on real hardware.
+- **The architecture** follows pipecat, with one deliberate deviation: **direct-await lockstep** instead of processor queues, so runs are deterministic.
+- **The main lever is occupied-standby with airflow shut-off.** Empty zones marked `OCC-SENSOR` = Unoccupied get their dampers closed by the BMS within a band. The baseline never enters standby. **Fairness:** occupied zones keep the baseline's own setpoint.
+
+**Day 2 decisions** (Nov 1 evening to Nov 2). Details are in the briefs and AGENTS.md.
+- **Time model (WP5).**
+  - **`day` is BOPTEST's 0-based day index (199).** The old brief's `(day−1)` formula would have run the demo a day before the peak.
+  - **All times sit on the 15-minute tick grid,** and points in time satisfy `start <= t < end`. **The demo timeline moved** to match: the door is open 10:00–10:45 and the complaint is at 14:15. Off-grid times like 14:20 would never be sampled.
+- **Bus topics (WP5).** **`FramePublisher`** carries internal frames to bus workers on the `"world"` topic, while `BusPublisher` keeps dashboard envelopes on `"events"`. My original brief wrongly assumed `BusPublisher` carried frames; this follows pipecat's bus-bridge idea instead.
+- **Cameras (WP4).**
+  - **The scene follows sim time; frames follow wall time,** like a real camera, and are never time-compressed. **Film and integrate at speed 60 or slower,** so a clip's action (the complaint at about 10 s) plays.
+  - **Sources fall back:** our own clip, then a dataset segment, then synthetic frames.
+  - **An `eas_few` clip was added** to the shoot, so `all_hands_day` (the honesty check) shows people in East.
+- **Dashboard sockets (WP6).** **`/ws/agent` is publish-only** and never sends world events. That keeps ground truth (the true head-counts) out of A's agent by construction. It's validated, rate-limited, Origin-checked, and refuses images.
+- **Recording (WP6).** The recorder records the whole `"events"` stream, so Person A's explanations are in the recordings that replays (and video takes) use.
+- **Core (WP6).** An upstream `CancelFrame` only *requests* a cancel. Before this, it could hang the world below a `ParallelPipeline`.
+- **Stub agent (WP11).** It lets the world be run, scored and filmed without A.
+  - **What it is:** a real BACnet client with openly perfect perception; it reads the script's ground truth.
+  - **Its policy:**
+    - empty zones get `OCC-SENSOR` Unoccupied plus `CLG-SP` 28 °C at priority 10;
+    - occupied zones are released to the baseline;
+    - booked rooms are pre-cooled from 30 minutes ahead;
+    - everything is released at 19:00.
+  - **Labelling:** recorded as `stub_agent: true` in the manifest, and labelled at the top of every report, so a stub result can never pass as A's.
+- **Pre-cooling matters.** Without it, the South meeting room floated to 31 °C and never recovered during the meeting.
+- **Energy measurement (WP6.1).** **Energy is measured from step-mean power,** and the end-of-run cross-check against the plant's own `ener_tot` must agree within 2 %. Sampling power at step ends missed the spikes from standby dampers reopening: telemetry claimed 27 % while the truth was 17 %.
+- **Contracts 0.1.1:** a `cancelled` run status, because a user's stop is not a failure.
+- **Queue order:** WP7 comes before WP3 (see §2).
 
 ## 6. Free tools and licences
 
-| Use | Tool | Licence or limit |
+| Use | Tool | Licence |
 |---|---|---|
 | BOPTEST | — | BSD-3 |
-| BACnet | BACpypes3, BAC0, YABE (BACnet explorer) | MIT, LGPL-3, MIT |
-| Web and charts | FastAPI, OpenCV, MediaMTX, React + Vite, Chart.js | MIT, Apache-2.0, MIT, MIT, MIT |
+| BACnet | BACpypes3 (pinned 0.0.110), YABE | MIT |
+| Web | FastAPI, uvicorn, httpx, OpenCV, React + Vite, Chart.js | MIT / BSD / Apache-2.0 |
+| Report charts | matplotlib (the `report` extra) | PSF-based |
 | Recording | OBS | GPL-2 |
-| Motion graphics | HyperFrames | Apache-2.0, Node 22+ |
-| Narration and captions | Kokoro-82M TTS fallback; faster-whisper or whisper.cpp | Apache-2.0; MIT |
-| Editing | Shotcut, Kdenlive; Clipchamp free | GPL; 1080p, no watermark |
-| CI | GitHub Actions | Free for public repos |
-| Cloud | Codespaces | 120 core-hours and 15 GB per month free |
+| Motion graphics | HyperFrames | Apache-2.0 |
+| Narration and captions | Kokoro-82M fallback; faster-whisper | Apache-2.0; MIT |
+| Editing | Shotcut or Kdenlive; Clipchamp free | GPL |
+| CI and cloud | GitHub Actions; Codespaces (120 core-hours a month) | free |
 
-**Avoid:**
-- CapCut (licence terms);
-- Coqui XTTS-v2 (non-commercial);
-- Edge online TTS;
-- FMA tracks marked NC, ND or SA;
-- Hugging Face Docker/Gradio Spaces (now need PRO).
+**Avoid:** CapCut, Coqui XTTS-v2, Edge online TTS, NC/ND/SA music, and HF Docker Spaces.
 
-**Credits:** B could claim B's **own** $150 Meta Model API credit (a card pre-authorization is released; set a $150 spend cap). This is optional; the user said B spends nothing. Modal, Baseten and Fireworks credits are inference-only and no use to B.
+**Credits:** B may optionally claim B's own $150 Meta credit; the user said B spends nothing.
 
-**Submission rules** (from a community wiki, so unverified; **confirm on the form**):
-- a 3-minute video;
-- a public open-source repo;
-- all contributors listed;
-- only work built during the event;
-- third-party tools and licences listed in the README.
+**Submission rules** (unverified; **confirm on the form**): a 3-minute video, a public repo, contributors listed, built during the event, and third-party licences listed.
 
-## 7. Numbers safe to put in the video (with sources)
+## 7. Numbers: what may and may not be quoted
 
-1. **People counting vs. presence sensing: 17.8% vs 5.9%** of office energy ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf)). Say "up to": the savings are mostly heating, and Miami came out at 5%.
-2. **Raising the cooling setpoint from 22.2 to 25 °C cut HVAC energy 27%** (29% of cooling) with no loss of comfort ([CBE, Hoyt et al. 2015](https://escholarship.org/uc/item/13s1q2xc)).
-3. **About 6% of AC electricity saved per 1 °C** ([BEE / Ministry of Power](https://www.cseindia.org/a-step-in-the-right-direction-says-cse-of-power-ministry-s-move-to-fix-starting-temperature-of-room-air-conditioners-at-24oc-and-not-lower-to-save-energy-8814)). The 24 °C default has been mandatory on star-labelled room ACs since 2020.
-4. **HVAC is about 55% of a typical Indian commercial building's energy** ([BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf)).
-5. **US offices are at 56.1% of pre-pandemic attendance, 66.1% on peak Tuesdays** ([Kastle, week of Oct 21, 2026](https://www.kastle.com/safety-wellness/getting-america-back-to-work/)).
+**Published sources, safe to quote:**
+1. **Counting vs. presence:** up to 17.8 % vs 5.9 % ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf)).
+2. **Setpoint 22.2 → 25 °C:** −27 % HVAC energy ([CBE 2015](https://escholarship.org/uc/item/13s1q2xc)).
+3. **About 6 % of AC electricity per 1 °C** ([BEE](https://www.cseindia.org/a-step-in-the-right-direction-says-cse-of-power-ministry-s-move-to-fix-starting-temperature-of-room-air-conditioners-at-24oc-and-not-lower-to-save-energy-8814)).
+4. **HVAC is about 55 % of Indian commercial energy** ([BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf)).
+5. **Offices are at 56.1 % attendance, 66.1 % on Tuesdays** ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/)).
 
-**Supporting figures:**
-- **Why occupancy sensors are rare:** occupancy-based control often isn't cost-effective because sensors cost too much ([PNNL 2023](https://www.pnnl.gov/publications/adopting-occupancy-based-hvac-controls-commercial-building-energy-codes-analysis-cost)). That's SpotCool's case for reusing CCTV.
-- **Camera counting accuracy:** about 7% error per person ([BU, Konrad 2024](https://sites.bu.edu/mcl/files/2026/02/konrad2024-OA.pdf)).
-- **Vendor claims (label them as such):** BrainBox AI (Trane) up to 25% HVAC cost; Honeywell Forge 10%; JCI OpenBlue up to 30%.
-- **Standards:** ASHRAE 90.1-2019 §6.5.3.8 occupied-standby (also in G36).
-  - **The airflow clause** is verified from an [ASHRAE addendum](https://www.ashrae.org/file%20library/technical%20resources/standards%20and%20guidelines/standards%20addenda/90_1_2019_bm_20220121.pdf): "all airflow supplied to the zone shall be shut off whenever the space temperature is between the active heating and cooling set points". It applies to zones whose rooms need occupancy-sensed lighting, where ASHRAE 62.1 allows zero ventilation in standby.
-  - **The 5-minute timing and the 1 °F (0.5 K) setback** come from a [secondary summary](https://www.lightnowblog.com/2026/06/lighting-systems-save-more-energy-through-hvac-integration/). The matching cooling set-up isn't verified, so check the standard text before quoting it.
-- **Our own simulation numbers** (BOPTEST `multizone_office_simple_air`, peak cooling day, every zone empty all day, so upper bounds): setpoint-only −29 %, with standby airflow shut-off −81 % of HVAC energy. Quote them as "in simulation", and quote the `hybrid_tuesday` result (WP6/WP10) as the realistic number.
-- **BACnet priority conventions:** 8 for operators, 14–16 for schedules ([Haystack](https://project-haystack.org/doc/lib-phIoT/writable-point)).
-- **Meta:** SAM 3.1 API $2.50 per 1,000 images; `muse-spark-1.3` $1.25/$4.25 per million tokens ([dev.meta.ai](https://dev.meta.ai/docs/models.md)). The hackathon themes are "Build for Your World" and "Push the Frontier", which names energy ([event page](https://dev.meta.ai/events/global-hackathon)).
+Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of about 7 %), ASHRAE 90.1 §6.5.3.8 (the airflow clause is verified).
+
+**Our own simulation numbers:**
+- **BOPTEST, all zones empty all day** (upper bounds; say "in simulation"): setpoint-only −29 %, with standby airflow shut-off −81 %.
+- **RC, `hybrid_tuesday`, stub agent, after the WP6.1 fix:**
+  - SpotCool 118.06 kWh against the baseline's 142.02 kWh: **16.87 % saved**. The cross-check difference is 0.000 %; the plant's own `ener_tot` gives the same.
+  - Comfort where people were: 4.29 K·h against 0. That's the cost of 28 °C empty zones: people arrive to warm rooms.
+  - **Caveats:**
+    - This is the RC plant, not BOPTEST.
+    - At `--speed 0` the stub's BACnet writes land asynchronously, so SpotCool's energy varies by machine. WP11's run gave 134.6 kWh.
+    - **Quote only a report whose verdict says "Quotable"** (after WP6.1's fix round: the plants' own saving, from a finished, paced BOPTEST run with no fallbacks, cross-checked within 0.1 %).
+    - **A stub-agent BOPTEST run** (§8 step 2) can be quoted only as the policy's **upper bound with perfect perception**, labelled so.
+    - **SpotCool's own figure needs Person A's agent** on a paced BOPTEST run (the Nov 3 integration).
+- **Superseded figures, never quote:**
+  - **18.2 %** (WP11's first stub run, which was sensor-only);
+  - **27.1 %** (the sampling error);
+  - **32.8 %** (WP6's example, with a stand-in agent and the sampling error).
 
 ## 8. Next actions, in order
 
-1. **Bring BOPTEST back when a WP needs it.** Lead's call: WP5 doesn't need it, so it stays off to save quota. The next users are WP11's BOPTEST checkpoint and WP10's live evals. The Codespace was stopped on the evening of Nov 1, and its images and state are kept:
-   - `gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision && docker compose ps'`. This also starts the Codespace.
-   - Then run `gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp` as a background job, and check `curl http://127.0.0.1:8000/version`.
-   - Only needed for live tests and BOPTEST runs. The RC plant needs nothing.
-2. **WP5 (scenarios, calendar and occupants): done**, merged as `00d3d75`. Its decisions are in the brief and in `packages/world/AGENTS.md` → "Scenarios, calendar and occupants". The inputs that fed them:
-   - WP8's decisions: zone-id file names (`sou_meeting.mp4`); the `wes_empty` clip; the counts `cor_many` 4, `cor_few` 1, `nor_few` 2, `sou_meeting`/`sou_complaint` 5, `wes_few` 1. Use the real counts if Nov 2 filming has fewer people.
-   - The `hybrid_tuesday` timeline in `docs/footage/shot_list.md`, which matches §12 of the Person A handoff.
-   - The demo day is day 199 (`start_clock` 07:00).
-   - Calendar models in `calendar.py`.
-   - `OccupantWorker` posts per `occupants.py` (`/chat` JSON; `/voice` multipart with `audio` and `meta`).
-   - The scenario's door state drives BI 601 through `ScenarioStateFrame`, which WP2 already reads.
-3. **Then the queue, one agent at a time:** WP4 → WP6 → WP11 → WP3 → WP7 → WP10 → WP9.
-   - Each WP goes through the same gates: lead checks, reviewer agent, fixes, **green CI on the branch**, merge, green trunk CI.
-   - **WP6 kickoff notes:**
-     - Raw records start with the initial state (index 0 at the start time), then step k at index k (start + k·step, stamped at the end of the step).
-     - Comfort-where-people-were for the step ending at `t` must use the scenario state of the step that just ended, `state_at(t − step)`. A tick's `ScenarioStateFrame` describes the step it starts.
-     - The dashboard gets two `complaint_cue` events per cue: the pipeline's cue (`delivered: false`, no detail) and the occupant worker's result on `"events"`. Show them as one complaint: scheduled, then its outcome.
-     - Convert only `frame.data` into envelopes. `ComplaintCueFrame.audio` must never reach one.
-   - **WP4 kickoff notes:**
-     - **Clip timing.** At speed 300, a 15-minute scene lasts 3 s of wall time, but `sou_complaint.mp4` shows its action between 5 and 15 s. Restarting the clip at the scene's start isn't enough. Choose between a slower pace around cues (WP11's pacer) and playing the scene's clip time-compressed.
-     - **East clip.** `all_hands_day` needs an occupied East clip, but WP8 filmed only `eas_empty`. Use a dataset clip or a synthetic one.
-     - **Settings.** `footage_dir` arrived with WP5. Clips are `footage_dir/clips/<zone>_<scene>.mp4`, using the six scenes in `scenarios/schema.py`. `spotcool-world lint --clips DIR` checks a clip folder.
-     - **HTTP.** WP4's `create_http_app(settings, routers)` mounts WP5's `calendar_router(store)` next to the cameras.
-   - **WP11 wiring:** `TickSource → scenario → bms.input() → ParallelPipeline[spotcool ∥ baseline] → bms.output() → …`. Call `bms.start()` before the worker runs and `stop()` after. Pass `settings.bms_address` and `bms_port`.
-     - **WP5 pieces.**
-       - Put `FramePublisher(bus, (CalendarFrame, ComplaintCueFrame))` right after `ScenarioProcessor`.
-       - Create the calendar store's subscription (`bus.subscribe(WORLD_FRAMES_TOPIC)`) before `runner.run`, run `store.follow(sub)` as a task, and close `sub` at shutdown.
-       - **Stop the `OccupantWorker` from `on_pipeline_finished`**, or `WorkerRunner.run` never returns.
-     - **Run window.** Take the run's start and end from `compile_scenario(..., step_s=settings.step_s)` (`start_s`, `end_s`). A run that starts before the scenario is a fatal error.
-     - **WP4 pieces.**
-       - Build `cameras = create_cameras(settings)`. Call `await cameras.start()` before the runner and `stop()` after it.
-       - Give the same object to `CameraSceneProcessor` (placed after `bms.output()`) and to `cameras_router(cameras)`.
-       - Serve `create_http_app([cameras_router(cameras), calendar_router(store)])` with `HttpServerWorker(app, settings.http_host, settings.http_port)`.
-       - Serve WP6's dashboard app with `HttpServerWorker(dashboard_app, settings.http_host, settings.dashboard_port)`.
-       - Stop both server workers from `on_pipeline_finished`.
-       - The 14:15 complaint clip shows its action only at speed 60 or slower.
-     - **For WP6 and WP7.**
-       - `CameraSceneFrame` arrives on each scene change, and for every camera at run start. It's ground truth.
-       - The MJPEG boundary is `frame`, and `X-Camera-Stale` is exposed to scripts.
-       - CORS allows only localhost; `<img>` tags don't need it.
-     - **Law 6.** Configure loguru with `diagnose=False` in the CLI, because tracebacks would print locals.
-   - **Follow-up WP1.1** (RC slow mass node) is queued after WP11.
-   - **Schedule risk:** the Nov 2, 18:00 checkpoint (`hybrid_tuesday` on RC end to end) needs WP5, WP4, WP6 and WP11 in one day, alongside filming.
-4. **Optional:** build the local Docker BOPTEST stack (`C:\Users\hussa\dev\boptest`, ≈ 7.5 GB of images) for lower-latency recording runs. Do it in a quiet moment, as it uses the laptop's network and CPU for a while.
-5. **User actions pending:**
-   - **Person A, updates since the first send** (all in the handoff on `world/main`):
-     - the timeline moved onto the grid: the door is open 10:00–10:45 and the complaint is at 14:15;
-     - calendar dates are 2026-01-01 plus `SIM-CLOCK` seconds;
-     - `/chat` and `/voice` must reply within 10 s (accept first, then process).
-   - **Person A:** the user is sending `docs/integration/PERSON_A_HANDOFF.md` (on `world/main`). It folds in the earlier occupancy-sensor note and its addendum. Follow up on A's answers to its §16: policy, endpoints, dashboard event fields, extra read points, and the Nov 3 integration slot.
-   - **YABE manual check** of the BMS (a person, on Windows): the steps are in `packages/world/AGENTS.md`. Run example 06, browse the 52 objects, then write at priority 8, at 10, and NULL.
-   - reopen VS Code and Claude Code in `C:\Users\hussa\dev\SpotCool-AI`, then delete the OneDrive copy;
-   - film per the shot list (Nov 2 morning);
-   - confirm the submission form rules;
-   - optionally claim B's own Meta credit;
-   - Docker prune is no longer needed (41 GB free).
+1. **WP6.1 gates.** Branch `wp/wp61-step-mean-power`, worktree `C:\Users\hussa\dev\wt\wp61-step-mean-power`, venv `wp61-step-mean-power`.
+   1. Its branch CI is **green**: run `41391438090` on `0b1153c`. The lead's re-run passed too: 806 tests with `-W error::RuntimeWarning`, plus ruff, format, pyright and the lock.
+   2. **Reviewed** (agent `a05b0b2b8cb4d5dcf`, about 20 min): **approve after fixes**, with 1 high, 2 medium and 3 low findings. The measurement itself is right: BOPTEST's own `get_results` through `step_means` and `EnergyMeter` reproduces BOPTEST's `get_energy` to −0.00008 %. The REST shape, the 30 s window (31 samples with both ends), the `ener_tot` scope and the RC means were checked against the clone. **The findings are all about the report's "figure to quote" verdict:**
+      - **High:** ±2 % per run doesn't bound the saving (up to about 3.6 pp). Two failed `results` calls produced 8.42 % called quotable, where the plants' own energy gives 7.07 %.
+      - **Medium:** `power_fallbacks` never reaches the recording.
+      - **Medium:** the verdict ignores the run: a stub agent, a cancelled run, dropped events and RC (where the check is circular) were all called quotable.
+      - **Low:** the saving row is read from the manifest, not the energy rows; the tolerances are 2 % on identities that hold to 1e-9; the `results` deadline doesn't cap each attempt.
+   3. **Fix round running since about 11:45:** the builder `ae6ae39590ba8953d` was resumed with the lead's decisions:
+      - **A. Quote the plants' own saving** (`ener_tot` × area, both runs). The world's step-mean integration is the check, and the report shows both savings.
+      - **B. `CROSS_CHECK_PCT` = 0.1 %.** Healthy runs match to about 1e-6. The builder confirms in the clone that `/kpi` doesn't round `ener_tot`.
+      - **C. One verdict function, `quote_blockers(run)`,** used by the report and `run`'s printout. It blocks when:
+        - the plant isn't BOPTEST;
+        - the run didn't finish;
+        - events were dropped;
+        - a run, a plant energy or the saving is missing;
+        - any fallback happened;
+        - either run is over 0.1 % off its plant's own;
+        - the run was unpaced (speed 0);
+        - a **stub agent** ran it: "quote it only as an upper bound with perfect perception, labelled so".
+      - **D. Fallbacks surface:** a non-fatal `push_error` plus a metrics sample per run, and a report row.
+      - **E. The `results` deadline** bounds the whole call.
+      - **F. The three known follow-ups:**
+        - the BMS `HVAC-ENERGY` point uses rectangles;
+        - the `PlantService.step()` docstring states the step-mean rule;
+        - `run`'s printout shows each plant's own energy and the verdict.
+      - **G. Tests:** RC tolerances at 1e-9, a saving that's off while both runs pass 2 %, a fallback reaching the report, and one test per blocker.
+   4. **Lead:** sync `world/main` into the branch, run the checks, and add a docs commit. Its contents:
+      - **Person A handoff:** the BMS power points AI 501–507 and 510 now report the **mean power over the last step**, not an instantaneous sample.
+      - **AGENTS.md:** the status cells.
+   5. Push, wait for green CI, merge, check the merged tree is identical, push, confirm the trunk's CI, and update this handoff.
+2. **The BOPTEST checkpoint** (the lead does it, after WP6.1 merges).
+   1. Restart the Codespace and forward port 8000 (§3).
+   2. Run `SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live` (including `-k meters_add_up`).
+   3. Run `uv run spotcool-world run --plant boptest-local --stub-agent --speed 60`. That's 48 steps at about 15 s each, plus about 5 minutes of warm-up.
+   4. **Verify:**
+      - the log shows no `no power means` and no `off its plant's own` warnings;
+      - `spotcool-world report <run_id>` shows both cross-check differences within 0.1 %, no fallbacks, and a verdict whose only blocker is the stub agent;
+      - the BMS and BOPTEST work together (never verified before);
+      - the stub's writes are accepted.
+   5. **Record** the KPIs here (§7). This is the first quotable number.
+   6. **Stop the Codespace:** `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
+3. **WP7 dashboard.** Branch `wp/wp7-dashboard` (kickoff `269e026`), worktree `C:\Users\hussa\dev\wt\wp7-dashboard`.
+   1. Sync `world/main` into it. Expect a conflict near the Person A handoff's §9 bullets, between the CORS bullet and the `/ws/agent` bullet; keep both.
+   2. Then run the full gate flow. The brief is ready. **Facts it relies on:**
+     - the dashboard is served by WP6's app at `/` from `apps/dashboard/dist`;
+     - stub events carry `stub: true`;
+     - the `tick` event comes after its step's results;
+     - each complaint produces two `complaint_cue` events;
+     - `replay --wait-viewer` exists;
+     - `run_status` now carries status, plant and scenario.
+4. **WP3 VRF gateway.** Branch `wp/wp3-vrf-gateway`, worktree `C:\Users\hussa\dev\wt\wp3-vrf-gateway`. The kickoff is staged (`d794de5`, pushed); sync `world/main` in, then run the full gate flow. **The brief's binding decisions, and why:**
+   - **Wall time, outside the pipeline.** It's a live device for the phone-camera take: a write takes effect at once, whatever `--speed` is. So no pipeline processor: WP11's `input()` placeholder in `World.__init__` goes, and only the worker joins `World.workers`. Its power never enters the plants' energy or the KPIs.
+   - **Events published at once:** each write is a `bms_write` (device `VRF-Gateway-MeetingRoom`) and the 20 Hz worker sends `vrf_state` at up to 5 Hz, plus every 5 s. Both go through `frame_events` on `EVENTS_TOPIC`, so they're recorded. A replay plays them per step; this segment is filmed live.
+   - **Reuse, never copy:** WP2's `PriorityArray` and `CommandPolicy`, and the BACnet/IP server code moves from `bms.py` into a shared `transports/bacnet/server.py`, with the BMS tests unchanged.
+   - **Brand profiles enforced with BACnet's own errors:** `write-access-denied` for an axis the brand lacks, `value-out-of-range` for a state it lacks; releases always accepted.
+   - **Louvers slew at 15°/s** (dt clipped to 0.1 s); room τ = 120 s of wall time toward the setpoint (never below it) or 30 °C ambient; illustrative power.
+   - **No new run mode:** film the take with `run --plant rc --speed 1` and the live camera set. The stub agent doesn't drive the VRF.
+5. **WP10 evals and release.** Kickoff decisions to make:
+   - **Stub agent upgrades:**
+     - **priority-8 back-off** (stop writing a point an operator holds);
+     - **deterministic write timing,** e.g. writes per tick awaited inside the tick, so runs reproduce at any speed.
+   - **Golden evals** on saved runs, using `runner/report.py`'s `load_run`, `arrivals` and `comfort_kh`. Three scenarios:
+     - `hybrid_tuesday` within a band;
+     - `all_hands_day` saving about 0;
+     - `empty_friday`.
+   - **Checks:** priority 8 always beats 10; a valid run has `ended == "finished"` and `dropped_events == 0`; `stub_agent` is recorded.
+   - **Release docs:** README, CREDITS and licences, the honesty note, a security scan.
+   - **The root docs** (the root `CLAUDE.md`, `AGENTS.md` and README are stale for B's world): rewrite them, coordinated with A.
+   - **CI:** add `scripts` to pytest's `testpaths`, and decide whether the dashboard gets CI.
+   - **Optional WP1.1:** an RC slow mass node.
+6. **WP9 video.**
+   - Storyboard and narration.
+   - HyperFrames motion graphics.
+   - **OBS takes:** the dashboard in `?mode=video`, then `spotcool-world replay <run_id> --wait-viewer 60` at the chosen speed.
+   - Captions (an SRT from the narration), music, then edit in Shotcut.
+   - QA: every number has its source, `CREDITS.md`, and the honesty note stated.
+7. **User actions.**
+   - **Filming** (Nov 2 morning; `docs/footage/shot_list.md`, **14 rows**, including the new `eas_few`: D and E at the East desks).
+     - Afterwards: `uv run python scripts/footage/normalize.py`, then `scripts/footage/extract_audio.py raw/south_complaint.m4a ...`, then `uv run spotcool-world lint --clips C:/Users/hussa/dev/footage/clips`.
+     - If fewer people were filmed, the lead updates the people counts in the scenario YAMLs.
+   - **Manual checks:**
+     - YABE against the BMS (steps in AGENTS.md);
+     - the phone camera over the hotspot: `SPOTCOOL_WORLD_LIVE_CAMERA_URL`, plus the firewall rule for TCP 8081 and 8090 (AGENTS.md, Windows notes).
+   - **Send Person A the updates below,** then follow up on A's answers to their handoff's §16.
+   - **Confirm the submission form rules.**
+   - **Accounts:** the user switches when a limit hits. One account's weekly limit resets at 20:30 IST.
 
-## 9. Things that are superseded
+### Updates for Person A since the first handoff
+Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`, except item 5, which arrives with WP7.
+1. **The timeline moved onto the 15-minute grid:** the West door is open 10:00–10:45, and the complaint is at **14:15**.
+2. **Calendar dates** are 2026-01-01 00:00 plus `SIM-CLOCK` seconds, labelled `timeZone: "UTC"`. Day 199 is 2026-07-19.
+3. **`/chat` and `/voice` must answer within 10 s:** accept first, then process. The world doesn't retry a request that timed out.
+4. **Publish agent events on `ws://<world>:8090/ws/agent`**, which is publish-only.
+   - Each envelope has `source: "agent"` and the type `perception`, `decision`, `explanation` or `chat`.
+   - Each message is 64 KB at most, at no more than 20 per second.
+   - **No images:** no `data:` URIs, and no string longer than 8192 characters.
+   - The dashboard reads `/ws/events`.
+5. **Allow CORS on `/chat` and `/voice`** from the dashboard's origin (`http://<world>:8090`, and `http://localhost:5173` in development).
+6. **Contracts 0.1.1:** `run_status` can now be `cancelled`. It's additive; A doesn't consume it.
+7. **After WP6.1:** the BMS power points are **step-mean** kW.
+8. **Policy advice,** from our runs:
+   - **pre-cool booked rooms** about 30 minutes ahead; without it, South hit 31 °C;
+   - for empty zones, set `OCC-SENSOR` Unoccupied plus `CLG-SP` 28 °C;
+   - release everything at 19:00.
+9. **The VRF gateway's behaviour is settled** (§6), so A can build against it before WP3 lands:
+   - refusals by brand (`write-access-denied`, `value-out-of-range`);
+   - real time, whatever the simulation's speed;
+   - the address: the BMS's IP on UDP 47810, which a Who-Is on 47808 won't reach;
+   - its `vrf_state` and `bms_write` events.
+10. **The handoff's status tables are current:** the BMS, cameras, complaints, `/ws/agent` and `run` are built.
 
-- **Old architecture.** Root `CLAUDE.md`, `AGENTS.md`, `.claude/rules/*` and `README.md` still describe the **old single-AC louver twin** (10 Hz loop, Llama, Silero, η_spot). They are stale for B's world. `packages/world/AGENTS.md` is authoritative for `packages/world/`. Rewriting the root docs belongs to WP10, coordinated with Person A.
-- **Old review report.** `docs/designs/goldfish_review_report.md` reviewed an **earlier** plan and is obsolete.
-- **Wrong BOPTEST notes from before the live probes:**
-  - "`_activate` defaults to 0 on every advance" (inputs latch);
-  - "read the effective setpoints as `_y`" (use the `_u` keys);
-  - "G36 standby is just +0.5 °C" (90.1 standby also shuts the zone airflow off).
+## 9. Superseded (don't use)
 
-  All three are fixed on `wp/wp0-core-contracts` (fast-forwarded to `f2d849b`).
+- **The root docs** (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/*`, README) describe the old single-AC louver twin. They're stale for B's world; `packages/world/AGENTS.md` is authoritative. WP10 rewrites them with A.
+- **`docs/designs/goldfish_review_report.md`** reviewed an earlier plan.
+- **Old BOPTEST notes:**
+  - "`_activate` resets each step" (inputs latch);
+  - "read setpoints as `_y`" (use `_u`);
+  - "standby is only +0.5 °C" (it also shuts off airflow).
+- **Old WP5 brief statements:**
+  - `(day−1)*86400`;
+  - "`BusPublisher` publishes frames";
+  - the complaint at 14:20 and the door until 10:40;
+  - a 14:45 South "meeting" entry.
+- **Savings figures 18.2 %, 27.1 % and 32.8 %:** measurement or policy artefacts (§7).
