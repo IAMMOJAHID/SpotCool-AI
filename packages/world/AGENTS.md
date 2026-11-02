@@ -391,7 +391,9 @@ aims its louvers at a person on the live phone camera; the dashboard's AC panel 
   `sleep`; a late tick skips the ones it missed) and publishes `vrf_state`: at the start, at
   most 5 times a second while the payload changes (compared after its rounding: angles to
   0.1 deg, temperatures to 0.01 degC, power to 0.001 kW), and every 5 s otherwise, so a
-  dashboard that connects late catches up within 5 s. Both land in the recording.
+  dashboard that connects late catches up within 5 s. Both land in the recording. A tick that
+  fails is logged (its type and message; again only when the message changes, and once when
+  ticks succeed again) and the worker ticks on: a VRF fault never ends the run.
 - **Network.** The BMS's address (`bms_address`, resolved as the BMS resolves it) on
   `vrf_port`. A Who-Is sent to 47808 does not reach it: address it directly. The stub agent
   does not drive it. For the phone-camera take, run the world at any speed with

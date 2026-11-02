@@ -152,17 +152,19 @@ class BacnetVrfGateway(BaseObject):
         if self._app is not None:
             return
         local = local_address(self._address, self._port)
-        objects = {
-            point: bacnet_object(
-                point, _reliability(point.value), functools.partial(self._network_write, point)
-            )
-            for point in self._points.values()
-        }
+        # The objects are attached before the bind, so a write served while it completes shows.
+        for point in self._points.values():
+            on_write = functools.partial(self._network_write, point)
+            point.obj = bacnet_object(point, _reliability(point.value), on_write)
+        objects = [point.obj for point in self._points.values()]
         model = f"SpotCool simulated VRF gateway ({self._profile.label})"
         device = device_object(self._map, model, functools.partial(self._network_write, None))
-        self._app = await open_application(device, objects.values(), local)
-        for point, obj in objects.items():
-            point.obj = obj
+        try:
+            self._app = await open_application(device, objects, local)
+        except BaseException:
+            for point in self._points.values():
+                point.obj = None
+            raise
         self._bound = endpoint(local)
         logger.info(
             f"{self.name}: BACnet device {self._map.device_name} ({self._map.device_instance}),"

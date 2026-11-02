@@ -6,6 +6,7 @@ The gateway is never started: no sockets, and no test waits in real time.
 from typing import Any
 
 import pytest
+from loguru import logger
 
 from spotcool_contracts import load_vrf_profiles
 from spotcool_contracts.events import EventSource, EventType
@@ -93,3 +94,44 @@ async def test_it_needs_a_bus() -> None:
     with pytest.raises(RuntimeError, match="needs a bus"):
         await worker.run()
     assert worker.state is WorkerState.IDLE
+
+
+@pytest.mark.asyncio
+async def test_a_failing_tick_is_logged_once_per_error_and_the_worker_ticks_on(
+    run_worker: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unit = gateway()
+    unit.unit.vane_v = "Pos5"
+    move = unit.advance
+    fault: list[str] = []  # the error the next tick raises, if any
+
+    def advance(dt_s: float) -> None:
+        if fault:
+            raise RuntimeError(fault[0])
+        move(dt_s)
+
+    async def faults(time: Any) -> None:
+        if 1.0 <= time.elapsed < 1.5:
+            fault[:] = ["louver motor stuck"]
+        elif 1.5 <= time.elapsed < 2.0:
+            fault[:] = ["encoder lost"]
+        else:
+            fault.clear()
+
+    monkeypatch.setattr(unit, "advance", advance)
+    lines: list[tuple[str, str]] = []
+    sink = logger.add(lambda m: lines.append((m.record["level"].name, m.record["message"])))
+    try:
+        run = await run_worker(unit, 4.0, faults)
+    finally:
+        logger.remove(sink)
+    assert len(run.ticks) == 80  # it ticked on through the failures
+    told = [(level, text.split(": ", 1)[1]) for level, text in lines if "tick" in text]
+    assert told == [
+        ("WARNING", "a tick failed (RuntimeError: louver motor stuck); ticking on"),
+        ("WARNING", "a tick failed (RuntimeError: encoder lost); ticking on"),
+        ("INFO", "ticks succeed again"),
+    ]
+    # 20 failed ticks kept the louver still for 1 s; the other 3 s moved it 45 deg.
+    assert unit.unit.vane_v_angle_deg == pytest.approx(-45.0)
+    assert max(t for t, _ in run.published) > 2.0  # and its state is published again

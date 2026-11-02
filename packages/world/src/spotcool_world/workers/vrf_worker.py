@@ -37,7 +37,9 @@ class VrfWorker(BaseWorker):
     time) goes out at the start, then at most every ``PUBLISH_TICKS`` ticks while the published
     state changes (compared after its rounding), and every ``KEEPALIVE_TICKS`` ticks otherwise.
 
-    It needs the runner's bus and runs until ``stop()``.
+    A tick that fails is logged, with the error's type and message, and the worker ticks on: a
+    failure is logged again only when its message changes, and the first tick that succeeds
+    after it is logged once. It needs the runner's bus and runs until ``stop()``.
 
     Args:
         gateway: The VRF gateway, whose unit it moves.
@@ -98,22 +100,35 @@ class VrfWorker(BaseWorker):
 
     async def _tick(self, bus: Bus) -> None:
         start = last = self._clock()
-        state = self._gateway.unit.state()
-        await self._publish(bus, state)
         tick = published_tick = 0
-        while not self._stopping:
-            tick += 1
-            await self._sleep(max(0.0, start + tick * TICK_S - self._clock()))
+        published: VrfStateData | None = None
+        failure: str | None = None
+        while True:
             now = self._clock()
             # Late: skip the missed ticks. The epsilon keeps 1.5 / 0.05 from flooring to 29.
             tick = max(tick, int((now - start) / TICK_S + 1e-9))
-            self._gateway.advance(now - last)
-            last = now
-            latest = self._gateway.unit.state()
-            since = tick - published_tick
-            if (latest != state and since >= PUBLISH_TICKS) or since >= KEEPALIVE_TICKS:
-                state, published_tick = latest, tick
-                await self._publish(bus, state)
+            dt_s, last = now - last, now
+            try:
+                self._gateway.advance(dt_s)
+                state = self._gateway.unit.state()
+                since = tick - published_tick
+                changed = state != published and since >= PUBLISH_TICKS
+                if published is None or changed or since >= KEEPALIVE_TICKS:
+                    await self._publish(bus, state)
+                    published, published_tick = state, tick
+            except Exception as exc:
+                text = f"{type(exc).__name__}: {exc}"
+                if text != failure:  # once per error, not 20 times a second
+                    logger.warning(f"{self.name}: a tick failed ({text}); ticking on")
+                failure = text
+            else:
+                if failure is not None:
+                    logger.info(f"{self.name}: ticks succeed again")
+                failure = None
+            if self._stopping:
+                return
+            tick += 1
+            await self._sleep(max(0.0, start + tick * TICK_S - self._clock()))
 
     async def _publish(self, bus: Bus, state: VrfStateData) -> None:
         frame = VrfStateFrame(data=state, sim_time_s=self._sim_clock.now_s)

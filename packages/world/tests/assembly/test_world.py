@@ -45,6 +45,7 @@ from spotcool_world.serializers import (
 from spotcool_world.services import WorldSettings
 from spotcool_world.services import rc as rc_module
 from spotcool_world.services.rc import RcPlant
+from spotcool_world.transports.bacnet.vrf import BacnetVrfGateway
 from spotcool_world.workers import WorkerState
 
 pytestmark = pytest.mark.bacnet
@@ -481,3 +482,17 @@ async def test_a_taken_vrf_port_names_the_endpoint(make_settings: MakeSettings) 
     assert world.pipeline.state is WorkerState.IDLE  # nothing ran
     assert world.bms.address is None  # the BMS, started first, is stopped again
     assert not (settings.run_dir / "no-vrf").exists()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_vrf_tick_never_ends_the_run(
+    make_settings: MakeSettings, two_hours: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(self: BacnetVrfGateway, dt_s: float) -> None:
+        raise RuntimeError("the unit broke")
+
+    monkeypatch.setattr(BacnetVrfGateway, "advance", broken)
+    world = World(make_settings(scenario=two_hours), run_id="vrf-broken")
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+    assert manifest(world).ended == "finished"
+    assert_all_stopped(world)  # the VRF worker finished too, and every port is free

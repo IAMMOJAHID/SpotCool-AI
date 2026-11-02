@@ -7,9 +7,10 @@ from typing import Any, cast
 
 import pytest
 from bacpypes3.apdu import ErrorRejectAbortNack
+from bacpypes3.basetypes import PropertyIdentifier
 from bacpypes3.ipv4.app import NormalApplication
 from bacpypes3.pdu import Address
-from bacpypes3.primitivedata import Null
+from bacpypes3.primitivedata import Null, Unsigned
 
 from spotcool_contracts import load_point_map, load_vrf_profiles
 from spotcool_contracts.events import BmsWriteData, EventEnvelope, EventSource, EventType
@@ -17,6 +18,8 @@ from spotcool_contracts.points import ObjectType
 from spotcool_world.bus import InProcessBus, Subscription
 from spotcool_world.clocks import SimClock
 from spotcool_world.processors import EVENTS_TOPIC
+from spotcool_world.transports.bacnet import vrf as vrf_module
+from spotcool_world.transports.bacnet.server import open_application
 from spotcool_world.transports.bacnet.vrf import BacnetVrfGateway
 
 pytestmark = pytest.mark.bacnet
@@ -249,3 +252,45 @@ async def test_start_fails_at_once_on_a_taken_port_and_stop_frees_it(
     assert gateway.address is None
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as again:
         again.bind((HOST, ports[0]))  # the device's socket is closed
+
+
+@pytest.mark.asyncio
+async def test_a_write_served_while_the_socket_binds_shows_on_its_object(
+    ports: tuple[int, int], client: NormalApplication, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def write_during_the_bind(device: Any, objects: Any, local: Any) -> Any:
+        objects = list(objects)
+        app = await open_application(device, objects, local)
+        # A client's write served before start() resumes: the bind's last moment.
+        [vane] = [obj for obj in objects if obj.objectName == "IDU-VANE-V"]
+        await vane.write_property(PropertyIdentifier.presentValue, Unsigned(5), None, 10)
+        return app
+
+    monkeypatch.setattr(vrf_module, "open_application", write_during_the_bind)
+    profile = load_vrf_profiles()["mitsubishi"]
+    clock = SimClock(T0, 900.0)
+    gateway = BacnetVrfGateway(profile, InProcessBus(), clock, address=HOST, port=ports[0])
+    await gateway.start()
+    try:
+        assert gateway.unit.vane_v == "Pos5"
+        assert await read(client, gateway, "IDU-VANE-V") == 5  # the object shows it too
+        slots = await read(client, gateway, "IDU-VANE-V", "priority-array")
+        assert [(i + 1, p.unsigned) for i, p in enumerate(slots) if p.unsigned] == [(10, 5)]
+    finally:
+        await gateway.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_bind_leaves_no_objects(
+    ports: tuple[int, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def refuse(device: Any, objects: Any, local: Any) -> Any:
+        raise OSError("taken")
+
+    monkeypatch.setattr(vrf_module, "open_application", refuse)
+    profile = load_vrf_profiles()["mitsubishi"]
+    gateway = BacnetVrfGateway(profile, InProcessBus(), SimClock(T0, 900.0), port=ports[0])
+    with pytest.raises(OSError, match="taken"):
+        await gateway.start()
+    assert gateway.address is None
+    assert all(point.obj is None for point in gateway._points.values())
