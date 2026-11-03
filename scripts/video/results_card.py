@@ -131,9 +131,7 @@ def build_card(run: RecordedRun) -> ResultsCard:
     variables: dict[str, str | float] = {
         "label": STUB_LABEL if stub else QUOTABLE_LABEL,
         "saved": saved_text,
-        "saved_caption": (
-            "less HVAC energy than the baseline" if stub else "HVAC energy, against the baseline"
-        ),
+        "saved_caption": "less HVAC energy than the baseline",
         "spotcool_kwh": round(spotcool, 1),
         "baseline_kwh": round(baseline, 1),
         "spotcool_energy": f"{energy[0]} kWh",

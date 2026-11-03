@@ -126,7 +126,7 @@ beats:
     source:
       take: dashboard_replay
       in_s: 2
-      replay: {run_id: eval-live-hybrid-20261103-122941, speed: 2700}
+      replay: {run_id: ag3-boptest-agent-s60, speed: 2700}
       dashboard_url: http://127.0.0.1:8090/?mode=video
       scenes:
         - {at: 0, scene: Dashboard}
@@ -136,8 +136,8 @@ beats:
         - {at: 0, say: "The dashboard loads now and the replay starts: 07:00 to 19:00 in 16 s. Hands off."}
     narration_id: dashboard
     on_screen_text:
-      label: "The hybrid Tuesday, replayed from the saved run (stub agent, in simulation)"
-    sources: [run-eval-live]
+      label: "The hybrid Tuesday, replayed from the saved run (SpotCool's agent, in simulation)"
+    sources: [run-agent, meva]
 
   - id: louvers
     start: 113
@@ -165,11 +165,11 @@ beats:
     start: 130
     end: 157
     type: motion
-    source: {composition: results_card, run_id: eval-live-hybrid-20261103-122941}
+    source: {composition: results_card, run_id: ag3-boptest-agent-s60}
     narration_id: results
     on_screen_text:
       title: "BOPTEST: SpotCool's policy against the baseline"
-    sources: [run-eval-live, boptest]
+    sources: [run-agent, boptest]
 
   - id: rollout
     start: 157
