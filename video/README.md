@@ -23,9 +23,9 @@ The scripts are in [`scripts/video/`](../scripts/video/), and each one's `--help
 | 39-56 | `plugs_in` | motion | `three_connections` | CCTV, the BMS and complaints: no new sensors |
 | 56-72 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice |
 | 72-92 | `bms_yabe` | screen | take `yabe_override` | The BMS in YABE: an operator at priority 8 beats the agent at 10, which backs off |
-| 92-113 | `dashboard` | screen | take `dashboard_replay` | The hybrid Tuesday, a replay of the live eval run: 07:00 to 19:00 in 16 s |
+| 92-113 | `dashboard` | screen | take `dashboard_replay` | The hybrid Tuesday, a replay of SpotCool's agent's scored run (`ag3-boptest-agent-s60`): 07:00 to 19:00 in 16 s |
 | 113-130 | `louvers` | phone | take `phone_vrf` | Live: the VRF's louvers follow a person |
-| 130-157 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "Upper bound with perfect perception (stub agent, in simulation)" |
+| 130-157 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from run `ag3-boptest-agent-s60` |
 | 157-170 | `rollout` | motion | `rollout_privacy` | Rollout and privacy |
 | 170-176 | `close` | title | `close` | SpotCool, the repo, the sources slide |
 
@@ -36,7 +36,7 @@ Run everything from the repo root in Git Bash, with these set:
 ```bash
 export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/spotcool-ai"   # your venv, outside OneDrive
 export SPOTCOOL_WORLD_RUN_DIR="C:/Users/hussa/dev/SpotCool-AI/runs"    # the saved runs (only read)
-export SPOTCOOL_WORLD_FOOTAGE_DIR="C:/Users/hussa/dev/footage"         # the filmed clips
+export SPOTCOOL_WORLD_FOOTAGE_DIR="C:/Users/hussa/dev/footage"         # the MEVA clips (datasets/meva) and the phone
 ```
 
 You also need ffmpeg 8 on PATH, Node.js 22 or newer (HyperFrames runs through `npx`, pinned to `hyperframes@0.8.6`), OBS Studio, and Windows PowerShell for the placeholder voice. The first HyperFrames run fetches its pinned CLI with npm, the Inter and JetBrains Mono fonts from Google Fonts, and GSAP from jsDelivr; all are cached after that, and byte-identical rebuilds assume the same cached fonts. It uses the Chrome headless shell already in Puppeteer's cache (`npx --yes hyperframes@0.8.6 doctor` shows which one). Telemetry and update checks are switched off.
@@ -77,7 +77,7 @@ cd video/motion/hook_stats && npx --yes hyperframes@0.8.6 preview
 
 Studio shows the placeholders, not the storyboard's text; the render always passes the text.
 
-**When Person A's agent has a quotable run:**
+**Done Nov 4:** the results beat names SpotCool's agent's quotable run `ag3-boptest-agent-s60`. For any later run, the steps are:
 
 1. Name it in the results beat's `run_id`, add a `video/sources.yaml` entry with that `run_id`, its figures (in `docs/release/numbers.md`) and its `cite`, and list it in the beat's `sources`.
 2. Run `results_card.py` and `render_motion.py --only results_card`. The label becomes "SpotCool saved" only if the report's verdict is `Quotable`.
@@ -143,21 +143,21 @@ To record your own:
 Rehearse first with `--dry-run`, which needs no OBS. In this order:
 
 ```bash
-# The filmed clips first (docs/footage/shot_list.md), normalized, so the camera tiles show them:
-uv run python scripts/footage/normalize.py && uv run spotcool-world lint --clips C:/Users/hussa/dev/footage/clips
+# The camera tiles show the MEVA clips in $SPOTCOOL_WORLD_FOOTAGE_DIR/datasets/meva (docs/agent/HANDOFF.md, D1).
+# Build the dashboard once:
 cd apps/dashboard && npm ci && npm run build && cd ../..
 
-# 1. The BMS in YABE: start the world as docs/runbooks/yabe.md says (step 1), write the override at
-#    priority 8 before 08:30, wait for the back-off on the dashboard, then:
+# 1. The BMS in YABE: docs/runbooks/yabe.md, The operator override for the video. The agent, then the world
+#    on loopback; hold ZN-COR-CLG-SP at 23 at priority 8 between 08:30 and 17:45; wait for the back-off at 18:15:
 uv run python scripts/video/take.py yabe_override --dry-run
 uv run python scripts/video/take.py yabe_override
 
-# 2. The hybrid Tuesday: the script starts the replay of the live eval run itself.
+# 2. The hybrid Tuesday: the script starts the replay of the agent's scored run itself.
 uv run python scripts/video/take.py dashboard_replay
 
-# 3. The louvers, live with Person A's agent (docs/runbooks/video-takes.md, The VRF segment):
+# 3. The louvers, live with SpotCool's agent (docs/runbooks/video-takes.md, The VRF segment):
 export SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://<phone address>/shot.jpg
-uv run python scripts/video/take.py phone_vrf --agent http://<agent>:8002
+uv run python scripts/video/take.py phone_vrf --agent http://127.0.0.1:8002
 ```
 
 Watch each take in VLC before the next: no keys, emails, notifications or real names on screen. A take is re-shot by running its command again.

@@ -22,14 +22,34 @@ Follow [AGENTS.md, Checking the BMS with YABE, step 4](../../packages/world/AGEN
 
 ## The operator override for the video
 
-The stub agent reads each point's priority array before it writes. When an operator holds the point at 8, the stub backs off and says so on the dashboard.
+SpotCool's agent (`packages/agent`) reads a point's priority array before it writes a value. When an operator holds the point at 8, it backs off and says so on the dashboard. It does release its own slot 10 under a hold: a NULL at 10 can never override an operator's 8. So the back-off shows when the agent wants to **write**, which for Core is 18:00, when Core empties. This flow was rehearsed on Nov 4 with a scripted operator.
 
-1. Start the world as in step 1, and open the dashboard at `http://127.0.0.1:8090/?mode=video`.
-2. Before 08:30 sim time (the first 6 steps, about 90 s at speed 60), press Ctrl+Alt+8 in YABE. It beeps, and its Log says "WritePriority change to level 8". On the BMS's `ANALOG_VALUE:201` (`ZN-COR-CLG-SP`), write Present Value 23. Priority Array holds 23 at 8 over the stub's 28 at 10.
-3. At 08:30 people arrive in Core, and the stub wants to release its setpoint. Instead, the agent panel shows:
+1. **The agent first, on loopback** (its own window):
 
-   > Core: ZN-COR-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from releasing it; trying again each step
+   ```bash
+   uv run spotcool-agent run --world-host 127.0.0.1 --bms-port 47809 --vision meta \
+     --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env
+   ```
 
-   The stub says it once, and it never touches slot 8.
-4. Release the override: still at priority 8, clear the Present Value field and press Enter (YABE writes NULL). At the close of the next step, the stub releases its own slot 10, and Core is back on the building's schedule.
-5. Stop the world with Ctrl+C.
+2. **Then the world, on loopback and without the stub** (another window), and open the dashboard at `http://127.0.0.1:8090/?mode=video`:
+
+   ```bash
+   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_BMS_PORT=47809 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 \
+     uv run spotcool-world run --plant rc --speed 60
+   ```
+
+   Connect YABE as in steps 2 and 3 of "Connect".
+3. **Hold Core between 08:30 and 17:45 sim time.** From 08:30 people are in Core, and the agent has released its slot 10.
+   - Press Ctrl+Alt+8 in YABE. It beeps, and its Log says "WritePriority change to level 8".
+   - On the BMS's `ANALOG_VALUE:201` (`ZN-COR-CLG-SP`), write Present Value 23.
+
+   The Priority Array holds 23 at 8 and nothing at 10.
+4. **At 18:00 Core empties.** At the 18:15 step, about 15 s later at speed 60, the agent wants 28 degC. The agent panel shows:
+
+   > Core: ZN-COR-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from writing 28.0; trying again each step
+
+   It says this once, and it never touches slot 8. **Start the video take now** (`take.py yabe_override`): the message stays on the panel.
+5. **Release the override** (the take's last cue). Still at priority 8, clear the Present Value field and press Enter; YABE writes NULL. At the next step, the agent writes 28 at priority 10.
+6. **Stop:** Ctrl+C in the agent's window first, so it releases its slots while the BMS is up, then in the world's.
+
+The stub (`--stub-agent` on the world, no agent process) behaves the same way, except that it backs off from releases too. With the stub, the hold must be written before 08:30.

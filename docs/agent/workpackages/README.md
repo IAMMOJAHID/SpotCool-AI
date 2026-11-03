@@ -2,6 +2,8 @@
 
 SpotCool's real agent, built from Person A's MVP (`origin/third_level_improvement` `b653cbf`) on the trunk `agent/main`. The status and the next actions are in `docs/agent/HANDOFF.md`. A brief records its WP as decided at kickoff; the handoff says what is true now.
 
+**Status (Nov 4, 03:15 IST): AG0-AG4 and D1 are done and merged into `agent/main`. AG5 (video and release) waits only on the user's material (`docs/release/USER_GUIDE.md`). The optional backlog, in value order, is in `docs/agent/HANDOFF.md`, "Remaining".**
+
 | WP | Brief | Priority | Branch |
 |---|---|---|---|
 | AG0 | pre-flight (lead; no brief) | P0 | none |
