@@ -47,9 +47,9 @@ async def test_meta_stt_sends_as_request_keeps_audio_in_memory_and_logs_no_conte
     sink = logger.add(lambda message: logged.append(str(message)), level=0)
     client = MetaClient(SecretStr(KEY), base_url="https://api.meta.ai/v1")
     stt = MetaSTT(
+        client,
         SecretStr(KEY),
         base_url="https://api.meta.ai/v1/",
-        ledger=client.ledger,
         transport=httpx.MockTransport(phone_meta),
     )
     try:
@@ -83,13 +83,15 @@ async def test_meta_stt_gives_up_at_its_timeout_and_on_a_refusal() -> None:
         await asyncio.sleep(2.0)
         return httpx.Response(200, content=FIXTURE.read_bytes())
 
-    stt = MetaSTT(SecretStr(KEY), base_url="https://x", transport=httpx.MockTransport(slow))
+    budget = MetaClient(SecretStr(KEY), base_url="x", call_cap=2)
+    stt = MetaSTT(budget, SecretStr(KEY), base_url="https://x", transport=httpx.MockTransport(slow))
     try:
         with pytest.raises(STTError, match="no answer within 0.1 s"):
             await stt.transcribe(WAV, 0.1)
     finally:
         await stt.close()
     refused = MetaSTT(
+        budget,
         SecretStr(KEY),
         base_url="https://x",
         transport=httpx.MockTransport(lambda request: httpx.Response(500, text="oops")),
@@ -99,6 +101,8 @@ async def test_meta_stt_gives_up_at_its_timeout_and_on_a_refusal() -> None:
             await refused.transcribe(WAV, 1.0)
         with pytest.raises(STTError, match="no time left"):
             await refused.transcribe(WAV, 0.0)
+        with pytest.raises(STTError, match="cap of 2"):  # the language services' own budget
+            await refused.transcribe(WAV, 1.0)
     finally:
         await refused.close()
 

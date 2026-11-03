@@ -1,16 +1,17 @@
 """The agent's BACnet/IP side: ``BacnetClient`` (reads and commands) and ``StepClock``.
 
 ``BacnetClient`` is a BACpypes3 device of its own (``SpotCool-Agent``, instance
-``DEVICE_INSTANCE``) on its own UDP port, which addresses the BMS directly by ``ip:port``: no
-Who-Is, so it works on the same PC as the world. It reads present values and priority arrays,
-writes at priority 10 and releases with NULL. Each request waits ``APDU_TIMEOUT_MS`` for its
-answer and is resent ``APDU_RETRIES`` time, so one the BMS never answers costs about 2 s. The
-helpers that turn BACnet values into BMS units are the stub agent's, copied.
+``DEVICE_INSTANCE``) on its own UDP port, which addresses one device directly by ``ip:port``:
+no Who-Is, so it works on the same PC as the world. It reads present values and priority
+arrays, writes at priority 10 and releases with NULL. Each request waits ``APDU_TIMEOUT_MS``
+for its answer and is resent ``APDU_RETRIES`` time, so one the device never answers costs about
+2 s. The helpers that turn BACnet values into BMS units are the stub agent's, copied.
 
-Requests to one device go one at a time: with BACpypes3 0.0.110, several requests to a device
-that does not answer yet (the agent starts before the world) leave the client deaf to that
-device for good. Each device takes its own turns, so the VRF gateway (``BacnetPeer``, on the
-same socket) never waits for the BMS, nor the BMS for it.
+Requests go one at a time: with BACpypes3 0.0.110, several requests in flight while a device
+does not answer yet (the agent starts before the world) leave the client's socket deaf for
+good, to every device. So each device has a client of its own, with its own socket: the BMS
+(``SpotCool-Agent``, 1910, UDP 47820) and the VRF gateway (``SpotCool-Agent-VRF``, 1911, UDP
+47821), and neither waits for the other.
 
 ``StepClock`` polls the BMS's ``SIM-CLOCK`` (AV 950) at 4 Hz. Each change of its value is the
 end of a simulation step: the measurements on the points, and the scene on the cameras, now
@@ -45,6 +46,11 @@ DEVICE_NAME = "SpotCool-Agent"
 """The agent's BACnet device name, as a BACnet explorer lists it."""
 DEFAULT_PORT = 47820
 """The agent's UDP port: clear of the BMS (47808) and the VRF gateway (47810) on the same PC."""
+VRF_DEVICE_INSTANCE = 1911
+"""The device instance of the agent's client of the VRF gateway."""
+VRF_DEVICE_NAME = "SpotCool-Agent-VRF"
+VRF_PORT = 47821
+"""The UDP port of the agent's client of the VRF gateway."""
 VENDOR_ID = 999
 """BACpypes3's own vendor identifier."""
 APDU_TIMEOUT_MS = 1000
@@ -76,16 +82,27 @@ class BacnetClient:
     ``open()`` binds the UDP socket inside the running event loop; ``close()`` releases it.
 
     Args:
-        device: The BMS's ``ip:port``.
+        device: The device's ``ip:port``: the BMS, or the VRF gateway.
         local: The ``ip:port`` to bind; port 0 takes any free one.
+        instance: The client's own device instance.
+        name: The client's own device name.
     """
 
-    def __init__(self, device: str, *, local: str) -> None:
+    def __init__(
+        self,
+        device: str,
+        *,
+        local: str,
+        instance: int = DEVICE_INSTANCE,
+        name: str = DEVICE_NAME,
+    ) -> None:
         self.device = device
         self._address = Address(device)
         self._local = local
+        self._instance = instance
+        self._name = name
         self._app: NormalApplication | None = None
-        self._turns: dict[str, asyncio.Lock] = {}  # a device's ip:port -> its one-at-a-time lock
+        self._one_at_a_time = asyncio.Lock()
         points = load_point_map("office_bms")
         self._clock = points.by_name("SIM-CLOCK")
         self._energy = points.by_name("HVAC-ENERGY")
@@ -110,8 +127,8 @@ class BacnetClient:
         if self._app is not None:
             return
         device = DeviceObject(
-            objectIdentifier=("device", DEVICE_INSTANCE),
-            objectName=DEVICE_NAME,
+            objectIdentifier=("device", self._instance),
+            objectName=self._name,
             vendorIdentifier=VENDOR_ID,
             apduTimeout=APDU_TIMEOUT_MS,
             numberOfApduRetries=APDU_RETRIES,
@@ -123,7 +140,7 @@ class BacnetClient:
             app.close()
             raise
         self._app = app
-        logger.info(f"BACnet client {DEVICE_NAME} ({DEVICE_INSTANCE}) on {self._local}")
+        logger.info(f"BACnet client {self._name} ({self._instance}) on {self._local}")
 
     async def close(self) -> None:
         """Close the socket. Safe to call twice."""
@@ -132,34 +149,45 @@ class BacnetClient:
             app.close()
             await asyncio.sleep(0)  # a closed transport releases its socket on the next turn
 
-    async def read(
-        self, point: PointSpec, prop: str = "present-value", *, device: Address | None = None
-    ) -> Any:
+    async def read(self, point: PointSpec, prop: str = "present-value") -> Any:
         """One property of a point, as BACpypes3 decodes it.
-
-        Args:
-            point: The point.
-            prop: The property.
-            device: The device to ask; the BMS by default.
 
         Raises:
             ErrorRejectAbortNack: If the device refused or never answered (a ``BaseException``).
         """
-        return await self.read_object(point.object_id, prop, device=device)
+        return await self.read_object(point.object_id, prop)
 
-    async def read_object(self, object_id: str, prop: str, *, device: Address | None = None) -> Any:
+    async def read_object(self, object_id: str, prop: str) -> Any:
         """One property of any object, such as ``device,2001``'s ``model-name``.
 
         Raises:
             ErrorRejectAbortNack: If the device refused or never answered (a ``BaseException``).
         """
-        address = device or self._address
-        async with self._turn(address):
-            return await self.app.read_property(address, object_id, prop)
+        async with self._one_at_a_time:
+            return await self.app.read_property(self._address, object_id, prop)
 
-    def _turn(self, address: Address) -> asyncio.Lock:
-        """The lock that makes one device's requests go one at a time."""
-        return self._turns.setdefault(str(address), asyncio.Lock())
+    async def present(self, point: PointSpec) -> Value:
+        """A point's present value in BMS units, or ``None`` without an answer."""
+        try:
+            return present_value(point, await self.read(point))
+        except ErrorRejectAbortNack:  # a BaseException in BACpypes3
+            return None
+        except (RuntimeError, TypeError, ValueError):  # not open yet, or a value of another kind
+            return None
+
+    async def model_name(self, instance: int) -> str | None:
+        """The device's ``Model_Name``, or ``None`` without an answer.
+
+        Args:
+            instance: The device's instance, such as the VRF gateway's 2001.
+        """
+        try:
+            name = await self.read_object(f"device,{instance}", "model-name")
+        except ErrorRejectAbortNack:
+            return None
+        except RuntimeError:  # not open yet
+            return None
+        return str(name)
 
     async def clock(self) -> "ClockReading | None":
         """``SIM-CLOCK``'s value and whether it is a run's initial state, or ``None``.
@@ -181,16 +209,16 @@ class BacnetClient:
             return None
         return ClockReading(float(value), initial=float(energy) == 0.0)
 
-    async def slots(self, point: PointSpec, *, device: Address | None = None) -> list[Value] | None:
+    async def slots(self, point: PointSpec) -> list[Value] | None:
         """A point's 16 priority slots in BMS units, or ``None`` if the device gave no answer."""
         try:
-            array = await self.read(point, "priority-array", device=device)
+            array = await self.read(point, "priority-array")
         except ErrorRejectAbortNack as exc:  # a BaseException in BACpypes3
             logger.warning(f"reading {point.name}'s priority array failed: {exc}")
             return None
         return [_slot_value(point, slot) for slot in array]
 
-    async def write(self, point: PointSpec, value: Value, *, device: Address | None = None) -> bool:
+    async def write(self, point: PointSpec, value: Value) -> bool:
         """Write a point at priority 10: a state or a setpoint; ``None`` releases it.
 
         Returns:
@@ -202,11 +230,10 @@ class BacnetClient:
             present = _state(point, value)
         else:
             present = value  # BACpypes3 makes it the point's Real
-        address = device or self._address
         try:
-            async with self._turn(address):
+            async with self._one_at_a_time:
                 await self.app.write_property(
-                    address,
+                    self._address,
                     point.object_id,
                     "present-value",
                     present,
@@ -252,54 +279,6 @@ def present_value(point: PointSpec, value: Any) -> Value:
     if states:  # a binary point: BACpypes3 gives "active" or "inactive"
         return states[1] if str(value) == "active" else states[0]
     return float(value)
-
-
-class BacnetPeer:
-    """The agent's BACnet client addressing another device on the same socket: the VRF gateway.
-
-    It has what the actuator needs (``slots``, ``write``), and reads present values and the
-    device's ``Model_Name``. Its requests take turns with each other, never with the BMS's.
-
-    Args:
-        client: The agent's client, open or not yet.
-        device: The device's ``ip:port``.
-        instance: Its device instance, for ``model_name``.
-    """
-
-    def __init__(self, client: BacnetClient, device: str, instance: int) -> None:
-        self.device = device
-        self._client = client
-        self._address = Address(device)
-        self._instance = instance
-
-    async def slots(self, point: PointSpec) -> list[Value] | None:
-        """A point's 16 priority slots, or ``None`` without an answer (``BacnetClient.slots``)."""
-        return await self._client.slots(point, device=self._address)
-
-    async def write(self, point: PointSpec, value: Value) -> bool:
-        """Write a point at priority 10, ``None`` releasing it (``BacnetClient.write``)."""
-        return await self._client.write(point, value, device=self._address)
-
-    async def present(self, point: PointSpec) -> Value:
-        """A point's present value in BMS units, or ``None`` without an answer."""
-        try:
-            return present_value(point, await self._client.read(point, device=self._address))
-        except ErrorRejectAbortNack:  # a BaseException in BACpypes3
-            return None
-        except (RuntimeError, TypeError, ValueError):  # not open yet, or a value of another kind
-            return None
-
-    async def model_name(self) -> str | None:
-        """The device's ``Model_Name``, or ``None`` without an answer."""
-        try:
-            name = await self._client.read_object(
-                f"device,{self._instance}", "model-name", device=self._address
-            )
-        except ErrorRejectAbortNack:
-            return None
-        except RuntimeError:  # not open yet
-            return None
-        return str(name)
 
 
 @dataclass(frozen=True)

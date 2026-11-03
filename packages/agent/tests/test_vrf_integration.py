@@ -2,9 +2,12 @@
 
 All in process on loopback: the gateway (Mitsubishi or Daikin) on its own UDP port, the camera
 server with the live phone camera fed by a mock phone, and the dashboard's ``/ws/agent``, whose
-bus also carries the gateway's ``bms_write`` events. No BMS answers: the building loop idles,
-and the VRF loop must not wait for it. A scripted person walks across the room in front of the
-camera; the gateway's louvers are moved on by hand (``advance``), so no test waits on them.
+bus also carries the gateway's ``bms_write`` events. The BMS answers only where a test starts
+one; otherwise the building loop idles, and the VRF loop must not wait for it. A scripted
+person walks across the room in front of the camera; the gateway's louvers are moved on by
+hand (``advance``), so no test waits on them. Devices may come up after the agent: BACpypes3
+leaves a socket deaf after requests in flight to a silent device, so each device has a client
+and a socket of its own, and these tests check both recover.
 """
 
 import asyncio
@@ -24,9 +27,10 @@ from spotcool_agent.domain.geometry import Detection, Detections
 from spotcool_agent.domain.louvers import CameraPose, project_floor_point
 from spotcool_agent.runner.agent import Agent
 from spotcool_agent.runner.cli import tone_wav
+from spotcool_agent.services.fake.stt import FakeSTT
 from spotcool_agent.services.vision import VisionService
 from spotcool_agent.settings import AgentSettings
-from spotcool_agent.transports.bacnet import BacnetPeer
+from spotcool_agent.transports.bacnet import BacnetClient
 from spotcool_contracts import (
     EventEnvelope,
     EventSource,
@@ -40,6 +44,7 @@ from spotcool_world.clocks import SimClock
 from spotcool_world.processors.event_emitter import EVENTS_TOPIC
 from spotcool_world.services.camera_service import CameraSystem
 from spotcool_world.services.live import PhoneCamera
+from spotcool_world.transports.bacnet.bms import BacnetBmsTransport
 from spotcool_world.transports.bacnet.vrf import BacnetVrfGateway
 from spotcool_world.transports.http.cameras import cameras_router
 from spotcool_world.transports.http.server import create_http_app
@@ -54,6 +59,7 @@ GATEWAY = load_point_map("vrf_gateway")
 COMMANDED = ("IDU-VANE-V", "IDU-VANE-H", "IDU-SP", "IDU-FAN")
 ACROSS = [(-2.6, "Pos1"), (-1.2, "Pos2"), (0.0, "Pos3"), (1.2, "Pos4"), (2.6, "Pos5")]
 """Where the person stands, 3 m out, and the horizontal position that aims at them."""
+SAID = "It's too cold in the meeting room."
 
 
 def free_port(kind: socket.SocketKind) -> int:
@@ -92,6 +98,7 @@ class Walker(VisionService):
 @dataclass
 class Room:
     gateway: BacnetVrfGateway
+    gateway_address: str
     agent: Agent
     walker: Walker
     events: list[EventEnvelope]
@@ -125,8 +132,25 @@ class Room:
 
 
 @asynccontextmanager
-async def meeting_room(vendor: str, serve: Any, tmp_path: Path) -> AsyncIterator[Room]:
-    """The world's VRF gateway, live camera and dashboard, and the agent with ``--vrf``."""
+async def meeting_room(
+    vendor: str,
+    serve: Any,
+    tmp_path: Path,
+    *,
+    late_s: float = 0.0,
+    with_bms: bool = False,
+    **settings: Any,
+) -> AsyncIterator[Room]:
+    """The world's VRF gateway, live camera and dashboard, and the agent with ``--vrf``.
+
+    Args:
+        vendor: The gateway's brand.
+        serve: The ``serve`` fixture.
+        tmp_path: The dashboard's run folder.
+        late_s: Wall seconds the gateway (and the BMS) come up after the agent starts.
+        with_bms: Run the world's BMS too.
+        **settings: More agent settings.
+    """
     bus = InProcessBus()
     subscription = bus.subscribe(EVENTS_TOPIC)
     events: list[EventEnvelope] = []
@@ -136,27 +160,37 @@ async def meeting_room(vendor: str, serve: Any, tmp_path: Path) -> AsyncIterator
             events.append(envelope)
 
     collecting = asyncio.create_task(collect())
-    vrf_port = free_port(socket.SOCK_DGRAM)
+    vrf_port, bms_port = free_port(socket.SOCK_DGRAM), free_port(socket.SOCK_DGRAM)
     profile = load_vrf_profiles()[vendor]
     gateway = BacnetVrfGateway(profile, bus, SimClock(T0, 900.0), address=HOST, port=vrf_port)
+    bms = BacnetBmsTransport(address=HOST, port=bms_port) if with_bms else None
     frame = jpeg()
     phone = PhoneCamera(
         "http://phone.test/shot.jpg",
         transport=httpx.MockTransport(lambda request: httpx.Response(200, content=frame)),
     )
     cameras = CameraSystem([phone])
-    await gateway.start()
     await cameras.start()
     walker = Walker()
+    up: list[Any] = []
+
+    async def come_up() -> None:
+        for device in (gateway, bms):
+            if device is not None:
+                await device.start()
+                up.append(device)
+
     try:
+        if not late_s:
+            await come_up()
         async with (
             serve(create_http_app([cameras_router(cameras)])) as http_port,
             serve(create_dashboard_app(bus, tmp_path)) as dashboard_port,
         ):
             listen = f"{HOST}:{free_port(socket.SOCK_STREAM)}"
-            settings = AgentSettings(
+            agent_settings = AgentSettings(
                 world_host=HOST,
-                bms_port=free_port(socket.SOCK_DGRAM),  # nothing answers there
+                bms_port=bms_port,
                 http_port=http_port,
                 dashboard_port=dashboard_port,
                 listen=listen,
@@ -167,42 +201,46 @@ async def meeting_room(vendor: str, serve: Any, tmp_path: Path) -> AsyncIterator
                 bacnet_port=0,
                 vrf=True,
                 vrf_port=vrf_port,
+                vrf_bacnet_port=0,
+                **settings,
             )
-            agent = Agent(settings, vision=walker)
-            room = Room(gateway, agent, walker, events, listen, asyncio.create_task(agent.run()))
+            agent = Agent(agent_settings, vision=walker, stt=FakeSTT(SAID))
+            running = asyncio.create_task(agent.run())
+            room = Room(gateway, f"{HOST}:{vrf_port}", agent, walker, events, listen, running)
             try:
+                if late_s:
+                    await asyncio.sleep(late_s)
+                    await come_up()
                 yield room
             finally:
                 await room.stop_agent()
     finally:
         await cameras.stop()
-        await gateway.stop()
+        for device in up:
+            await device.stop()
         subscription.close()
         collecting.cancel()
         await asyncio.gather(collecting, return_exceptions=True)
 
 
 async def slot_10(room: Room) -> dict[str, object]:
-    """Each commanded point's slot 10 on the gateway, read over BACnet after the agent stopped."""
-    gateway = room.gateway.address
-    assert gateway is not None
-    await room.agent.bacnet.open()
+    """Each commanded point's slot 10 on the gateway, read over BACnet by a client of its own."""
+    reader = BacnetClient(room.gateway_address, local=f"{HOST}:0", instance=1912, name="reader")
+    await reader.open()
     try:
-        peer = BacnetPeer(room.agent.bacnet, gateway, GATEWAY.device_instance)
         return {
-            name: ((await peer.slots(GATEWAY.by_name(name))) or [0] * 16)[9] for name in COMMANDED
+            name: ((await reader.slots(GATEWAY.by_name(name))) or [0] * 16)[9] for name in COMMANDED
         }
     finally:
-        await room.agent.bacnet.close()
+        await reader.close()
 
 
 async def test_on_mitsubishi_the_louvers_follow_a_person_across_and_a_voice_complaint_acts(
     serve: Any, tmp_path: Path, writes: list[str]
 ) -> None:
     async with meeting_room("mitsubishi", serve, tmp_path) as room:
-        address = room.gateway.address
-        assert address is not None
-        peer = BacnetPeer(room.agent.bacnet, address, GATEWAY.device_instance)
+        client = room.agent.vrf_bacnet
+        assert client is not None and client is not room.agent.bacnet  # a socket of its own
         angle = GATEWAY.by_name("IDU-VANE-H-ANGLE")
         angles = {f"Pos{n}": 20.0 * (n - 3) for n in range(1, 6)}  # Mitsubishi: -40 to 40
         for lateral, position in ACROSS:
@@ -212,7 +250,7 @@ async def test_on_mitsubishi_the_louvers_follow_a_person_across_and_a_voice_comp
             )
             for _ in range(40):  # 4 s of louver motion at 15 deg/s
                 room.gateway.advance(0.1)
-            assert await peer.present(angle) == pytest.approx(angles[position], abs=0.01)
+            assert await client.present(angle) == pytest.approx(angles[position], abs=0.01)
         assert [w.value for w in room.writes("IDU-VANE-H")] == [p for _, p in ACROSS]
         # The tilt follows the distance too: 4.0 m away at the sides (21 deg, Pos2), 3.0-3.2 m
         # in the middle (25-27 deg, Pos3).
@@ -269,3 +307,33 @@ async def test_on_daikin_the_horizontal_vane_is_never_written(serve: Any, tmp_pa
         if e.type is EventType.BMS_WRITE and e.data["object_name"] == "IDU-VANE-H"
     ]
     assert tried == []  # not even refused: never sent
+
+
+async def test_started_before_the_bms_and_the_gateway_the_agent_reaches_both(
+    serve: Any, tmp_path: Path
+) -> None:
+    async with meeting_room(
+        "mitsubishi", serve, tmp_path, late_s=4.0, with_bms=True, heartbeat_s=0.5
+    ) as room:
+        vrf = room.agent.vrf
+        assert vrf is not None
+        await room.until(lambda: vrf.profile is not None, timeout_s=15.0)  # Model_Name read
+        await room.until(lambda: "SPOTCOOL-HEARTBEAT" in room.agent.actuator.held, 15.0)
+        assert vrf.profile is not None and vrf.profile.vendor == "mitsubishi"
+
+
+async def test_a_late_daikin_gateway_wins_over_the_brand_flag(serve: Any, tmp_path: Path) -> None:
+    async with meeting_room("daikin", serve, tmp_path, late_s=4.0, vrf_brand="mitsubishi") as room:
+        room.walker.lateral_m = 1.2  # Pos4 on a Mitsubishi: no unit here has it
+        vrf = room.agent.vrf
+        assert vrf is not None
+        await room.until(lambda: vrf.profile is not None, timeout_s=15.0)
+        assert vrf.profile is not None and vrf.profile.vendor == "daikin"
+        await room.until(lambda: [w.value for w in room.writes("IDU-VANE-V")] == ["Pos3"])
+        await asyncio.sleep(1.5)
+    tried = [
+        e
+        for e in room.events
+        if e.data.get("object_name") == "IDU-VANE-H" or e.data.get("point") == "IDU-VANE-H"
+    ]
+    assert tried == []  # no write, decision or refusal of the horizontal vane, ever

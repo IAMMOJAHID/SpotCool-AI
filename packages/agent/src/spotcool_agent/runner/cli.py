@@ -52,7 +52,8 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("--stt", choices=["meta", "fake"], help="(meta with --vision meta)")
         sub.add_argument("--llm", choices=["meta", "fake", "off"], help="(meta with --vision meta)")
         sub.add_argument("--env-file", type=Path, help="a dotenv file, such as the key file")
-        sub.add_argument("--sam-call-cap", type=int, help="Meta calls the run may make (600)")
+        sub.add_argument("--sam-call-cap", type=int, help="the building's SAM calls (600)")
+        sub.add_argument("--llm-call-cap", type=int, help="the STT and LLM calls (200)")
     run.add_argument("--bms-port", type=int, help="the BMS's BACnet/IP port (47808)")
     run.add_argument("--dashboard-port", type=int, help="the dashboard's port (8090)")
     run.add_argument("--listen", help="where to serve /chat and /voice (127.0.0.1:8002)")
@@ -60,9 +61,11 @@ def main(argv: list[str] | None = None) -> int:
     vrf = run.add_argument_group("the meeting room's VRF unit (off by default)")
     vrf.add_argument("--vrf", action="store_true", default=None, help="aim its louvers")
     vrf.add_argument("--vrf-port", type=int, help="its gateway's BACnet/IP port (47810)")
+    vrf.add_argument("--vrf-bacnet-port", type=int, help="the agent's own port for it (47821)")
+    vrf.add_argument("--vrf-call-cap", type=int, help="its own SAM calls (3000)")
     vrf.add_argument("--vrf-camera", help="the camera watching it (cam-meeting-live)")
     vrf.add_argument(
-        "--vrf-brand", choices=["mitsubishi", "daikin", "lg"], help="when its gateway does not say"
+        "--vrf-brand", choices=["mitsubishi", "daikin", "lg"], help="if its gateway names another"
     )
     vrf.add_argument("--vrf-camera-height-m", type=float, help="the camera's height (2.8)")
     vrf.add_argument("--vrf-camera-tilt-deg", type=float, help="its tilt down (30)")
@@ -83,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         "stt": args.stt,
         "llm": args.llm,
         "sam_call_cap": args.sam_call_cap,
+        "llm_call_cap": args.llm_call_cap,
     }
     if args.command == "run":
         flags |= {
@@ -92,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
             "settle_s": args.settle_s,
             "vrf": args.vrf,
             "vrf_port": args.vrf_port,
+            "vrf_bacnet_port": args.vrf_bacnet_port,
+            "vrf_call_cap": args.vrf_call_cap,
             "vrf_camera": args.vrf_camera,
             "vrf_brand": args.vrf_brand,
             "vrf_camera_height_m": args.vrf_camera_height_m,
@@ -133,8 +139,8 @@ async def _probe(settings: AgentSettings) -> int:
     Returns:
         0 if every camera gave a count and each model answered, else 1.
     """
-    vision, client = create_vision(settings)
-    stt, llm, client = create_language(settings, client)
+    vision, _ = create_vision(settings)
+    stt, llm, language = create_language(settings)
     try:
         failed = await _probe_cameras(settings, vision)
         failed += await _probe_language(stt, llm)
@@ -142,8 +148,8 @@ async def _probe(settings: AgentSettings) -> int:
     finally:
         await vision.close()
         await stt.close()
-        if client is not None:
-            await client.close()
+        if language is not None:
+            await language.close()
 
 
 async def _probe_language(stt: STTService, llm: LLMService | None) -> int:

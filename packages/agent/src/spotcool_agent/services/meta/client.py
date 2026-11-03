@@ -1,17 +1,22 @@
-"""MetaClient: the agent's one connection to the Meta AI API (``api.meta.ai/v1``).
+"""MetaClient: one budget of calls to the Meta AI API (``api.meta.ai/v1``).
 
-It wraps a single ``AsyncOpenAI`` (Person A's MVP client, ``app/mvp_pipeline.py``), created on
-the first call, inside the running event loop. Every request goes through one asyncio limiter
-(5 at once, the concurrency the lead measured), counts against the run's call cap, and leaves a
-``Call`` in the ledger: the model, the purpose, the latency and whether it worked. The ledger
-never holds a request's content, so no pixels or audio. The client itself never retries: each
-service decides its own retries.
+It wraps an ``AsyncOpenAI`` (Person A's MVP client, ``app/mvp_pipeline.py``), created on the
+first call, inside the running event loop. Every request goes through its asyncio limiter,
+counts against its call cap, and leaves a ``Call`` in its ledger: the model, the purpose, the
+latency and whether it worked (``call()``, which ``respond()`` and the transcriber use). The
+ledger never holds a request's content, so no pixels or audio. The client itself never
+retries: each service decides its own retries.
+
+The agent keeps three, so that no budget can starve another: the building's SAM calls (5 at
+once, the concurrency the lead measured, ``--sam-call-cap``), the VRF loop's SAM calls (2,
+``--vrf-call-cap``), and the transcriber's and language model's (2, ``--llm-call-cap``).
 """
 
 import asyncio
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
@@ -107,25 +112,36 @@ class MetaClient:
             CallCapReached: If the call cap is used up; nothing is sent.
             openai.OpenAIError: If the request failed.
         """
+        async with self.call(model, purpose):
+            if self._openai is None:
+                self._openai = self._make_openai()
+            response = await self._openai.responses.create(
+                model=model,
+                metadata=metadata,
+                input=[{"type": "message", "role": "user", "content": content}],  # type: ignore[list-item]
+                timeout=timeout_s,
+            )
+            return response.output_text or ""  # an answer without it is a failed call
+
+    @asynccontextmanager
+    async def call(self, model: str, purpose: str) -> AsyncGenerator[None, None]:
+        """One request's turn: the limiter, the call cap, the count and its ledger line.
+
+        The call is ``ok`` in the ledger when the block ends without an exception.
+
+        Raises:
+            CallCapReached: If the call cap is used up; the block does not run.
+        """
         if self._limiter is None:
             self._limiter = asyncio.Semaphore(self._max_concurrency)
         async with self._limiter:
             if self.cap_reached:
                 raise CallCapReached(f"the run's cap of {self._call_cap} Meta calls is reached")
-            if self._openai is None:
-                self._openai = self._make_openai()
             self._calls += 1
             started, ok = time.perf_counter(), False
             try:
-                response = await self._openai.responses.create(
-                    model=model,
-                    metadata=metadata,
-                    input=[{"type": "message", "role": "user", "content": content}],  # type: ignore[list-item]
-                    timeout=timeout_s,
-                )
-                text = response.output_text  # an answer without it is a failed call
+                yield
                 ok = True
-                return text or ""
             finally:
                 latency_s = round(time.perf_counter() - started, 3)
                 self.ledger.append(Call(model, purpose, latency_s, ok))

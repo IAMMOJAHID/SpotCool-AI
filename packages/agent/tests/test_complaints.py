@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from typing import cast
 
 import pytest
@@ -44,8 +45,13 @@ class FakeGateway:
     def __init__(self) -> None:
         self.arrays: dict[str, list[Value]] = {}
         self.writes: list[tuple[str, Value]] = []
+        self.down = False
+        """Every read waits 2 s for no answer, as a gateway that is not up."""
 
     async def slots(self, point: PointSpec) -> list[Value] | None:
+        if self.down:
+            await asyncio.sleep(2.0)
+            return None
         return list(self.arrays.setdefault(point.name, [None] * 16))
 
     async def write(self, point: PointSpec, value: Value) -> bool:
@@ -55,9 +61,10 @@ class FakeGateway:
 
     async def present(self, point: PointSpec) -> Value:
         held = (self.arrays.get(point.name) or [None] * 16)[9]
-        return held if held is not None else {"IDU-SP": 24.0, "IDU-FAN": "Auto"}.get(point.name)
+        known = {"IDU-SP": 24.0, "IDU-FAN": "Auto", "IDU-ROOM-T": 26.0}
+        return held if held is not None else known.get(point.name, "Pos3")
 
-    async def model_name(self) -> str | None:
+    async def model_name(self, instance: int) -> str | None:
         return f"SpotCool simulated VRF gateway ({load_vrf_profiles()['mitsubishi'].label})"
 
 
@@ -83,7 +90,7 @@ def loop_with(
     return ComplaintLoop(
         queue,
         publish,
-        stt=FakeSTT(),
+        stt=FakeSTT("It's too cold in the meeting room."),
         llm=llm,
         vrf=vrf,
         counts=lambda: {Zone.SOU: 2, Zone.COR: 0},
@@ -176,6 +183,7 @@ async def test_the_reply_comes_from_the_model_on_the_live_state_or_the_template_
     gateway, clock = FakeGateway(), Clock()
     vrf = vrf_loop(gateway, clock)
     await vrf.tick()
+    await asyncio.sleep(0)  # its first read of the unit's state, in a task of its own
     events: Events = []
     talkative = FakeLLM({"reply": "Done:  I raised it.\nOne more.  And a third sentence."})
     complaints = loop_with(events, llm=talkative, vrf=vrf)
@@ -203,8 +211,26 @@ async def test_a_voice_message_is_transcribed_and_one_it_cannot_hear_asks_to_typ
         "Thanks, I've noted it, but the meeting room's unit isn't under my control right now, "
         "so nothing changed."
     )
-    deaf = ComplaintLoop(asyncio.Queue(), lambda kind, data, t_s: None, stt=FakeSTT(None))
-    assert await deaf.handle(voice) == UNHEARD
+    deaf = ComplaintLoop(asyncio.Queue(), lambda kind, data, t_s: None, stt=FakeSTT())
+    assert await deaf.handle(voice) == UNHEARD == "Sorry, I couldn't hear that; please type it."
+
+
+@pytest.mark.asyncio
+async def test_with_the_gateway_down_a_complaint_is_answered_within_10_s() -> None:
+    gateway, clock = FakeGateway(), Clock()
+    vrf = vrf_loop(gateway, clock)
+    await vrf.tick()
+    gateway.down = True
+    events: Events = []
+    complaints = loop_with(events, llm=FakeLLM({"reply": None}), vrf=vrf)
+    began = time.perf_counter()
+    reply = await complaints.handle(chat("I'm freezing"))
+    assert time.perf_counter() - began < 10.0
+    assert reply == (
+        "Thanks, I've left the meeting room's AC as it is: its setpoint did not answer and its "
+        "fan did not answer."
+    )
+    await asyncio.sleep(2.0)  # the late reads finish
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,7 @@
 """The VRF loop on a fake gateway and a fake clock: aim, hold, rate limit, overrides, decay."""
 
+import asyncio
+import time
 from typing import cast
 
 import pytest
@@ -17,6 +19,8 @@ from spotcool_contracts.points import PointSpec
 
 W, H = 1280, 720
 POSE = CameraPose()
+NO_ANSWER_S = 2.0
+"""What a request costs when the device does not answer (APDU timeout and one retry)."""
 
 
 class Clock:
@@ -28,32 +32,57 @@ class Clock:
 
 
 class FakeGateway:
-    """The VRF gateway's seam: priority arrays, present values and the Model_Name."""
+    """The VRF gateway's seam: priority arrays, present values and the Model_Name.
+
+    ``down`` makes every request wait ``NO_ANSWER_S`` and get no answer, as a gateway not up.
+    """
 
     def __init__(self, vendor: str = "mitsubishi") -> None:
         self.label: str | None = load_vrf_profiles()[vendor].label
+        self.down = False
         self.arrays: dict[str, list[Value]] = {}
         self.writes: list[tuple[str, Value]] = []
         self.values: dict[str, Value] = {"IDU-SP": 24.0, "IDU-FAN": "Auto", "IDU-ROOM-T": 26.04}
 
+    async def _answers(self) -> bool:
+        if self.down:
+            await asyncio.sleep(NO_ANSWER_S)
+        return not self.down
+
     async def slots(self, point: PointSpec) -> list[Value] | None:
+        if not await self._answers():
+            return None
         return list(self.arrays.setdefault(point.name, [None] * 16))
 
     async def write(self, point: PointSpec, value: Value) -> bool:
+        if not await self._answers():
+            return False
         self.arrays.setdefault(point.name, [None] * 16)[9] = value
         self.writes.append((point.name, value))
         return True
 
     async def present(self, point: PointSpec) -> Value:
+        if not await self._answers():
+            return None
         slots = self.arrays.get(point.name, [None] * 16)
         held = next((v for v in slots if v is not None), None)
         return held if held is not None else self.values.get(point.name, "Pos3")
 
-    async def model_name(self) -> str | None:
-        return None if self.label is None else f"SpotCool simulated VRF gateway ({self.label})"
+    async def model_name(self, instance: int) -> str | None:
+        assert instance == 2001
+        if not await self._answers():
+            return None
+        return f"SpotCool simulated VRF gateway ({self.label or 'Acme VRF-9000'})"
 
     def written(self, name: str) -> list[Value]:
         return [value for point, value in self.writes if point == name]
+
+
+def slot(priority: int, value: Value) -> list[Value]:
+    """A priority array with one slot holding a value."""
+    array: list[Value] = [None] * 16
+    array[priority - 1] = value
+    return array
 
 
 class NoCameras:
@@ -172,16 +201,29 @@ async def test_daikin_never_gets_a_horizontal_write_and_lg_only_swings() -> None
 
 
 @pytest.mark.asyncio
-async def test_without_a_brand_the_vanes_are_left_alone_and_the_flag_fills_in() -> None:
+async def test_the_brand_flag_counts_only_when_the_gateway_names_an_unknown_brand() -> None:
     gateway, clock, events = FakeGateway(), Clock(), []
-    gateway.label = None  # the gateway does not answer
-    loop = make(gateway, clock, events)
-    loop.seen(at((1.2, 3.0)), 1)
-    await loop.tick()
-    assert loop.profile is None and gateway.writes == []
+    gateway.down = True
     flagged = make(gateway, clock, events, brand="daikin")
+    flagged.seen(at((1.2, 3.0)), 1)
     await flagged.tick()
-    assert flagged.profile is not None and flagged.profile.vendor == "daikin"
+    assert flagged.profile is None and gateway.writes == []  # silent gateway: no vane, no flag
+    gateway.down = False
+    clock.now += 4.0
+    await flagged.tick()
+    assert flagged.profile is None  # asked again only every 5 s
+    clock.now += 1.0
+    await flagged.tick()
+    assert flagged.profile is not None and flagged.profile.vendor == "mitsubishi"  # it says so
+
+    gateway.label = None  # it names a brand we do not know
+    unknown = make(gateway, clock, events, brand="daikin")
+    await unknown.tick()
+    assert unknown.profile is not None and unknown.profile.vendor == "daikin"
+    bare = make(gateway, clock, events)
+    bare.seen(at((1.2, 3.0)), 1)
+    await bare.tick()
+    assert bare.profile is None  # nothing to go on: the vanes are left alone
 
 
 @pytest.mark.asyncio
@@ -227,13 +269,59 @@ async def test_cold_hot_and_stuffy_override_the_setpoint_and_fan_then_decay() ->
 @pytest.mark.asyncio
 async def test_the_setpoint_stays_within_16_to_30_degc() -> None:
     gateway, clock, events = FakeGateway(), Clock(), []
-    gateway.values["IDU-SP"] = 30.0
-    gateway.values["IDU-FAN"] = "High"
+    gateway.arrays["IDU-SP"] = slot(16, 30.0)  # a schedule's slot 16 holds them
+    gateway.arrays["IDU-FAN"] = slot(16, "High")
     loop = make(gateway, clock, events)
     cold = await loop.act("cold")
     assert cold.summary == (
         "turned the meeting room's fan down to Mid; its setpoint is already at its highest, 30.0 degC"
     )
+
+
+@pytest.mark.asyncio
+async def test_a_point_the_operator_holds_is_left_and_the_reply_says_so() -> None:
+    gateway, clock, events = FakeGateway(), Clock(), []
+    gateway.arrays["IDU-SP"] = slot(8, 22.0)  # the building operator, at 8
+    loop = make(gateway, clock, events)
+    await loop.tick()
+    cold = await loop.act("cold")
+    assert cold.changed and cold.summary == (
+        "turned the meeting room's fan down to Low; its setpoint is held at 22.0 degC by the "
+        "building operator"
+    )
+    gateway.arrays["IDU-FAN"] = slot(5, "High")  # priority 5
+    clock.now += 1.0
+    hot = await loop.act("hot")
+    assert not hot.changed
+    assert hot.summary == (
+        "left the meeting room's AC as it is: its setpoint is held at 22.0 degC by the building "
+        "operator and its fan is held at High by priority 5"
+    )
+    await loop.tick()
+    assert gateway.written("IDU-SP") == []  # never claimed, never written
+    gateway.arrays["IDU-VANE-V"] = slot(8, "Pos5")
+    draft = await loop.act("draft")
+    assert not draft.changed and draft.summary == (
+        "left the meeting room's louvers as they are: its vertical louver is held at Pos5 by "
+        "the building operator"
+    )
+
+
+@pytest.mark.asyncio
+async def test_with_the_gateway_down_a_complaint_is_answered_without_a_change() -> None:
+    gateway, clock, events = FakeGateway(), Clock(), []
+    loop = make(gateway, clock, events)
+    await loop.tick()  # the brand, while it answers
+    gateway.down = True
+    began = time.perf_counter()
+    cold = await loop.act("cold")
+    assert time.perf_counter() - began < 3.5  # two reads of 1.5 s at most
+    assert not cold.changed and cold.summary == (
+        "left the meeting room's AC as it is: its setpoint did not answer and its fan did not "
+        "answer"
+    )
+    assert loop.state() == {"brand": "mitsubishi", "people_the_louvers_follow": 0}
+    await asyncio.sleep(NO_ANSWER_S)  # the late reads finish
 
 
 @pytest.mark.asyncio
@@ -258,14 +346,17 @@ async def test_a_draft_levels_the_vertical_vane_and_pauses_the_aim_for_its_hold(
 
 
 @pytest.mark.asyncio
-async def test_the_state_card_shows_the_unit_and_stop_releases_every_slot() -> None:
+async def test_the_state_card_shows_the_unit_as_last_read_and_stop_releases_every_slot() -> None:
     gateway, clock, events = FakeGateway("daikin"), Clock(), []
     loop = make(gateway, clock, events)
     await loop.tick()
     loop.seen(at((0.0, 3.0)), 1)
     await loop.act("cold")
     await loop.tick()
-    state = await loop.state()
+    clock.now += 2.0  # the next read of the unit's state
+    await loop.tick()
+    await asyncio.sleep(0)  # it runs in a task of its own
+    state = loop.state()
     assert state == {
         "room_temperature_c": 26.0,
         "setpoint_c": 25.0,

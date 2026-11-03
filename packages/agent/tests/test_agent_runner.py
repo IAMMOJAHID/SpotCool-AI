@@ -101,3 +101,42 @@ async def test_a_crash_releases_every_slot_and_is_raised(writes: list[str]) -> N
     finally:
         await bms.stop()
     assert writes == []  # no file written by the agent, its server included
+
+
+@pytest.mark.bacnet
+@pytest.mark.asyncio
+async def test_the_bms_is_released_first_and_a_stuck_vrf_release_cannot_hold_it_up() -> None:
+    bms_port = free_port(socket.SOCK_DGRAM)
+    bms = BacnetBmsTransport(address=HOST, port=bms_port)
+    await bms.start()
+    try:
+        vrf_settings = settings(bms_port).model_copy(
+            update={"vrf": True, "vrf_port": free_port(socket.SOCK_DGRAM), "vrf_bacnet_port": 0}
+        )
+        agent = Agent(vrf_settings)
+        assert agent.vrf is not None
+        order: list[str] = []
+        bms_stop, vrf_stop = agent.actuator.stop, agent.vrf.stop
+
+        async def released_bms() -> None:
+            await bms_stop()
+            order.append("bms")
+
+        async def stuck_vrf() -> None:
+            order.append("vrf")
+            await vrf_stop()
+            await asyncio.sleep(60)  # a gateway that never lets go
+
+        agent.actuator.stop = released_bms  # type: ignore[method-assign]
+        agent.vrf.stop = stuck_vrf  # type: ignore[method-assign]
+        running = asyncio.create_task(agent.run())
+        await holding(agent)
+        began = time.perf_counter()
+        running.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await running
+        assert time.perf_counter() - began < 8.0  # the VRF gets 5 s at most
+        assert order == ["bms", "vrf"]
+        assert await slot_10(agent) == [None, None, None]
+    finally:
+        await bms.stop()

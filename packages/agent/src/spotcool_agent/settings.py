@@ -50,10 +50,16 @@ class AgentSettings(BaseSettings):
             ``--vision meta``, else ``off``.
         stt_model: The transcription model.
         llm_model: The language model.
+        llm_call_cap: Calls the transcriber and the language model may make in all, a budget
+            of their own (2 at once), apart from the building's.
         vrf: Run the meeting room's spot cooling and let complaints act on its VRF unit.
         vrf_port: The VRF gateway's BACnet/IP UDP port, on ``world_host``.
+        vrf_bacnet_port: The UDP port of the agent's own client of the VRF gateway, a socket
+            apart from the BMS's; 0 takes any free one.
+        vrf_call_cap: SAM calls the VRF loop may make in all, a budget of its own (2 at once);
+            then it stops aiming and releases the vanes, never the building.
         vrf_camera: The camera that watches the meeting room.
-        vrf_brand: The unit's brand, when the gateway's ``Model_Name`` does not say.
+        vrf_brand: The unit's brand, when the gateway's ``Model_Name`` names none we know.
         vrf_camera_height_m: That camera's mount height.
         vrf_camera_tilt_deg: Its tilt below horizontal.
         vrf_camera_hfov_deg: Its horizontal field of view.
@@ -92,8 +98,11 @@ class AgentSettings(BaseSettings):
     llm: Literal["meta", "fake", "off"] | None = None
     stt_model: str = "muse-voice-transcribe-1.0"
     llm_model: str = "muse-wonder-1.0"
+    llm_call_cap: int = Field(default=200, ge=0)
     vrf: bool = False
     vrf_port: int = Field(default=47810, ge=1, le=65535)
+    vrf_bacnet_port: int = Field(default=47821, ge=0, le=65535)
+    vrf_call_cap: int = Field(default=3000, ge=0)
     vrf_camera: str = "cam-meeting-live"
     vrf_brand: VrfVendor | None = None
     vrf_camera_height_m: float = Field(default=2.8, gt=0)

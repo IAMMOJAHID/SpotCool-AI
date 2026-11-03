@@ -49,7 +49,7 @@ MAX_REPLY_CHARS = 400
 """A model's reply is cut to two sentences, and to this many characters."""
 MEETING_ROOM = next(room for room, zone in ROOMS.items() if zone is Zone.SOU)
 """The room the VRF unit serves: ``meeting-south``."""
-UNHEARD = "Sorry, I couldn't make out your voice message. Could you type it in the chat?"
+UNHEARD = "Sorry, I couldn't hear that; please type it."
 SORRY = "Sorry, something went wrong with your message. Could you try again?"
 NOT_HERE = (
     "noted it; I only control the meeting room's unit, so I haven't changed anything for your area"
@@ -190,7 +190,7 @@ class ComplaintLoop:
                 ZONES[zone].display_name: n for zone, n in self._counts().items()
             }
         if self._vrf is not None:
-            facts["meeting_room_unit"] = await self._vrf.state()
+            facts["meeting_room_unit"] = self._vrf.state()  # last known: never waits
         prompt = reply_prompt(text, intent, action, facts)
         try:
             answer = await self._llm.complete(prompt, self._reply_timeout_s, purpose="reply")

@@ -105,10 +105,17 @@ def test_the_vrf_loop_is_off_by_default_and_its_flags_reach_the_settings(
         600.0,
         900.0,
     )
+    assert (settings.vrf_bacnet_port, settings.vrf_call_cap, settings.llm_call_cap) == (
+        47821,
+        3000,
+        200,
+    )
     flags = ["run", "--vision", "blob", "--vrf", "--vrf-brand", "daikin", "--vrf-mirror"]
     flags += ["--vrf-camera-tilt-deg", "40", "--llm", "fake", "--dry-run"]
+    flags += ["--vrf-bacnet-port", "0", "--vrf-call-cap", "5", "--llm-call-cap", "6"]
     assert main(flags) == 0
     shown = json.loads(capsys.readouterr().out)
+    assert (shown["vrf_bacnet_port"], shown["vrf_call_cap"], shown["llm_call_cap"]) == (0, 5, 6)
     assert (shown["vrf"], shown["vrf_brand"], shown["vrf_mirror"]) == (True, "daikin", True)
     assert (shown["vrf_camera_tilt_deg"], shown["stt"], shown["llm"]) == (40.0, "fake", "fake")
     assert main(["run", "--vision", "blob", "--dry-run"]) == 0

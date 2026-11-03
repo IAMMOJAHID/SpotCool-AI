@@ -1,25 +1,32 @@
 """VrfLoop: the meeting room's spot cooling, in wall time, and what complaints do to its unit.
 
 The meeting room's VRF indoor unit runs on the wall clock, whatever the simulation's speed, so
-this loop does too. Every ``TICK_S``:
+this loop does too. It speaks to the gateway through a BACnet client of its own (its own
+socket), and finds people with a vision provider whose budget is its own (2 calls at once,
+``--vrf-call-cap``), so nothing it does can hold up the building loop. Every ``TICK_S``:
 
 1. **Brand.** Until it is known, it reads the gateway's ``Model_Name``, which names the brand's
-   profile label (``load_vrf_profiles()``); ``--vrf-brand`` is used when the gateway does not
-   answer or names no known brand. Without a brand, the vanes are left alone.
-2. **Camera.** It finds ``vrf_camera`` (``cam-meeting-live``) in the catalog, retrying every
+   profile label (``load_vrf_profiles()``), every ``RETRY_S`` while the gateway does not
+   answer; meanwhile no vane is written. ``--vrf-brand`` is used only when the gateway answers
+   with a name that is no known brand's. Without a brand, the vanes are left alone.
+2. **State.** Once the gateway has answered, a task of its own reads the unit's room
+   temperature, setpoint, fan and vanes every ``REFRESH_S``; replies use these last-known
+   values, so a complaint never waits on the gateway for them.
+3. **Camera.** It finds ``vrf_camera`` (``cam-meeting-live``) in the catalog, retrying every
    ``RETRY_S`` until it is there.
-3. **Look.** With fewer than ``IN_FLIGHT`` looks under way, and at most at the camera's frame
+4. **Look.** With fewer than ``IN_FLIGHT`` looks under way, and at most at the camera's frame
    rate, it takes a snapshot (memory only) and asks the vision provider for every person
    (``detect(jpeg, "humans")``), in a task of its own. A result older than one already applied
    is dropped. Each result is a ``perception`` event with the camera's boxes as ``masks`` and
-   no zone counts (the building loop owns those), stamped with no simulation time.
-4. **Aim.** Everyone seen is located on the floor and weighted by their box's area; the
+   no zone counts (the building loop owns those), stamped with no simulation time. When its
+   call cap is used up it stops looking and releases the vanes; the building is not touched.
+5. **Aim.** Everyone seen is located on the floor and weighted by their box's area; the
    louvers aim at the weighted centroid, and swing when the people are spread too wide
    (``domain/louvers.py``: Person A's geometry and rule, mapped onto the brand's positions).
    With nobody seen for ``hold_s``, the vanes are released: the unit goes back to its
    relinquish default. A draft complaint sets the vertical vane to Pos1 (a level throw) and
    pauses the aiming for ``draft_hold_s``.
-5. **Write.** The vanes, and the setpoint and fan a complaint overrides for
+6. **Write.** The vanes, and the setpoint and fan a complaint overrides for
    ``complaint_hold_s``, are written through an ``Actuator`` of the gateway's points: priority
    10, only on a change, backing off from slots 1-9, releasing only its own slot, and at most
    one write per point every ``WRITE_EVERY_S``. Each write is a ``decision`` (zone ``sou``);
@@ -27,15 +34,18 @@ this loop does too. Every ``TICK_S``:
    time. None of it touches the BMS zones, and its events carry no simulation time, so the
    world's report never pairs them with BMS steps.
 
+A complaint (``act``) first reads the point's priority array, waiting at most
+``READ_TIMEOUT_S``: a point a more urgent slot holds (the building operator at 8) or one that
+does not answer is left as it is, and the action says so rather than claim a change.
 ``stop()`` cancels the looks and releases every slot the loop holds.
 """
 
 import asyncio
 import math
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from loguru import logger
 
@@ -53,11 +63,12 @@ from spotcool_agent.domain.louvers import (
 )
 from spotcool_agent.processors import explain
 from spotcool_agent.processors.intents import Intent
-from spotcool_agent.services.vision import VisionError, VisionService
+from spotcool_agent.services.vision import CallCapReached, VisionError, VisionService
 from spotcool_agent.transports.world_http import WorldHttp, WorldHttpError
 from spotcool_contracts import Zone, load_point_map, load_vrf_profiles
 from spotcool_contracts.events import EventType
 from spotcool_contracts.points import PointSpec
+from spotcool_contracts.priorities import AGENT_PRIORITY, OPERATOR_PRIORITY
 from spotcool_contracts.vrf import VrfProfile
 
 TICK_S = 0.25
@@ -74,6 +85,10 @@ EXPLAIN_EVERY_S = 10.0
 """Wall seconds between two explanations of an aim change, at least."""
 RETRY_S = 5.0
 """Wall seconds before asking again for the brand or the catalog."""
+REFRESH_S = 2.0
+"""Wall seconds between two reads of the unit's state."""
+READ_TIMEOUT_S = 1.5
+"""The longest a complaint waits for a priority array."""
 HOLD_S = 10.0
 DRAFT_HOLD_S = 600.0
 COMPLAINT_HOLD_S = 900.0
@@ -92,6 +107,14 @@ ROOM_T = GATEWAY.by_name("IDU-ROOM-T")
 VANES = {VANE_V: GATEWAY.by_name(VANE_V), VANE_H: GATEWAY.by_name(VANE_H)}
 COMMANDED = (VANES[VANE_V], VANES[VANE_H], SETPOINT, FAN)
 """Every point the loop writes, and releases at stop."""
+SHOWN = (
+    ("room_temperature_c", ROOM_T),
+    ("setpoint_c", SETPOINT),
+    ("fan", FAN),
+    ("vertical_louver", VANES[VANE_V]),
+    ("horizontal_louver", VANES[VANE_H]),
+)
+"""The unit's state a reply may quote, and the points it comes from."""
 REASONS: dict[Intent, str] = {
     "cold": "a complaint: too cold",
     "hot": "a complaint: too hot",
@@ -99,16 +122,17 @@ REASONS: dict[Intent, str] = {
     "stuffy": "a complaint: stuffy air",
     "none": "a complaint",
 }
+Result = TypeVar("Result")
 
 
 class VrfGateway(BacnetSeam, Protocol):
-    """What the loop needs from the VRF gateway (``BacnetPeer``; tests pass a fake)."""
+    """What the loop needs from the VRF gateway (its ``BacnetClient``; tests pass a fake)."""
 
     async def present(self, point: PointSpec) -> Value:
         """A point's present value in BMS units, or ``None`` without an answer."""
         ...
 
-    async def model_name(self) -> str | None:
+    async def model_name(self, instance: int) -> str | None:
         """The device's ``Model_Name``, or ``None`` without an answer."""
         ...
 
@@ -135,11 +159,11 @@ class VrfLoop:
     Args:
         gateway: The VRF gateway on BACnet.
         world: The world's cameras.
-        vision: The people finder.
+        vision: The people finder, on a budget of its own.
         publish: Where the events go.
         camera_id: The camera watching the meeting room.
         pose: Its pose, and the unit's outlet.
-        brand: The brand to assume when the gateway does not say.
+        brand: The brand to assume when the gateway names one we do not know.
         mirror: The camera faces the unit: the pan flips.
         hold_s: Wall seconds with nobody seen before the vanes are released.
         draft_hold_s: Wall seconds a draft complaint pauses the aiming.
@@ -181,6 +205,9 @@ class VrfLoop:
         """The brand's gateway profile, once known."""
         self._brand_settled = False
         self._brand_next = -math.inf
+        self._known: dict[str, Value] = {}  # point -> its last-known present value
+        self._refreshing: asyncio.Task[None] | None = None
+        self._refresh_next = -math.inf
         self._snapshot_url: str | None = None
         self._shot_every_s = SHOT_EVERY_S
         self._catalog_next = -math.inf
@@ -188,6 +215,8 @@ class VrfLoop:
         self._shots = 0  # the number of the last look started
         self._applied = 0  # the number of the newest look applied
         self._looking: set[asyncio.Task[None]] = set()
+        self.capped = False
+        """Whether the loop's call cap is used up: it looks no more and leaves the vanes."""
         self.aim: Aim | None = None
         """The last aim, at the people last seen."""
         self._seen_at = -math.inf  # when somebody was last seen
@@ -214,13 +243,20 @@ class VrfLoop:
             await self._stop_looking()
 
     async def stop(self) -> None:
-        """Cancel the looks, then release every slot the loop holds. Safe to call twice."""
+        """Cancel the looks, then release every slot the loop holds. Safe to call twice.
+
+        A state read under way is let finish first: the client sends one request at a time.
+        """
         await self._stop_looking()
+        refreshing = self._refreshing
+        if refreshing is not None:
+            await asyncio.gather(refreshing, return_exceptions=True)
         await self.actuator.stop()
 
     async def tick(self) -> None:
         """One round: learn the brand, find the camera, start a look, write what changed."""
         await self._learn_brand(self._clock())
+        self._refresh_again(self._clock())
         await self._find_camera(self._clock())
         self._look_again(self._clock())
         await self._write(self._clock())
@@ -235,7 +271,7 @@ class VrfLoop:
         Returns:
             Whether it was applied.
         """
-        if look <= self._applied:
+        if look <= self._applied or self.capped:
             return False
         self._applied = look
         masks = {self._camera_id: found.polygons()}
@@ -258,66 +294,68 @@ class VrfLoop:
         - draft: the vertical vane to Pos1 (a level throw), the aiming paused.
 
         The setpoint stays on 16-30 degC on the 0.5 grid, and an override lasts
-        ``complaint_hold_s`` (a draft, ``draft_hold_s``).
+        ``complaint_hold_s`` (a draft, ``draft_hold_s``). A point held by a more urgent slot,
+        or whose priority array does not come within ``READ_TIMEOUT_S``, is not changed, and
+        the action says why.
         """
-        now = self._clock()
         if intent == "draft":
-            return self._draft(now)
+            return await self._draft()
         if intent == "none":
             return Action(intent, "left the meeting room's AC as it is", changed=False)
-        until, reason = now + self._complaint_hold_s, REASONS[intent]
+        until, reason = self._clock() + self._complaint_hold_s, REASONS[intent]
         done: list[str] = []
         notes: list[str] = []
         if intent in ("cold", "hot"):
             up = intent == "cold"
-            setpoint = await self._in_force(SETPOINT)
-            now_c = float(setpoint) if isinstance(setpoint, float) else 24.0
-            wanted = _setpoint(now_c + (SETPOINT_STEP_C if up else -SETPOINT_STEP_C))
-            if wanted != now_c:
-                self._overrides[SETPOINT.name] = (wanted, until, reason)
-                done.append(f"{'raised' if up else 'lowered'} the meeting room's setpoint to "
-                            f"{wanted:.1f} degC")  # fmt: skip
-            else:
+            step_c = SETPOINT_STEP_C if up else -SETPOINT_STEP_C
+            found = await self._change(SETPOINT, "setpoint", lambda v: _setpoint(_c(v) + step_c))
+            if isinstance(found, str):
+                notes.append(found)
+            elif found[1] == found[0]:
                 notes.append(f"its setpoint is already at its {'highest' if up else 'lowest'}, "
-                             f"{now_c:.1f} degC")  # fmt: skip
+                             f"{_c(found[0]):.1f} degC")  # fmt: skip
+            else:
+                self._overrides[SETPOINT.name] = (found[1], until, reason)
+                done.append(f"{'raised' if up else 'lowered'} the meeting room's setpoint to "
+                            f"{_c(found[1]):.1f} degC")  # fmt: skip
         step = -1 if intent == "cold" else 1
-        fan = await self._in_force(FAN)
-        speed = _fan_step(str(fan), step)
-        if speed != fan:
-            self._overrides[FAN.name] = (speed, until, reason)
-            whose = "its" if done else "the meeting room's"
-            done.append(f"turned {whose} fan {'down' if step < 0 else 'up'} to {speed}")
-        else:
+        found = await self._change(FAN, "fan", lambda v: _fan_step(str(v), step))
+        if isinstance(found, str):
+            notes.append(found)
+        elif found[1] == found[0]:
             notes.append(f"its fan is already at its {'lowest' if step < 0 else 'highest'}")
+        else:
+            self._overrides[FAN.name] = (found[1], until, reason)
+            whose = "its" if done else "the meeting room's"
+            done.append(f"turned {whose} fan {'down' if step < 0 else 'up'} to {found[1]}")
         summary = " and ".join(done) or "left the meeting room's AC as it is"
         if notes:
             summary += ("; " if done else ": ") + " and ".join(notes)
         return Action(intent, summary, changed=bool(done))
 
-    async def state(self) -> dict[str, object]:
-        """The meeting room's unit as the gateway shows it, for a reply's facts."""
+    def state(self) -> dict[str, object]:
+        """The meeting room's unit as last read, for a reply's facts; unknown values left out."""
         state: dict[str, object] = {}
-        for label, point in (
-            ("room_temperature_c", ROOM_T),
-            ("setpoint_c", SETPOINT),
-            ("fan", FAN),
-            ("vertical_louver", VANES[VANE_V]),
-            ("horizontal_louver", VANES[VANE_H]),
-        ):
-            value = await self._gateway.present(point)
-            state[label] = round(value, 1) if isinstance(value, float) else value
+        for label, point in SHOWN:
+            value = self._known.get(point.name)
+            if value is not None:
+                state[label] = round(value, 1) if isinstance(value, float) else value
         if self.profile is not None and self.profile.vane_horizontal is None:
-            del state["horizontal_louver"]  # the brand has none: the gateway shows Pos3 anyway
-        state["brand"] = self.profile.vendor if self.profile else None
+            state.pop("horizontal_louver", None)  # the brand has none: the gateway shows Pos3
+        if self.profile is not None:
+            state["brand"] = self.profile.vendor
         aiming = self.aim is not None and self._clock() - self._seen_at < self._hold_s
         state["people_the_louvers_follow"] = self.aim.people if aiming and self.aim else 0
         return state
 
-    def _draft(self, now: float) -> Action:
+    async def _draft(self) -> Action:
         vertical = self.profile.vane_vertical if self.profile else None
         if vertical is None:
             return Action("draft", "noted the draft, but I can't move the louvers yet", False)
-        self._draft_until = now + self._draft_hold_s
+        found = await self._change(VANES[VANE_V], "vertical louver", lambda v: v)
+        if isinstance(found, str):
+            return Action("draft", f"left the meeting room's louvers as they are: {found}", False)
+        self._draft_until = self._clock() + self._draft_hold_s
         minutes = f"{self._draft_hold_s / 60:g} minutes"
         if vertical.positions:
             text = f"turned the meeting room's louvers to blow level, for the next {minutes}"
@@ -325,26 +363,56 @@ class VrfLoop:
             text = f"stopped the meeting room's louvers swinging, for the next {minutes}"
         return Action("draft", text, changed=True)
 
-    async def _in_force(self, point: PointSpec) -> Value:
-        """A point's value now: an override of ours, else the gateway's, else its default."""
+    async def _change(
+        self, point: PointSpec, label: str, step: Callable[[Value], Value]
+    ) -> tuple[Value, Value] | str:
+        """A point's value in force and the one a complaint wants, or why it cannot change.
+
+        Its priority array is read first, at most ``READ_TIMEOUT_S``: a point held by a more
+        urgent slot, or one that does not answer, is not changed.
+        """
+        slots = await _within(READ_TIMEOUT_S, self._gateway.slots(point))
+        if slots is None:
+            return f"its {label} did not answer"
+        urgent = enumerate(slots[: AGENT_PRIORITY - 1], start=1)
+        held = next(((n, v) for n, v in urgent if v is not None), None)
+        if held is not None:
+            priority, value = held
+            who = (
+                "the building operator" if priority == OPERATOR_PRIORITY else f"priority {priority}"
+            )
+            shown = f"{value:.1f} degC" if isinstance(value, float) else value
+            return f"its {label} is held at {shown} by {who}"
+        before = self._in_force(point, slots)
+        return before, step(before)
+
+    def _in_force(self, point: PointSpec, slots: list[Value]) -> Value:
+        """A point's value now: an override of ours, else its slots', else its default.
+
+        The last-known value is the fallback only for a point without a relinquish default:
+        just after a release it may still show the value released.
+        """
         override = self._overrides.get(point.name)
         if override is not None and self._clock() < override[1]:
             return override[0]
-        value = await self._gateway.present(point)
-        return value if value is not None else _default(point)
+        commanded = next((value for value in slots if value is not None), None)
+        if commanded is not None:
+            return commanded
+        default = _default(point)
+        return default if default is not None else self._known.get(point.name)
 
     async def _learn_brand(self, now: float) -> None:
         if self._brand_settled or now < self._brand_next:
             return
         self._brand_next = now + RETRY_S
-        name = await self._gateway.model_name()
-        if name is None and self._brand is None:
+        name = await self._gateway.model_name(GATEWAY.device_instance)
+        if name is None:  # no vane is written meanwhile, even with --vrf-brand
             self._failed("gateway", "the VRF gateway does not answer; asking again")
             return
         self._brand_settled = True
         self._recovered("gateway")
         profiles = load_vrf_profiles()
-        named = next((p for p in profiles.values() if name and p.label in name), None)
+        named = next((p for p in profiles.values() if p.label in name), None)
         if named is not None and self._brand not in (None, named.vendor):
             logger.warning(f"VRF: the gateway is {named.vendor}; --vrf-brand {self._brand} ignored")
         profile = named or (profiles[self._brand] if self._brand else None)
@@ -357,6 +425,23 @@ class VrfLoop:
         self.profile = profile
         source = "the gateway's Model_Name" if named else "--vrf-brand"
         logger.info(f"VRF: {profile.vendor} profile, from {source}")
+
+    def _refresh_again(self, now: float) -> None:
+        if not self._brand_settled or self._refreshing is not None or now < self._refresh_next:
+            return
+        self._refresh_next = now + REFRESH_S
+        self._refreshing = asyncio.create_task(self._refresh(), name="vrf-state")
+
+    async def _refresh(self) -> None:
+        """Read the unit's state into the last-known values; stop at the first no-answer."""
+        try:
+            for _, point in SHOWN:
+                value = await self._gateway.present(point)
+                if value is None:
+                    return  # the gateway does not answer: the next refresh tries again
+                self._known[point.name] = value
+        finally:
+            self._refreshing = None
 
     async def _find_camera(self, now: float) -> None:
         if self._snapshot_url is not None or now < self._catalog_next:
@@ -377,7 +462,7 @@ class VrfLoop:
 
     def _look_again(self, now: float) -> None:
         url = self._snapshot_url
-        if url is None or len(self._looking) >= IN_FLIGHT or now < self._shot_next:
+        if url is None or self.capped or len(self._looking) >= IN_FLIGHT or now < self._shot_next:
             return
         self._shot_next = now + self._shot_every_s
         self._shots += 1
@@ -394,6 +479,11 @@ class VrfLoop:
             )
         except WorldHttpError as exc:
             self._failed(self._camera_id, str(exc))
+            return
+        except CallCapReached as exc:
+            if not self.capped:
+                logger.warning(f"VRF: {exc}: no more looks, the vanes are released")
+            self.capped, self.aim = True, None
             return
         except VisionError as exc:
             self._failed(self._camera_id, f"{self._vision.name}: {exc}")
@@ -431,7 +521,11 @@ class VrfLoop:
                 for name, state in vane_states(self.aim, profile, mirror=self._mirror).items():
                     wanted.append((VANES[name], state, self.aim.reason(), False))
             else:
-                reason = f"nobody seen for {self._hold_s:g} s"
+                reason = (
+                    "the VRF loop's call cap is reached"
+                    if self.capped
+                    else f"nobody seen for {self._hold_s:g} s"
+                )
                 wanted += [(VANES[name], None, reason, True) for name in axes]
         for point in (SETPOINT, FAN):
             value, until, reason = self._overrides.get(point.name, (None, -math.inf, ""))
@@ -470,6 +564,25 @@ class VrfLoop:
     def _recovered(self, what: str) -> None:
         if self._failing.pop(what, None) is not None:
             logger.info(f"VRF {what}: answering again")
+
+
+async def _within(seconds: float, request: Awaitable[Result]) -> Result | None:
+    """A request's answer if it comes within ``seconds``, else ``None``.
+
+    A late request is not cancelled but left to finish, its answer dropped: the gateway's client
+    sends one request at a time, and one cut off in flight could leave it deaf.
+    """
+    task = asyncio.ensure_future(request)
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), seconds)
+    except TimeoutError:
+        task.add_done_callback(lambda done: done.cancelled() or done.exception())
+        return None
+
+
+def _c(value: Value) -> float:
+    """A setpoint's value as degrees Celsius; 24.0 (the gateway's default) if it is not one."""
+    return float(value) if isinstance(value, float) else 24.0
 
 
 def _setpoint(value_c: float) -> float:

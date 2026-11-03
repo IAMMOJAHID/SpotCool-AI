@@ -8,21 +8,20 @@ measured it, is ``{sessionId, transcript, audioDurationMs, turns: [{..., transcr
 the text is ``transcript``, or the turns' texts joined when it is missing.
 
 One request, a timeout of ``TIMEOUT_S``, no retries: the occupant can say it again. The audio
-stays in memory, and each call leaves a ``Call`` in the Meta client's ledger (never the audio
-or the text).
+stays in memory. Each call takes a turn of the language services' ``MetaClient`` (its limiter,
+its call cap and a ``Call`` in its ledger, never the audio or the text).
 """
 
 import asyncio
 import json
-import time
-from collections import deque
 from typing import Any
 
 import httpx
 from pydantic import SecretStr
 
-from spotcool_agent.services.meta.client import Call
+from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.stt import STTError, STTService
+from spotcool_agent.services.vision import CallCapReached
 
 STT_MODEL = "muse-voice-transcribe-1.0"
 ASR_PATH = "/asr/transcribe"
@@ -61,22 +60,22 @@ class MetaSTT(STTService):
     """Transcribes with ``muse-voice-transcribe-1.0`` (see the module docstring).
 
     Args:
+        client: The budget the calls count against (the language services' ``MetaClient``).
         api_key: The Meta API key; read only to build the header.
         base_url: The API's base URL.
         model: The transcription model.
         keywords: Words the model is told to expect.
-        ledger: Where each call is noted (the Meta client's), if anywhere.
         transport: httpx transport; tests pass an ``httpx.MockTransport``.
     """
 
     def __init__(
         self,
+        client: MetaClient,
         api_key: SecretStr,
         *,
         base_url: str,
         model: str = STT_MODEL,
         keywords: list[str] | None = None,
-        ledger: deque[Call] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         super().__init__(name=f"MetaSTT({model})")
@@ -84,7 +83,7 @@ class MetaSTT(STTService):
         self._url = base_url.rstrip("/") + ASR_PATH
         self._model = model
         self._keywords = COMFORT_KEYWORDS if keywords is None else keywords
-        self._ledger = ledger
+        self._client = client
         self._transport = transport
         self._http: httpx.AsyncClient | None = None
 
@@ -110,27 +109,23 @@ class MetaSTT(STTService):
             "Authorization": f"Bearer {self._api_key.get_secret_value()}",
             "Accept": "application/json",
         }
-        started, ok = time.perf_counter(), False
         try:
-            async with asyncio.timeout(timeout_s):
+            async with (
+                asyncio.timeout(timeout_s),
+                self._client.call(self._model, "transcribe a voice complaint"),
+            ):
                 response = await self._http.post(
                     self._url, files=files, headers=headers, timeout=timeout_s
                 )
-            if response.status_code != 200:
-                raise STTError(f"HTTP {response.status_code}")
-            text = parse_transcript(response.content)
-            ok = True
-            return text
+                if response.status_code != 200:
+                    raise STTError(f"HTTP {response.status_code}")
+                return parse_transcript(response.content)
         except TimeoutError:
             raise STTError(f"no answer within {timeout_s:.1f} s") from None
+        except CallCapReached as exc:
+            raise STTError(str(exc)) from None
         except httpx.HTTPError as exc:  # connection failures, httpx's own timeout
             raise STTError(type(exc).__name__) from None
-        finally:
-            if self._ledger is not None:
-                latency_s = round(time.perf_counter() - started, 3)
-                self._ledger.append(
-                    Call(self._model, "transcribe a voice complaint", latency_s, ok)
-                )
 
     async def close(self) -> None:
         """Close the HTTP client. Safe to call twice."""
