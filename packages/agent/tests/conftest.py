@@ -32,6 +32,10 @@ def _audit(event: str, args: tuple[Any, ...]) -> None:
     )
     if not writing or str(path) == os.devnull:  # subprocess opens it; it stores nothing
         return
+    if isinstance(path, int):  # a descriptor: the open that made it was audited with its path
+        return
+    if "__pycache__" in Path(str(path)).parts:  # the interpreter's bytecode cache, not data
+        return
     frame = sys._getframe(1)
     while frame is not None:
         if frame.f_code.co_filename.startswith(str(AGENT_SOURCE)):
