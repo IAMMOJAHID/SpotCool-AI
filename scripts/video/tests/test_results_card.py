@@ -6,6 +6,8 @@ import pytest
 import results_card
 from results_card import QUOTABLE_LABEL, STUB_LABEL, CardRefused, ResultsCard, build_card
 
+from spotcool_contracts import Zone
+from spotcool_contracts.events import BmsWriteData, ScenarioStateData, ZoneScene
 from spotcool_world.runner.report import RecordedRun, Sample, load_run
 from spotcool_world.serializers import RunManifest
 from spotcool_world.services.boptest.catalog import load_catalog
@@ -56,7 +58,42 @@ def recorded(
     samples = {
         run: [Sample(43200.0, SimpleNamespace(energy_kwh=kwh))] for run, kwh in energy.items()
     }
-    return RecordedRun(manifest, samples, [])  # type: ignore[arg-type]
+    # Four steps the agent saw as the scenario had them (South full from the second), and its
+    # accepted priority-10 writes: what the report needs to call an agent's run acted on.
+    people = [{}, {Zone.SOU: 5}, {Zone.SOU: 5}, {Zone.SOU: 5}]
+    states = [
+        (
+            k * 900.0,
+            ScenarioStateData(
+                zones=[
+                    ZoneScene(zone=zone, scene="empty", people=seen.get(zone, 0)) for zone in Zone
+                ]
+            ),
+        )
+        for k, seen in enumerate(people)
+    ]
+    perceptions = [
+        (k * 900.0, {zone: seen.get(zone, 0) for zone in Zone}) for k, seen in enumerate(people)
+    ]
+    writes = [
+        (
+            900.0,
+            BmsWriteData(
+                device="SpotCool-Office-BMS",
+                object_id=object_id,
+                object_name=name,
+                priority=10,
+                value=value,
+                client="127.0.0.1:47820",
+                accepted=True,
+            ),
+        )
+        for object_id, name, value in [
+            ("binary-value,453", "ZN-SOU-OCC-SENSOR", "Unoccupied"),
+            ("analog-value,203", "ZN-SOU-CLG-SP", 28.0),
+        ]
+    ]
+    return RecordedRun(manifest, samples, states, writes=writes, perceptions=perceptions)  # type: ignore[arg-type]
 
 
 def test_a_stub_run_is_labelled_an_upper_bound():

@@ -672,8 +672,10 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     is not BOPTEST (RC's cross-check is circular), a run that did not finish, dropped events, a
     missing run or plant energy, any power fallback, a run more than `CROSS_CHECK_PCT` off its
     plant's own, an unpaced run (speed 0), a run no agent acted on (no accepted priority-10
-    write to a zone point), any heartbeat-timeout release, and a stub-agent run (an upper
-    bound at best). A step recovered after a dropped connection does not: its values are
+    write to a zone point), any heartbeat-timeout release, an agent run whose perception is
+    missing, covers less than `MIN_COVERAGE` (95 %) of the run's zone-steps or agrees on less
+    than `MIN_AGREEMENT` (90 %) of them (a stub run is blocked as a stub instead), and a
+    stub-agent run (an upper bound at best). A step recovered after a dropped connection does not: its values are
     BOPTEST's own.
   - Agent activity (`agent_activity`), the proof that an agent acted, from the BMS's own
     `bms_write` records (`RecordedRun.writes`) and the agents' `perception` events
@@ -682,7 +684,9 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     (reason `HEARTBEAT_TIMEOUT_REASON`), and the occupancy agreement: the share of zone-steps
     where an agent's people count and the scenario agree on occupied or empty, aligned by sim
     time (a perception is stamped with the start of the step it saw; a zone it leaves out is
-    not compared), with how many of the run's zone-steps were compared.
+    not compared), with how many of the run's zone-steps were compared; and the
+    decision-to-write lags (`write_lags`, the golden evals' measure): the share of the writes
+    the BMS took 1, 2 and 3+ steps after their decision, and never.
   - Recovery: for each zone and arrival (people after a step with none), the minutes until the
     zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
     on. Arrivals that never recover are listed.

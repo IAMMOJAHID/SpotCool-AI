@@ -15,12 +15,15 @@ has no field for. A stub run's report (``stub_agent`` in the manifest's settings
 
 The agent-activity section (``agent_activity``) is the proof that an agent acted: the accepted
 priority-10 writes to zone points per client, from the BMS's own ``bms_write`` records; the
-slots the BMS's heartbeat watchdog released; and how often the agent's ``perception`` agreed
-with the scenario on occupied or empty. A run without such a write, or with any heartbeat
-release, is never quotable.
+slots the BMS's heartbeat watchdog released; how often the agent's ``perception`` agreed with
+the scenario on occupied or empty, and on how much of the run; and how many steps after its
+decision the BMS took each write (``write_lags``). A run without such a write, with any
+heartbeat release, or (unless the stub's) with no perception, too little of the run perceived
+(``MIN_COVERAGE``) or too little agreement (``MIN_AGREEMENT``) is never quotable.
 """
 
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +37,7 @@ from spotcool_contracts.events import (
     PlantMeasurementsData,
     Run,
     ScenarioStateData,
+    TickData,
     ZoneMeasurement,
 )
 from spotcool_contracts.priorities import AGENT_PRIORITY
@@ -85,6 +89,14 @@ NO_AGENT_WRITES = (
     "accepted, so nothing acted on the SpotCool run."
 )
 """The blocker of a run in which no agent acted."""
+NO_PERCEPTION = (
+    "No agent perception matches a scenario state, so what the agent saw cannot be checked."
+)
+"""The blocker of a run whose agent published no perception (not a stub run)."""
+MIN_COVERAGE = 0.95
+"""The share of the run's zone-steps an agent must have perceived for the run to be quoted."""
+MIN_AGREEMENT = 0.90
+"""The share of its perceived zone-steps on which an agent must agree with the scenario."""
 
 _LABELS: dict[Run, str] = {"spotcool": "SpotCool", "baseline": "Baseline"}
 _COLORS: dict[Run, str] = {"spotcool": "#2a78d6", "baseline": "#eb6834"}  # dataviz slots 1, 2
@@ -118,6 +130,10 @@ class RecordedRun:
             times, in recorded order: every network write, accepted or refused, and the
             releases the BMS made itself.
         perceptions: Each agent ``perception`` event's people per zone, by its sim time.
+        decisions: Each agent ``decision`` that commanded a point (not a back-off): its sim
+            time and the point.
+        taken: Each priority-10 ``bms_write``: the point and the step under way when the BMS
+            recorded it (the count of ``tick`` events before it).
     """
 
     manifest: RunManifest
@@ -126,6 +142,8 @@ class RecordedRun:
     fallbacks: dict[Run, int] = field(default_factory=lambda: dict.fromkeys(RUNS, 0))
     writes: list[tuple[float | None, BmsWriteData]] = field(default_factory=list)
     perceptions: list[tuple[float, dict[Zone, int]]] = field(default_factory=list)
+    decisions: list[tuple[float, str]] = field(default_factory=list)
+    taken: list[tuple[str, int]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -140,6 +158,7 @@ class AgentActivity:
             or empty.
         compared: Zone-steps with both an agent's perception and the scenario's state.
         zone_steps: The run's zone-steps: its scenario states times the zones.
+        lags: How many steps after its decision the BMS took each write (``write_lags``).
     """
 
     writes: dict[str, int]
@@ -147,6 +166,12 @@ class AgentActivity:
     agreed: int
     compared: int
     zone_steps: int
+    lags: Counter[int | None] = field(default_factory=Counter)
+
+    @property
+    def coverage(self) -> float:
+        """The share of the run's zone-steps the agent perceived (0 without any)."""
+        return self.compared / self.zone_steps if self.zone_steps else 0.0
 
     @property
     def agreement_pct(self) -> float | None:
@@ -218,14 +243,26 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
     fallbacks: dict[Run, int] = dict.fromkeys(RUNS, 0)
     writes: list[tuple[float | None, BmsWriteData]] = []
     perceptions: list[tuple[float, dict[Zone, int]]] = []
+    decisions: list[tuple[float, str]] = []
+    taken: list[tuple[str, int]] = []
+    under_way = 0  # the step under way: the count of tick events so far
     bms = load_point_map("office_bms").device_name
     for record in read_records(folder / EVENTS_FILE):
         if isinstance(record, RawRecord):
             raws[record.run].append(record)
             continue
         envelope = record.envelope
-        if envelope.type is EventType.BMS_WRITE:
+        if envelope.type is EventType.TICK and envelope.source is EventSource.WORLD:
+            under_way = TickData.model_validate(envelope.data).index + 1
+        elif envelope.type is EventType.DECISION and envelope.source is EventSource.AGENT:
+            reason, point = envelope.data.get("reason"), envelope.data.get("point")
+            backed_off = isinstance(reason, str) and reason.startswith("backed off")
+            if isinstance(point, str) and envelope.sim_time_s is not None and not backed_off:
+                decisions.append((envelope.sim_time_s, point))
+        elif envelope.type is EventType.BMS_WRITE:
             write = BmsWriteData.model_validate(envelope.data)
+            if write.priority == AGENT_PRIORITY:
+                taken.append((write.object_name, under_way))
             if write.device == bms:
                 writes.append((envelope.sim_time_s, write))
         elif envelope.type is EventType.PERCEPTION:
@@ -244,7 +281,7 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
         run: drawn for run, records in raws.items() if (drawn := _samples(run, records))
     }
     by_time = sorted(states, key=lambda entry: entry[0])
-    return RecordedRun(manifest, samples, by_time, fallbacks, writes, perceptions)
+    return RecordedRun(manifest, samples, by_time, fallbacks, writes, perceptions, decisions, taken)
 
 
 def agent_activity(run: RecordedRun) -> AgentActivity:
@@ -276,7 +313,38 @@ def agent_activity(run: RecordedRun) -> AgentActivity:
             if scene.zone in people:
                 compared += 1
                 agreed += (people[scene.zone] > 0) == (scene.people > 0)
-    return AgentActivity(writes, released, agreed, compared, len(run.states) * len(Zone))
+    zone_steps = len(run.states) * len(Zone)
+    return AgentActivity(writes, released, agreed, compared, zone_steps, write_lags(run))
+
+
+def write_lags(run: RecordedRun) -> Counter[int | None]:
+    """How many steps after its decision the BMS took each agent write (``None``: never).
+
+    A decision is stamped with the start of the step whose close made it. The BMS takes a write
+    at a tick and records it before that tick's own ``tick`` event, so the step under way is
+    the count of ``tick`` events seen. Each point's writes pair with its decisions in order. A
+    decision made at the last step's close is left out: no step follows to take it. This is
+    the world's golden evals' measure (``evals/test_golden.py``), on the report's reading.
+
+    Args:
+        run: The recorded run.
+    """
+    decided: dict[str, list[float]] = {}
+    for t_s, point in run.decisions:
+        decided.setdefault(point, []).append(t_s)
+    taken: dict[str, list[int]] = {}
+    for point, step in run.taken:
+        taken.setdefault(point, []).append(step)
+    lags: Counter[int | None] = Counter()
+    if not run.states:
+        return lags
+    start_s, step_s, last_s = run.manifest.start_time_s, run.manifest.step_s, run.states[-1][0]
+    for point, times in decided.items():
+        steps = taken.get(point, [])
+        for index, t_s in enumerate(t for t in times if t < last_s):
+            made = round((t_s - start_s) / step_s)
+            lags[steps[index] - made if index < len(steps) else None] += 1
+    return lags
 
 
 def check_energy(run: RecordedRun) -> EnergyCheck:
@@ -363,10 +431,32 @@ def quote_blockers(run: RecordedRun) -> list[str]:
             "slots: the agent's heartbeat stopped, so part of the run fell back to the "
             "building's own control."
         )
+    if not manifest.settings.get(
+        "stub_agent"
+    ):  # the stub's blocker says its perception is the script
+        blockers.extend(_perception_blockers(activity))
     if manifest.settings.get("stub_agent"):
         blockers.append(
             "A stub agent ran it, with perfect perception: quote it only as an upper bound with "
             "perfect perception, labelled so."
+        )
+    return blockers
+
+
+def _perception_blockers(activity: AgentActivity) -> list[str]:
+    """Why the agent's perception does not let the run be quoted: none, too little, or wrong."""
+    if activity.agreement_pct is None:
+        return [NO_PERCEPTION]
+    blockers = []
+    if activity.coverage < MIN_COVERAGE:
+        blockers.append(
+            f"The agent perceived {100 * activity.coverage:.1f} % of the run's zone-steps, below "
+            f"{100 * MIN_COVERAGE:g} %: it was blind or stopped for part of the run."
+        )
+    if activity.agreement_pct < 100 * MIN_AGREEMENT:
+        blockers.append(
+            f"The agent's occupancy agreed with the scenario on {activity.agreement_pct:.1f} % "
+            f"of the zone-steps it perceived, below {100 * MIN_AGREEMENT:g} %."
         )
     return blockers
 
@@ -538,9 +628,33 @@ def _activity_lines(activity: AgentActivity) -> list[str]:
         lines.append(
             f"- Occupancy agreement: {pct:.2f} % ({activity.agreed} of the {activity.compared} "
             "zone-steps the agent perceived agree with the scenario on occupied or empty; it "
-            f"perceived {activity.compared} of the run's {activity.zone_steps})."
+            f"perceived {activity.compared} of the run's {activity.zone_steps}, "
+            f"{100 * activity.coverage:.1f} %)."
         )
+    lines.append(f"- Decision-to-write lags: {_lag_text(activity.lags)}.")
     return lines
+
+
+def _lag_text(lags: Counter[int | None]) -> str:
+    """The share of writes the BMS took 1, 2 and 3+ steps after their decision."""
+    total = sum(lags.values())
+    if not total:
+        return "n/a (no agent decision to pair with a write)"
+    buckets = {
+        "1 step": lags[1],
+        "2 steps": lags[2],
+        "3+ steps": sum(n for lag, n in lags.items() if lag is not None and lag >= 3),
+        "never taken": lags[None],
+        "in their own step or earlier": sum(
+            n for lag, n in lags.items() if lag is not None and lag <= 0
+        ),
+    }
+    shown = [
+        f"{label} {count} ({100 * count / total:.1f} %)"
+        for label, count in buckets.items()
+        if count or label in ("1 step", "2 steps", "3+ steps")
+    ]
+    return f"{', '.join(shown)}, of {total} writes"
 
 
 def _verdict_lines(run: RecordedRun) -> list[str]:
