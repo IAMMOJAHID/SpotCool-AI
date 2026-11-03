@@ -1,6 +1,6 @@
 # Draft: the root README's world section
 
-**Status: a draft for the user to agree with Person A.** It goes into the shared root `README.md` only after that; this WP leaves the root files untouched. It replaces the root README's single-AC description where the two overlap, and it leaves out the "up to 60 %" claim, which no run of ours supports (`docs/release/numbers.md`).
+**Status: superseded on Nov 4 by the root [`README.md`](../../README.md) (AG6),** which carries this section's content with the agent's result. Kept as the first draft. Like the README, it leaves out the old single-AC headline, which no run of ours supports (`docs/release/numbers.md`).
 
 ---
 

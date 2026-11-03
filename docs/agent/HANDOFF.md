@@ -20,6 +20,12 @@
 - **What's left is the user's AG5 material,** by Nov 4, 21:00 IST: the narration, the takes, the final cut, the upload and the form (`docs/release/USER_GUIDE.md`). There's also an optional engineering backlog ("Remaining", below).
 - **Person A isn't working on it.** We built, reviewed and ran the agent end to end from A's MVP (`origin/third_level_improvement` `b653cbf`, frozen).
 
+## Dev integration (AG6, Nov 4)
+
+- **`release/dev-integration`** is `origin/dev` with `agent/main` merged in (`f38a3b3`), plus AG6's two commits. The brief is `docs/agent/workpackages/AG6-dev-integration.md`. The lead reviews it, pushes it and merges it into `dev`.
+- **Deleted** (git history keeps them): A's pre-integration MVP that came with `dev` (`app/`, the RabbitMQ client, the Docker files, `requirements.txt`, its `.env.example`), which stays on `third_level_improvement`; and the single-AC design material (`docs/designs/`, `docs/workflow/`, `.claude/rules/`, the Antigravity config, the drift report).
+- **Rewritten:** the root `README.md` for the judges (every figure from `docs/release/numbers.md`; its `Video: <YouTube link>` line is the user's to fill in), `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`'s definitions of failure (and the review workflow's copy of them), `docs/README.md`, and a key-free root `.env.example`.
+
 ## Resume here (a fresh session or after `/compact`)
 
 1. **Read this file. Don't re-plan.** The plan's P0 is done; what's left is below.
@@ -128,7 +134,7 @@ Each item is a gated WP. Builders run one at a time; nothing needs BOPTEST excep
 
 | # | What | Why it helps win | Size |
 |---|---|---|---|
-| 0 | **A root README for the judges.** What SpotCool is, the architecture (world plus agent), Meta's models used (SAM 3.1, muse-wonder, muse-voice), the 19.94 % result with its label and caveats, how to run it, the credits. It replaces the stale single-AC README and its "up to 60 %" | Judges read the repo first. **Needs the user's OK**, since it's a shared root file (`docs/release/README-world-section.md` is a draft) | ~1 h, lead |
+| 0 | **A root README for the judges.** What SpotCool is, the architecture (world plus agent), Meta's models used (SAM 3.1, muse-wonder, muse-voice), the 19.94 % result with its label and caveats, how to run it, the credits. **Written in AG6** ("Dev integration", above), replacing the stale single-AC README | Judges read the repo first. **Needs the user's OK**, since it's a shared root file (`docs/release/README-world-section.md` is a draft) | ~1 h, lead |
 | 1 | **LLM-written explanations** (muse-wonder) for each decision, beside the templates, then **re-run the scored BOPTEST run** so the dashboard replay shows them | Shows Meta's LLM reasoning live in the video. The figure stays 19.94 %, because the policy is unchanged | ~2 h build plus a 25 min BOPTEST run, the storyboard's `run_id`, and a re-render |
 | 2 | **VRF comfort grounding:** muse-spark clothing and activity → clo and met → A's PMV `comfort_setpoint` → `IDU-SP`, every 60 s, for the meeting room only | Uses A's physics and Meta's vision model on screen in the louvers take | ~2–3 h |
 | 3 | **A's supervisor for the VRF:** muse-wonder proposes a VRF plan through A's `simulate_plan`, governed by A's `govern` | Shows A's "agentic" core | ~3 h |

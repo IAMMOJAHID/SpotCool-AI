@@ -19,15 +19,15 @@ Analyze the code through three parallel lenses:
 
 1. **Domain Correctness & Definitions of Failure (`REVIEW.md`):**
    - **Documentation:** Does anything lie or contradict the implementation?
-   - **Thermodynamics:** Are thermal setpoints backed by deterministic PMV formulas rather than LLM guesswork?
-   - **Digital Twin:** Are louver angles slewed smoothly at $\le 15^\circ/\text{sec}$ without instant jumps?
-   - **Perception:** Is occupant distance $Z$ calculated using mask-only median depth?
-   - **Concurrency:** Does the 10 Hz kinematic loop remain unblocked by slow models?
+   - **Actuation:** Priority 10 only, the priority array read first and slots 1-9 backed off from, no other's slot released, the heartbeat kept, every slot released on stop?
+   - **Perception & privacy:** Frames and audio in memory only, no complaint words logged, no ground truth read?
+   - **Quoting:** Every figure from `docs/release/numbers.md`, with its label; only `Quotable` runs as SpotCool's own?
+   - **BACnet:** One client and socket per device, one request at a time?
 
 2. **Logic, Concurrency & Edge Cases:**
    - Are there null pointer / NoneType dereferences, race conditions, or off-by-one errors?
    - Are errors gracefully handled with structured fallbacks?
-   - Are new branches covered by unit tests in `tests/`?
+   - Are new branches covered by unit tests in the package's `tests/`?
 
 3. **Security & Data Sanitization:**
    - Are there hardcoded secrets or API tokens?
@@ -57,9 +57,9 @@ Present your review clearly formatted:
 
 ---
 **Verification Checklist:**
-- [ ] Tests pass (`pytest tests/`)
-- [ ] Linters pass (`ruff check src/`)
-- [ ] No instantaneous angle jumps
+- [ ] Tests pass (`uv run pytest`, `uv run pytest -m eval`)
+- [ ] Linters pass (`uv run ruff check packages scripts`, `uv run pyright packages`)
+- [ ] No write outside priority 10, and no frame or audio stored
 - [ ] Review cycle count: Round X of 3 max
 ```
 

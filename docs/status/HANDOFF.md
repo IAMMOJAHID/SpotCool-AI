@@ -443,7 +443,7 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
       If fewer people were filmed, the lead updates the people counts in the scenario YAMLs.
    3. **Book a BOPTEST run with Person A's agent.** It's the only figure without the "upper bound" label. Use `docs/runbooks/boptest-codespace.md`, with A's agent on the BMS at UDP 47808 and the VRF at 47810.
    4. **Agree with Person A:**
-      - drop the shared README's "up to 60 %";
+      - drop the shared README's unsupported headline (done in AG6: the root README was rewritten from `numbers.md`);
       - agree `docs/release/README-world-section.md`;
       - CORS for the dashboard;
       - the agent's event fields;
@@ -499,7 +499,7 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`. Send th
     - write a point only when it changes;
     - `IDU-VANE-H` exists on every brand but refuses values on Daikin and LG;
     - on LG, releasing Swing freezes the louver.
-14. **The shared README claims "up to 60 %".** No run of ours supports it: the BOPTEST stub upper bound is 19.94 %. Agree a wording before submission, and agree `docs/release/README-world-section.md` for the world's part.
+14. **Done (AG6, Nov 4): the root README was rewritten for the judges.** Every figure comes from `docs/release/numbers.md`; the old single-AC headline, which no run supported, is gone. It draws on `docs/release/README-world-section.md` for the world's part.
 15. **URGENT: rotate the Baseten and Meta API keys.** A commit in the history of A's branches contains them, and the repo is public. The details went to the user directly, and aren't repeated here because this file is public too. Rotating is the fix. Purging the history, a force-push on A's branches, is A's call, after rotating.
 16. **Book the louvers take with the integration run.** The video's louvers shot is filmed live: your agent aims the meeting room's VRF louvers at a person on the phone camera (`live`) while `scripts/video/take.py phone_vrf --agent http://<agent>:8002` records. Allow about 15 minutes after the paced BOPTEST run.
 17. **Published figures:** use `docs/release/numbers.md`'s wording. Kastle's 56.1 % isn't a share of desks, and PNNL's 17.8 % is whole-building energy, on average.
