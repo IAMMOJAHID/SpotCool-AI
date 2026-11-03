@@ -18,10 +18,12 @@ What it does (``StubPolicy`` decides, the worker writes):
   heartbeat's too).
 - ``SPOTCOOL-HEARTBEAT`` (BV 901) is toggled every 30 s of wall time.
 
-It commands the zones at the close of each step (the step's ``tick`` event), from that step's
-state, so every write takes effect from the next step, however long its round trips take, as a
-real agent's do. Every write happens only on a change. Before writing a zone point, value or
-release, at 19:00 and at ``stop()`` included, the stub reads its priority array:
+It commands the zones at the close of each step (the step's ``tick`` event): the people from
+that step's state, the bookings and 19:00 judged at the next step's start. Every write takes
+effect from the next step in a paced run whose step leaves time for the stub's round trips; at
+speed 0 they lag by 2-4 steps. The world never waits for an agent, Person A's included. Every
+write happens only on a change. Before writing a zone point, value or release, at 19:00 and at
+``stop()`` included, the stub reads its priority array:
 
 - A slot more urgent than its own (1-9, an operator at 8) holds a value: it backs off, does not
   write, says so once in a ``decision`` and an ``explanation``, and tries again at the next
@@ -35,6 +37,7 @@ command, a ``decision`` and an ``explanation``.
 """
 
 import asyncio
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -53,6 +56,7 @@ from spotcool_contracts.events import (
     EventSource,
     EventType,
     ScenarioStateData,
+    TickData,
 )
 from spotcool_contracts.points import PointSpec
 from spotcool_contracts.priorities import AGENT_PRIORITY, HEARTBEAT_PERIOD_S, OPERATOR_PRIORITY
@@ -69,6 +73,10 @@ VENDOR_ID = 999
 """BACpypes3's own vendor identifier."""
 EVENTS_QUEUE_SIZE = 10_000
 """Events the stub may fall behind by before the oldest are dropped."""
+APDU_TIMEOUT_MS = 1000
+"""How long the stub waits for each answer: sized for loopback or a LAN, not BACpypes3's 3 s."""
+APDU_RETRIES = 1
+"""Resends of an unanswered request, so one costs about 2 s, not BACpypes3's 12."""
 
 Value = str | float | None
 """A point's value in BMS units: a state text or a setpoint in degC; ``None`` is NULL."""
@@ -218,14 +226,17 @@ class StubAgentWorker(BaseWorker):
             objectIdentifier=("device", DEVICE_INSTANCE),
             objectName=DEVICE_NAME,
             vendorIdentifier=VENDOR_ID,
+            apduTimeout=APDU_TIMEOUT_MS,
+            numberOfApduRetries=APDU_RETRIES,
         )
         return NormalApplication(device, IPv4Address(f"{host}:0"))
 
     async def _handle(self, app: NormalApplication, bus: Bus, envelope: object) -> None:
         """Take a world event: a scenario state, a room's bookings, or a step's close (``tick``).
 
-        The zones are commanded at the step's close, from its state: a step's ``tick`` event
-        comes after the BMS has taken the step's commands.
+        The zones are commanded at the step's close: a step's ``tick`` event comes after the BMS
+        has taken the step's commands, so the commands apply from the next step, and the policy
+        judges the bookings and 19:00 at that step's start.
         """
         if not isinstance(envelope, EventEnvelope) or envelope.source is not EventSource.WORLD:
             return
@@ -241,7 +252,8 @@ class StubAgentWorker(BaseWorker):
             self._policy.calendar(CalendarData.model_validate(envelope.data))
         elif envelope.type is EventType.TICK and self._latest is not None:
             state, state_s = self._latest
-            for zone, command in self._policy.commands(state, state_s).items():
+            applies_s = state_s + TickData.model_validate(envelope.data).step_s
+            for zone, command in self._policy.commands(state, applies_s).items():
                 sensor, setpoint = self._points[zone]
                 writes = [
                     (point, value)
@@ -276,7 +288,7 @@ class StubAgentWorker(BaseWorker):
                 await self._back_off(bus, zone, point, value, hold, t_s)
                 continue
             self._said.pop(point.name, None)
-            if value is None and slots[AGENT_PRIORITY - 1] != self._held.get(point.name):
+            if value is None and not _same(slots[AGENT_PRIORITY - 1], self._held.get(point.name)):
                 self._held.pop(point.name, None)  # never release a slot the stub did not write
                 continue
             allowed.append((point, value))
@@ -386,6 +398,13 @@ def _hold(slots: list[Value]) -> Hold | None:
         if value is not None:
             return index + 1, value
     return None
+
+
+def _same(slot: Value, held: Value) -> bool:
+    """Whether a slot holds the value the stub wrote; a setpoint comes back as a 32-bit Real."""
+    if isinstance(slot, float) and isinstance(held, float):
+        return math.isclose(slot, held, abs_tol=1e-4)
+    return slot == held
 
 
 def _slot_value(point: PointSpec, slot: Any) -> Value:

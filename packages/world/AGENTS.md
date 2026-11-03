@@ -844,7 +844,9 @@ truth.
   perfect perception from the scenario script, not Person A's agent)".
 - **A real BACnet/IP client.** `StubAgentWorker(device)`, given the BMS's `ip:port`, is a
   BACpypes3 device (`SpotCool-Stub-Agent`, instance 1900) on its own UDP port, any free one on
-  the BMS's address, writing over loopback or the LAN exactly as A's agent will.
+  the BMS's address, writing over loopback or the LAN exactly as A's agent will. Each request
+  waits 1 s for its answer and is resent once (`APDU_TIMEOUT_MS`, `APDU_RETRIES`), so one the
+  BMS never answers costs about 2 s, not BACpypes3's 12.
 - **Perfect perception, openly.** It reads the scenario's ground truth: the `scenario_state` and
   `calendar` events on `"events"`.
 - **Policy** (`stub_agent/policy.py`, pure), at priority 10 and written only on a change:
@@ -858,13 +860,17 @@ truth.
     included;
   - `SPOTCOOL-HEARTBEAT` (BV 901) is toggled every 30 s of wall time, On first.
   A write the BMS refuses or never answers is logged and tried again at the next step.
-- **Timing: at each step's close.** It commands the zones when the step's `tick` event arrives,
-  from that step's state. The tick event comes after `bms.input()` has taken the step's
-  commands, so every write takes effect from the next step, as a real agent's does ("a reading
-  describes the step that just ended"). In a paced run the writes land in the wall time between
-  two ticks, however long their round trips take, so the run reproduces (the evals rely on it).
-  Don't move it to the `scenario_state`: that event races the tick through the pipeline, so
-  some writes would take effect a step sooner, depending on BACnet latency.
+- **Timing: at each step's close.** It commands the zones when the step's `tick` event arrives:
+  the people from that step's state, the bookings and 19:00 judged at the next step's start,
+  the first step the commands can take effect in (`StubPolicy.commands(state, t_s)`). So a
+  booking pre-cools from 30 minutes before it, is released at its end, and everything is
+  released from 19:00, as the BMS takes them. The tick event comes after `bms.input()` has
+  taken the step's commands, so every write takes effect from the next step in a paced run
+  whose step leaves time for the stub's round trips; at speed 0 they lag by 2-4 steps. The
+  world never waits for an agent: Person A's faces the same world. The evals check each
+  write's lag from the saved record. Don't move the commands to the `scenario_state`: that
+  event races the tick through the pipeline, so some writes would take effect a step sooner,
+  depending on BACnet latency.
 - **It backs off from an operator.** Before writing a zone point, a release at 19:00 or at
   `stop()` included, it reads the point's priority array (one ReadProperty):
   - a slot more urgent than 10 (1-9; an operator writes at 8) holds a value: it does not write,
@@ -1003,18 +1009,25 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
     the occupants posting to the world's own HTTP server), at speed 1800: a step every 0.5 s,
     the RC day in about 25 s. It returns `load_run`'s reading of the record, nothing in memory.
   - `test_golden.py` judges only through `runner/report.py` (`check_energy`, `quote_blockers`,
-    the manifest's final KPIs), plus the connection recoveries, read from the same record.
-    Every run must be valid: finished, no dropped events, the stub recorded, both integrations
-    within `CROSS_CHECK_PCT` of the plants' own, no fallbacks or recoveries, and exactly the RC
-    and stub quote blockers. Then: `hybrid_tuesday`'s saving and comfort in bands around the
-    measured values, `empty_friday` saving more, two `hybrid_tuesday` runs within 0.5 pp, and
-    `all_hands_day` claiming no saving (|saving| < 2 %). The last is a strict xfail: the
-    scenario leaves every zone empty before 08:30 and after 18:00, and the stub saves 2.34 %
-    there (0.00 % with every zone occupied all day).
+    the manifest's final KPIs), plus two things read from the same record: the connection
+    recoveries, and each stub write's lag (`write_lags`: the steps between its decision and the
+    tick the BMS took it at). Every run must be valid: finished, no dropped events, the stub
+    recorded, both integrations within `CROSS_CHECK_PCT` of the plants' own, no fallbacks or
+    recoveries, exactly the RC and stub quote blockers, and every write taken one step after
+    its decision.
+  - Then, on RC: `hybrid_tuesday`'s saving and comfort in bands around the measured values;
+    the honesty check, `evals/scenarios/all_day_occupied.yaml` (every zone occupied 07:00-19:00,
+    linted by its fixture) with |saving| < 0.5 %; `all_hands_day`'s saving, from its empty
+    hours before 08:30 and after 18:00, within 1 pp of the measured 2.34 %; the order control <
+    `all_hands_day` < `hybrid_tuesday` < `empty_friday`; and two `hybrid_tuesday` runs within
+    0.5 pp.
   - Each band's docstring gives the measured values and why the band is that wide. Measure
     before you move one; a reproducibility spread is a finding, never a band to widen.
-  - `-m "eval and live"` runs `hybrid_tuesday` on `SPOTCOOL_LIVE_BOPTEST_URL` with the same
-    checks (the stub the only blocker); it skips without the variable.
+  - `-m "eval and live"` runs `hybrid_tuesday` on `SPOTCOOL_LIVE_BOPTEST_URL` at speed 60, the
+    paced checkpoint's, with the same checks (the stub the only blocker); it skips without the
+    variable. With `SPOTCOOL_LIVE_RUN_DIR` set, the run is kept there as
+    `eval-live-hybrid-<date>-<time>`, and the test prints its path, saving, energies, lags and
+    report command.
 
 ## Definition of done
 

@@ -5,6 +5,7 @@ to end in ``test_world.py``.
 """
 
 import asyncio
+import struct
 import time
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -31,6 +32,7 @@ from spotcool_world.bus import InProcessBus
 from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.runner import WorkerRunner
 from spotcool_world.scenarios import sim_datetime
+from spotcool_world.stub_agent import policy as policy_module
 from spotcool_world.stub_agent import worker as worker_module
 from spotcool_world.stub_agent.policy import (
     EMPTY_SETPOINT_C,
@@ -136,6 +138,7 @@ class FakeBacnet:
     """
 
     def __init__(self, device: Any, address: Any) -> None:
+        self.device = device
         self.address: tuple[str, int] = address.addrTuple
         self.writes: list[tuple[str, Any]] = []  # object id, present value (None: NULL)
         self.lose: set[str] = set()  # object ids whose next write gets no answer
@@ -170,7 +173,7 @@ class FakeBacnet:
             raise AbortPDU(reason=AbortReason.noResponse)
         written = None if isinstance(value, Null) else value
         self.writes.append((objid, written))
-        self.hold(objid, AGENT_PRIORITY, written)
+        self.hold(objid, AGENT_PRIORITY, real32(written) if isinstance(written, float) else written)
 
     def zones(self) -> list[tuple[str, Any]]:
         """The writes to zone points: every write but the heartbeat's."""
@@ -178,6 +181,11 @@ class FakeBacnet:
 
     def close(self) -> None:
         self.closed = True
+
+
+def real32(value: float) -> float:
+    """A setpoint as a BACnet Real holds it: rounded to 32 bits."""
+    return struct.unpack("<f", struct.pack("<f", value))[0]
 
 
 def priority_value(value: Any) -> Any:
@@ -511,3 +519,27 @@ async def test_an_unanswered_priority_array_is_tried_again_with_the_next_state(
         await stub.step(state(cor=1), "10:15")
         await until(lambda: len(app.zones()) == 9)
     assert app.zones()[8] == (SENSORS[Zone.COR], "active")
+
+
+@pytest.mark.asyncio
+async def test_a_release_finds_its_own_setpoint_back_as_a_32_bit_real(
+    bacnet: list[FakeBacnet], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(policy_module, "EMPTY_SETPOINT_C", 26.3)  # not exact in 32 bits
+    async with Stub() as stub:
+        await stub.step(state(), "10:00")
+        await until(lambda: len(bacnet) == 1 and len(bacnet[0].zones()) == 10)
+        app = bacnet[0]
+        assert app.slots[SOUTH_SP][10] != 26.3  # 26.299999237060547
+        await stub.step(state(sou=3), "10:15")
+        await until(lambda: (SOUTH_SP, None) in app.zones())
+    assert SOUTH_SP not in app.slots or 10 not in app.slots[SOUTH_SP]  # released, not left
+
+
+@pytest.mark.asyncio
+async def test_the_stub_waits_about_2_s_for_an_unanswered_request(
+    bacnet: list[FakeBacnet],
+) -> None:
+    StubAgentWorker(DEVICE, name="stub")._application()  # BACpypes3 needs a running loop
+    device = bacnet[0].device
+    assert (device.apduTimeout, device.numberOfApduRetries) == (1000, 1)  # 2 tries of 1 s

@@ -1,6 +1,6 @@
 # Credits
 
-Ledger of every media asset in the SpotCool demo and video, and of the software the world and the dashboard are built with. Add one row per asset when you add the asset, and fill in every column. Media files live outside the repo in the footage directory (`$SPOTCOOL_WORLD_FOOTAGE_DIR`, default `C:/Users/hussa/dev/footage`, shown as `footage/` below). They are never committed.
+Ledger of every media asset in the SpotCool demo and video, and of the software the world and the dashboard are built with. Add one row per asset when you add the asset, and fill in every column. Media files live outside the repo in the footage directory that `$SPOTCOOL_WORLD_FOOTAGE_DIR` names (on this laptop `C:/Users/hussa/dev/footage`, shown as `footage/` below; the world has no default and draws synthetic frames without it). They are never committed.
 
 ## Media
 
@@ -155,7 +155,7 @@ Only the six bundled packages above ship in `dist/`.
 | CPython (uv-managed) | 3.11.11 | PSF License Agreement (its `LICENSE.txt`) | the world, the scripts, the tests |
 | uv | 0.6.5 | **Unverified**: the standalone install carries no licence file | the Python workspace |
 | Node.js | 24.4.1 | **Unverified**: the Windows install carries no licence file | the dashboard's build and tests |
-| npm | 11.4.2 | Artistic-2.0 (its `package.json`) | the dashboard's dependencies |
+| npm | 11.6.2 (`npm --version`; the global install under `%APPDATA%/npm`, ahead of Node's bundled 11.4.2) | Artistic-2.0 (its `package.json`) | the dashboard's dependencies |
 | Microsoft Edge | installed | **Unverified**: proprietary, not redistributed | the dashboard's Playwright tests, locally |
 | YABE (Yet Another BACnet Explorer) | | **Unverified** | checking the BMS and the VRF by hand (`docs/runbooks/yabe.md`) |
 | IP Webcam (Android, by Pavel Khlebovich) | | **Unverified**: a free app from Google Play | the live phone camera |

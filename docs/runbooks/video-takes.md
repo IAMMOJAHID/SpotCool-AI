@@ -4,10 +4,18 @@ The video has two live parts: the building (a recorded run, replayed for the cam
 
 ## Before any take
 
-1. The dashboard is built: `cd apps/dashboard && npm ci && npm run build`. The world serves it on port 8090.
-2. One network for the whole session ([boptest-codespace.md](boptest-codespace.md), step 1). For Person A's PC, the [firewall rules](windows-firewall.md).
-3. **One dashboard tab only**, in video mode: `http://127.0.0.1:8090/?mode=video`. Add `&agent=http://<agent>:8002` when Person A's agent runs. Its six camera tiles use all six of Edge's connections to the world, so a second tab starves them.
-4. Every run stops with **Ctrl+C**, never by closing its window or killing the process. Ctrl+C stops the BOPTEST tests and writes the run's manifest. A second Ctrl+C cancels at once.
+1. The environment block of the [runbooks' README](README.md) is set, `SPOTCOOL_WORLD_FOOTAGE_DIR` included.
+2. **The footage is found.** The lint must list no error and no `footage_dir is not set` warning:
+
+   ```bash
+   uv run spotcool-world lint --clips C:/Users/hussa/dev/footage/clips
+   ```
+
+   Then, while a run starts, its console names each camera's source once per scene: `camera cam-<zone>: scene <scene> from <...>/clips/<zone>_<scene>.mp4` (or a dataset segment), never `from synthetic frames`. The catalog (`curl http://127.0.0.1:8081/cameras`) lists each camera with `"source": "scenario"` or `"dataset"`; it says `scenario` for synthetic frames too, so the console line is the check.
+3. The dashboard is built: `cd apps/dashboard && npm ci && npm run build`. The world serves it on port 8090.
+4. One network for the whole session ([boptest-codespace.md](boptest-codespace.md), step 1). For Person A's PC, the [firewall rules](windows-firewall.md).
+5. **One dashboard tab only**, in video mode: `http://127.0.0.1:8090/?mode=video`. Add `&agent=http://<agent>:8002` when Person A's agent runs. Its six camera tiles use all six of Edge's connections to the world, so a second tab starves them.
+6. Every run stops with **Ctrl+C**, never by closing its window or killing the process. Ctrl+C stops the BOPTEST tests and writes the run's manifest. A second Ctrl+C cancels at once.
 
 ## The building segment: replay a recorded run
 

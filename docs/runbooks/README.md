@@ -15,6 +15,9 @@ Every command runs in Git Bash from the repo root of the main checkout, after:
 ```bash
 export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/spotcool-ai"
 export SPOTCOOL_WORLD_RUN_DIR="C:/Users/hussa/dev/runs"   # keep runs out of the repo
+export SPOTCOOL_WORLD_FOOTAGE_DIR="C:/Users/hussa/dev/footage"   # the filmed clips and voice
 ```
+
+Without `SPOTCOOL_WORLD_FOOTAGE_DIR` the cameras draw synthetic frames and the 14:15 voice complaint goes as chat: a take recorded so is not the filmed one.
 
 PowerShell commands are marked; run them in an elevated PowerShell where it says so.

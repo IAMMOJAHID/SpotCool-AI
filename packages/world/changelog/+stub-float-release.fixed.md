@@ -1,0 +1,1 @@
+The stub agent's release guard compares its own setpoint with slot 10's within 1e-4 degC, since a BACnet Real comes back rounded to 32 bits: a setpoint such as 26.3 is released again instead of being left in slot 10.

@@ -44,10 +44,12 @@ The Codespace's free quota is 120 core-hours a month, so always do step 8.
    uv run spotcool-world report boptest-checkpoint
    ```
 
-7. **The live eval** (the lead runs it; CI never does). It runs `hybrid_tuesday` once on BOPTEST at speed 1800 and judges the saved run:
+7. **The live eval** (the lead runs it; CI never does). It runs `hybrid_tuesday` once on BOPTEST at speed 60, about 15 minutes, judges the saved run, and keeps it in the run directory as `eval-live-hybrid-<date>-<time>`. It prints the run's path, its saving and both energies, how late each stub write was taken, and the report command:
 
    ```bash
-   SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest -m "eval and live" -rs
+   export SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 SPOTCOOL_LIVE_RUN_DIR="$SPOTCOOL_WORLD_RUN_DIR"
+   uv run pytest -m "eval and live" -rs
+   uv run spotcool-world report eval-live-hybrid-<date>-<time>   # the id it printed
    ```
 
 8. **Stop.** Press Ctrl+C in the forward loop's window (twice if it starts again), then stop the Codespace:

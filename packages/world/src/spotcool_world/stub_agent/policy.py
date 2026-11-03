@@ -71,9 +71,13 @@ class StubPolicy:
     def commands(self, state: ScenarioStateData, t_s: float) -> dict[Zone, Command]:
         """Every zone's command for the step that starts at ``t_s``.
 
+        The people come from ``state``, the latest one perceived; the bookings and 19:00 are
+        judged at ``t_s``. The worker decides at a step's close, so ``state`` is the step just
+        closed and ``t_s`` the next one's start, the first step its writes take effect in.
+
         Args:
-            state: Who is where in that step.
-            t_s: The step's simulation time.
+            state: Who is where, as last perceived.
+            t_s: The start of the step the commands apply to.
         """
         if t_s % SECONDS_PER_DAY >= RELEASE_AT_S:
             return {

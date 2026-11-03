@@ -16,12 +16,17 @@ on:
       - "**/.env"
       - "**/.env.*"
       - "**/runs/**"
+      - "**/data/datasets/**"
       - "**.mp4"
       - "**.MP4"
       - "**.mov"
       - "**.MOV"
+      - "**.avi"
+      - "**.webm"
+      - "**.mkv"
       - "**.m4a"
       - "**.wav"
+      - "**.zip"
   pull_request:
     paths:
       - "packages/**"
@@ -33,12 +38,17 @@ on:
       - "**/.env"
       - "**/.env.*"
       - "**/runs/**"
+      - "**/data/datasets/**"
       - "**.mp4"
       - "**.MP4"
       - "**.mov"
       - "**.MOV"
+      - "**.avi"
+      - "**.webm"
+      - "**.mkv"
       - "**.m4a"
       - "**.wav"
+      - "**.zip"
 
 permissions:
   contents: read
@@ -156,9 +166,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Nothing tracked that must stay out of the repo
-        # .env files, recorded runs, footage and audio (Law 6), the dashboard's node_modules
+        # .env files (templates such as .env.example are fine), recorded runs, footage, audio and
+        # dataset archives (Law 6; .gitignore's media list), the dashboard's node_modules
         run: |
-          tracked=$(git ls-files | grep -iE '(^|/)\.env($|\.)|(^|/)runs/|\.(mp4|mov|m4a|wav)$|^apps/dashboard/node_modules/' || true)
+          tracked=$(git ls-files \
+            | grep -iE '(^|/)\.env($|\.)|(^|/)runs/|(^|/)data/datasets/|\.(mp4|mov|avi|webm|mkv|m4a|wav|zip)$|^apps/dashboard/node_modules/' \
+            | grep -viE '(^|/)\.env\.(example|sample|template)$' || true)
           if [ -n "$tracked" ]; then
             echo "These files must not be in the repo:"
             echo "$tracked"

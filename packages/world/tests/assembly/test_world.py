@@ -80,6 +80,27 @@ zones:
 events: []
 """
 SOUTH_SP = "analog-value,203"  # ZN-SOU-CLG-SP
+BOOKED_EARLY = """\
+name: booked_early
+description: An empty afternoon; South's 14:00-15:00 booking shows on the calendar from 12:00.
+day: 199
+start: "12:00"
+end: "19:15"
+zones:
+  cor:
+    - {at: "12:00", scene: empty, people: 0}
+  nor:
+    - {at: "12:00", scene: empty, people: 0}
+  sou:
+    - {at: "12:00", scene: empty, people: 0}
+  eas:
+    - {at: "12:00", scene: empty, people: 0}
+  wes:
+    - {at: "12:00", scene: empty, people: 0}
+events:
+  - {type: booking, room: meeting-south, from: "14:00", to: "15:00", subject: Review,
+     booked_at: "12:00"}
+"""
 
 
 def manifest(world: World) -> RunManifest:
@@ -258,6 +279,39 @@ async def test_the_stub_backs_off_from_an_operator_and_resumes_after_the_release
         "South: ZN-SOU-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from "
         "writing 28.0; trying again each step"
     )
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_the_bms_takes_the_stubs_booking_and_19_00_commands_on_time(
+    make_settings: MakeSettings, tmp_path: Path
+) -> None:
+    path = tmp_path / "booked_early.yaml"
+    path.write_text(BOOKED_EARLY, encoding="utf-8")
+    settings = make_settings(scenario=str(path), stub_agent=True, speed=1800.0)  # 0.5 s a step
+    world = World(settings, run_id="booked-early")
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+
+    assert manifest(world).ended == "finished"
+    taken = [  # each stub write as the BMS took it, stamped with the step it applies from
+        (SimClock.clock_text(e.sim_time_s or 0.0), BmsWriteData.model_validate(e.data))
+        for e in recorded(world)
+        if e.type is EventType.BMS_WRITE and e.data["priority"] == 10
+    ]
+    zones = [(at, w.object_name, w.value) for at, w in taken if w.object_name.startswith("ZN-")]
+    assert [write for write in zones if write[1].startswith("ZN-SOU")] == [
+        ("12:15", "ZN-SOU-OCC-SENSOR", "Unoccupied"),  # decided at 12:00's close
+        ("12:15", "ZN-SOU-CLG-SP", 28.0),
+        ("13:30", "ZN-SOU-OCC-SENSOR", "Occupied"),  # pre-cooling: 30 minutes before 14:00
+        ("13:30", "ZN-SOU-CLG-SP", None),
+        ("15:00", "ZN-SOU-OCC-SENSOR", "Unoccupied"),  # released at the booking's end
+        ("15:00", "ZN-SOU-CLG-SP", 28.0),
+        ("19:00", "ZN-SOU-OCC-SENSOR", None),  # everything released from 19:00
+        ("19:00", "ZN-SOU-CLG-SP", None),
+    ]
+    at_19 = [(name, value) for at, name, value in zones if at == "19:00"]
+    assert len(at_19) == 10 and all(value is None for _, value in at_19)
+    assert not [write for write in zones if write[0] > "19:00"]
     assert_all_stopped(world)
 
 

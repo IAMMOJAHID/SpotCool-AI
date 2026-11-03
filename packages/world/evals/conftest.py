@@ -7,13 +7,15 @@ by ``runner/report.py``'s ``load_run``, under the run id the fixture names. The 
 ``test_golden.py``.
 
 Runs are paced at ``SPEED``: each 15-minute step gets 0.5 s of wall time, so the stub's loopback
-writes for a step land well before the next one, and a run reproduces. No footage, no BOPTEST
+writes, made at a step's close, are taken in the next step, and a run reproduces. The world
+never waits for an agent, so an unpaced run would let them lag by steps. No footage, no BOPTEST
 (except the live fixture), no network beyond loopback.
 """
 
 import asyncio
 import os
 import socket
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,14 +23,20 @@ import pytest
 
 from spotcool_world.runner.assembly import World
 from spotcool_world.runner.report import RecordedRun, load_run
+from spotcool_world.scenarios import lint
 from spotcool_world.services import WorldSettings
 
 HOST = "127.0.0.1"
 SPEED = 1800.0
 """Simulation seconds per wall second: a 15-minute step every 0.5 s, the RC day in about 25 s."""
+LIVE_SPEED = 60.0
+"""The live eval's speed, the paced BOPTEST checkpoint's: a step every 15 s."""
 RC_TIMEOUT_S = 180.0
-BOPTEST_TIMEOUT_S = 1800.0  # the start (select, a 3-day warm-up) and 48 BOPTEST round trips
+BOPTEST_TIMEOUT_S = 2400.0  # the start (select, a 3-day warm-up), then 48 steps of 15 s
 LIVE_URL_ENV = "SPOTCOOL_LIVE_BOPTEST_URL"
+LIVE_RUN_DIR_ENV = "SPOTCOOL_LIVE_RUN_DIR"
+CONTROL = Path(__file__).resolve().parent / "scenarios" / "all_day_occupied.yaml"
+"""The honesty control: every zone occupied for the whole run (not a library scenario)."""
 
 
 def free_ports(*kinds: socket.SocketKind) -> list[int]:
@@ -51,10 +59,10 @@ def run_world(scenario: str, run_dir: Path, run_id: str, **changes: Any) -> Reco
     the complaint at once, where a closed port would take seconds of refused connections.
 
     Args:
-        scenario: The library scenario.
+        scenario: A library scenario, or a ``.yaml`` file given by its absolute path.
         run_dir: Where to record.
         run_id: The run's id.
-        **changes: Settings that differ from the RC defaults, such as the plant.
+        **changes: Settings that differ from these defaults, such as the plant or the speed.
     """
     tcp, udp = socket.SOCK_STREAM, socket.SOCK_DGRAM
     http, dashboard, bms, vrf = free_ports(tcp, tcp, udp, udp)
@@ -114,11 +122,21 @@ def empty_friday(eval_dir: Path) -> RecordedRun:
 
 
 @pytest.fixture(scope="session")
+def all_day_occupied(eval_dir: Path) -> RecordedRun:
+    """The control (``CONTROL``) on RC: every zone occupied for the whole run; linted first."""
+    findings = lint(CONTROL, step_s=WorldSettings.model_fields["step_s"].default)
+    assert not findings, "; ".join(str(finding) for finding in findings)
+    return run_world(str(CONTROL), eval_dir, "all_day_occupied-stub")
+
+
+@pytest.fixture(scope="session")
 def hybrid_tuesday_boptest(eval_dir: Path) -> RecordedRun:
-    """``hybrid_tuesday`` on BOPTEST at ``SPOTCOOL_LIVE_BOPTEST_URL``; skipped without one.
+    """``hybrid_tuesday`` on BOPTEST at ``SPOTCOOL_LIVE_BOPTEST_URL``, at ``LIVE_SPEED``.
 
     It skips, as the live plant tests do, when the variable is unset or BOPTEST does not answer
-    within 5 s. The plants stop both BOPTEST tests when the run ends.
+    within 5 s. The plants stop both BOPTEST tests when the run ends. With
+    ``SPOTCOOL_LIVE_RUN_DIR`` set, the run is recorded there as ``eval-live-hybrid-<time>`` and
+    kept, so ``spotcool-world report`` can read it; otherwise it goes in the session's temp dir.
     """
     from spotcool_world.services.boptest.client import BoptestClient, BoptestError
 
@@ -137,10 +155,14 @@ def hybrid_tuesday_boptest(eval_dir: Path) -> RecordedRun:
         asyncio.run(probe())
     except BoptestError as exc:
         pytest.skip(f"BOPTEST at {url} does not answer: {exc}")
+    kept = os.environ.get(LIVE_RUN_DIR_ENV)
+    run_dir = Path(kept).resolve() if kept else eval_dir
+    run_dir.mkdir(parents=True, exist_ok=True)
     return run_world(
         "hybrid_tuesday",
-        eval_dir,
-        "hybrid_tuesday-boptest-stub",
+        run_dir,
+        f"eval-live-hybrid-{datetime.now():%Y%m%d-%H%M%S}",
         plant="boptest-local",
         boptest_local_url=url,
+        speed=LIVE_SPEED,
     )
