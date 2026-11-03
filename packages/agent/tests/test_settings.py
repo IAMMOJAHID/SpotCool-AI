@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -79,3 +80,45 @@ def test_the_world_host_is_this_machines_primary_ipv4_by_default() -> None:
     host = AgentSettings().world_host
     assert host == primary_ipv4()
     ipaddress.IPv4Address(host)
+
+
+def test_stt_and_llm_follow_vision_unless_set() -> None:
+    assert (AgentSettings(vision="meta").stt, AgentSettings(vision="meta").llm) == ("meta", "meta")
+    assert (AgentSettings(vision="blob").stt, AgentSettings(vision="blob").llm) == ("fake", "off")
+    chosen = AgentSettings(vision="blob", stt="meta", llm="fake")
+    assert (chosen.stt, chosen.llm) == ("meta", "fake")
+
+
+def test_the_vrf_loop_is_off_by_default_and_its_flags_reach_the_settings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    settings = AgentSettings()
+    assert not settings.vrf and settings.vrf_port == 47810
+    assert (settings.vrf_camera, settings.vrf_brand, settings.vrf_mirror) == (
+        "cam-meeting-live",
+        None,
+        False,
+    )
+    assert (settings.vrf_camera_height_m, settings.vrf_camera_tilt_deg) == (2.8, 30.0)
+    assert (settings.vrf_hold_s, settings.draft_hold_s, settings.complaint_hold_s) == (
+        10.0,
+        600.0,
+        900.0,
+    )
+    flags = ["run", "--vision", "blob", "--vrf", "--vrf-brand", "daikin", "--vrf-mirror"]
+    flags += ["--vrf-camera-tilt-deg", "40", "--llm", "fake", "--dry-run"]
+    assert main(flags) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert (shown["vrf"], shown["vrf_brand"], shown["vrf_mirror"]) == (True, "daikin", True)
+    assert (shown["vrf_camera_tilt_deg"], shown["stt"], shown["llm"]) == (40.0, "fake", "fake")
+    assert main(["run", "--vision", "blob", "--dry-run"]) == 0
+    assert json.loads(capsys.readouterr().out)["vrf"] is False
+
+
+def test_meta_models_without_a_key_fail_to_start() -> None:
+    from spotcool_agent.runner.agent import create_language
+
+    with pytest.raises(ValueError, match="--stt meta needs META_API_KEY"):
+        create_language(AgentSettings(vision="blob", stt="meta"))
+    with pytest.raises(ValueError, match="--llm meta needs META_API_KEY"):
+        create_language(AgentSettings(vision="blob", llm="meta"))

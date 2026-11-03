@@ -7,8 +7,10 @@ writes at priority 10 and releases with NULL. Each request waits ``APDU_TIMEOUT_
 answer and is resent ``APDU_RETRIES`` time, so one the BMS never answers costs about 2 s. The
 helpers that turn BACnet values into BMS units are the stub agent's, copied.
 
-Requests go one at a time: with BACpypes3 0.0.110, several requests to a device that does not
-answer yet (the agent starts before the world) leave the client deaf to that device for good.
+Requests to one device go one at a time: with BACpypes3 0.0.110, several requests to a device
+that does not answer yet (the agent starts before the world) leave the client deaf to that
+device for good. Each device takes its own turns, so the VRF gateway (``BacnetPeer``, on the
+same socket) never waits for the BMS, nor the BMS for it.
 
 ``StepClock`` polls the BMS's ``SIM-CLOCK`` (AV 950) at 4 Hz. Each change of its value is the
 end of a simulation step: the measurements on the points, and the scene on the cameras, now
@@ -34,7 +36,7 @@ from loguru import logger
 
 from spotcool_agent.domain.events import Value
 from spotcool_contracts import load_point_map
-from spotcool_contracts.points import PointSpec
+from spotcool_contracts.points import ObjectType, PointSpec
 from spotcool_contracts.priorities import AGENT_PRIORITY
 
 DEVICE_INSTANCE = 1910
@@ -83,7 +85,7 @@ class BacnetClient:
         self._address = Address(device)
         self._local = local
         self._app: NormalApplication | None = None
-        self._one_at_a_time = asyncio.Lock()
+        self._turns: dict[str, asyncio.Lock] = {}  # a device's ip:port -> its one-at-a-time lock
         points = load_point_map("office_bms")
         self._clock = points.by_name("SIM-CLOCK")
         self._energy = points.by_name("HVAC-ENERGY")
@@ -130,14 +132,34 @@ class BacnetClient:
             app.close()
             await asyncio.sleep(0)  # a closed transport releases its socket on the next turn
 
-    async def read(self, point: PointSpec, prop: str = "present-value") -> Any:
+    async def read(
+        self, point: PointSpec, prop: str = "present-value", *, device: Address | None = None
+    ) -> Any:
         """One property of a point, as BACpypes3 decodes it.
 
+        Args:
+            point: The point.
+            prop: The property.
+            device: The device to ask; the BMS by default.
+
         Raises:
-            ErrorRejectAbortNack: If the BMS refused or never answered (a ``BaseException``).
+            ErrorRejectAbortNack: If the device refused or never answered (a ``BaseException``).
         """
-        async with self._one_at_a_time:
-            return await self.app.read_property(self._address, point.object_id, prop)
+        return await self.read_object(point.object_id, prop, device=device)
+
+    async def read_object(self, object_id: str, prop: str, *, device: Address | None = None) -> Any:
+        """One property of any object, such as ``device,2001``'s ``model-name``.
+
+        Raises:
+            ErrorRejectAbortNack: If the device refused or never answered (a ``BaseException``).
+        """
+        address = device or self._address
+        async with self._turn(address):
+            return await self.app.read_property(address, object_id, prop)
+
+    def _turn(self, address: Address) -> asyncio.Lock:
+        """The lock that makes one device's requests go one at a time."""
+        return self._turns.setdefault(str(address), asyncio.Lock())
 
     async def clock(self) -> "ClockReading | None":
         """``SIM-CLOCK``'s value and whether it is a run's initial state, or ``None``.
@@ -159,31 +181,32 @@ class BacnetClient:
             return None
         return ClockReading(float(value), initial=float(energy) == 0.0)
 
-    async def slots(self, point: PointSpec) -> list[Value] | None:
-        """A point's 16 priority slots in BMS units, or ``None`` if the BMS gave no answer."""
+    async def slots(self, point: PointSpec, *, device: Address | None = None) -> list[Value] | None:
+        """A point's 16 priority slots in BMS units, or ``None`` if the device gave no answer."""
         try:
-            array = await self.read(point, "priority-array")
+            array = await self.read(point, "priority-array", device=device)
         except ErrorRejectAbortNack as exc:  # a BaseException in BACpypes3
             logger.warning(f"reading {point.name}'s priority array failed: {exc}")
             return None
         return [_slot_value(point, slot) for slot in array]
 
-    async def write(self, point: PointSpec, value: Value) -> bool:
-        """Write a point at priority 10: a binary state or a setpoint; ``None`` releases it.
+    async def write(self, point: PointSpec, value: Value, *, device: Address | None = None) -> bool:
+        """Write a point at priority 10: a state or a setpoint; ``None`` releases it.
 
         Returns:
-            Whether the BMS took it. A refusal or no answer is logged.
+            Whether the device took it. A refusal or no answer is logged.
         """
         if value is None:
             present: Any = Null(())
         elif isinstance(value, str):
-            present = _binary(point, value)
+            present = _state(point, value)
         else:
             present = value  # BACpypes3 makes it the point's Real
+        address = device or self._address
         try:
-            async with self._one_at_a_time:
+            async with self._turn(address):
                 await self.app.write_property(
-                    self._address,
+                    address,
                     point.object_id,
                     "present-value",
                     present,
@@ -201,13 +224,82 @@ def _slot_value(point: PointSpec, slot: Any) -> Value:
         return None
     if slot.real is not None:
         return float(slot.real)
-    states, index = point.states or [], int(slot.enumerated)
+    states = point.states or []
+    if slot.unsigned is not None:  # a multi-state point: its states are numbered from 1
+        number = int(slot.unsigned)
+        return states[number - 1] if 1 <= number <= len(states) else str(number)
+    index = int(slot.enumerated)
     return states[index] if 0 <= index < len(states) else str(index)
 
 
-def _binary(point: PointSpec, state: str) -> str:
-    """A binary point's state text as its BACnet present value: ``inactive`` or ``active``."""
-    return "active" if (point.states or []).index(state) == 1 else "inactive"
+def _state(point: PointSpec, state: str) -> str | int:
+    """A state text as its BACnet present value: ``active`` or ``inactive``, or a number.
+
+    A binary point's state is ``inactive`` or ``active``; a multi-state one's, its number from 1.
+    """
+    index = (point.states or []).index(state)
+    if point.object_type is ObjectType.MULTI_STATE_VALUE:
+        return index + 1
+    return "active" if index == 1 else "inactive"
+
+
+def present_value(point: PointSpec, value: Any) -> Value:
+    """A present value as BACpypes3 decodes it, in BMS units: a state text or a number."""
+    states = point.states or []
+    if point.object_type is ObjectType.MULTI_STATE_VALUE:
+        number = int(value)
+        return states[number - 1] if 1 <= number <= len(states) else str(number)
+    if states:  # a binary point: BACpypes3 gives "active" or "inactive"
+        return states[1] if str(value) == "active" else states[0]
+    return float(value)
+
+
+class BacnetPeer:
+    """The agent's BACnet client addressing another device on the same socket: the VRF gateway.
+
+    It has what the actuator needs (``slots``, ``write``), and reads present values and the
+    device's ``Model_Name``. Its requests take turns with each other, never with the BMS's.
+
+    Args:
+        client: The agent's client, open or not yet.
+        device: The device's ``ip:port``.
+        instance: Its device instance, for ``model_name``.
+    """
+
+    def __init__(self, client: BacnetClient, device: str, instance: int) -> None:
+        self.device = device
+        self._client = client
+        self._address = Address(device)
+        self._instance = instance
+
+    async def slots(self, point: PointSpec) -> list[Value] | None:
+        """A point's 16 priority slots, or ``None`` without an answer (``BacnetClient.slots``)."""
+        return await self._client.slots(point, device=self._address)
+
+    async def write(self, point: PointSpec, value: Value) -> bool:
+        """Write a point at priority 10, ``None`` releasing it (``BacnetClient.write``)."""
+        return await self._client.write(point, value, device=self._address)
+
+    async def present(self, point: PointSpec) -> Value:
+        """A point's present value in BMS units, or ``None`` without an answer."""
+        try:
+            return present_value(point, await self._client.read(point, device=self._address))
+        except ErrorRejectAbortNack:  # a BaseException in BACpypes3
+            return None
+        except (RuntimeError, TypeError, ValueError):  # not open yet, or a value of another kind
+            return None
+
+    async def model_name(self) -> str | None:
+        """The device's ``Model_Name``, or ``None`` without an answer."""
+        try:
+            name = await self._client.read_object(
+                f"device,{self._instance}", "model-name", device=self._address
+            )
+        except ErrorRejectAbortNack:
+            return None
+        except RuntimeError:  # not open yet
+            return None
+        return str(name)
 
 
 @dataclass(frozen=True)
