@@ -20,14 +20,14 @@ Each figure below comes from the stub agent, which reads the scenario's script i
 
 | Figure | Run | Source |
 |---|---|---|
-| **21.14 % HVAC energy saved**: 227.0 against 287.8 kWh | BOPTEST, `hybrid_tuesday`, stub agent, speed 60, 2 Nov 12:11 | `runs/checkpoint-boptest-stub-s60-3`. BOPTEST's own `ener_tot` and the world's integration agree (0.000 %, no fallbacks); the verdict is blocked by the stub agent alone. A speed-0 run with two recovered steps (`runs/wp12-live-drop`) gave the same totals. |
-| Comfort where people were: 1.37 against 0.33 K h | the same run | the same report |
-| Cost and emissions about -21 %; peak demand unchanged | the same run | BOPTEST's `cost_tot`, `emis_tot` and `pele_tot` in the report |
+| **19.94 % HVAC energy saved**: 230.4 against 287.8 kWh | BOPTEST, `hybrid_tuesday`, the final stub agent, speed 60, 3 Nov 12:29 (the live eval) | `runs/eval-live-hybrid-20261103-122941`. BOPTEST's own `ener_tot` and the world's integration agree (0.000 %, no fallbacks); every stub write was taken a step after its decision; the verdict is blocked by the stub agent alone. |
+| Comfort where people were: 2.13 against 0.33 K h | the same run | the same report |
+| Cost about -20 %, emissions about -20 %; peak demand unchanged | the same run | BOPTEST's `cost_tot` (0.0130 against 0.0163), `emis_tot` (0.0473 against 0.0590) and `pele_tot` (0.0183 against 0.0184) |
 | -29 % (cooling setpoint 28 degC alone), -81 % (with standby's airflow shut-off) | BOPTEST, every zone empty all day | HANDOFF section 3, "The levers on an all-empty day"; say "in simulation, with the building empty" |
 
-The 21.14 % runs predate WP10's stub, which writes at each step's close, so its writes take effect a step later than some of the earlier stub's did. On the RC plant that lowered the saving from 16.87 to 15.45 %. The live eval (`docs/runbooks/boptest-codespace.md`, step 7) measures the current stub on BOPTEST; once the lead has run it, quote that run's figure in place of 21.14 %.
+**Superseded, never quote:** 21.14 % (the 2 Nov checkpoint and `wp12-live-drop`). It was measured with the earlier stub, whose writes raced the step. The final stub writes at each step's close, and its run above is the figure.
 
-BOPTEST's own discomfort KPIs (`tdis_tot` 10.30 against 0.15 K h per zone, `idis_tot` 30.5 against 0 ppm h per zone) are never shown bare. BOPTEST's schedule counts every zone as occupied all day, so they include the zones the scenario leaves empty. If they appear at all, they appear with that sentence.
+BOPTEST's own discomfort KPIs (`tdis_tot` 9.85 against 0.15 K h per zone, `idis_tot` 33.3 against 0 ppm h per zone) are never shown bare. BOPTEST's schedule counts every zone as occupied all day, so they include the zones the scenario leaves empty. If they appear at all, they appear with that sentence.
 
 ## SpotCool's own figure
 
