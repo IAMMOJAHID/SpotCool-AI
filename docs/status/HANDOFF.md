@@ -286,11 +286,11 @@ Pytest deselects `live` and `eval` tests by default; BACnet tests run on loopbac
 ## 7. Numbers: what may and may not be quoted
 
 **Published sources, safe to quote:**
-1. **Counting vs. presence:** up to 17.8 % vs 5.9 % ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf)).
+1. **Counting vs. presence:** 17.8 % vs 5.9 % of *whole-building* energy in a simulated US large office, as a national average (not "up to", and not an HVAC share; most of it is heating) ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf)).
 2. **Setpoint 22.2 → 25 °C:** −27 % HVAC energy ([CBE 2015](https://escholarship.org/uc/item/13s1q2xc)).
 3. **About 6 % of AC electricity per 1 °C** ([BEE](https://www.cseindia.org/a-step-in-the-right-direction-says-cse-of-power-ministry-s-move-to-fix-starting-temperature-of-room-air-conditioners-at-24oc-and-not-lower-to-save-energy-8814)).
 4. **HVAC is about 55 % of Indian commercial energy** ([BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf)).
-5. **Offices are at 56.1 % attendance, 66.1 % on Tuesdays** ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/)).
+5. **US office attendance is 56.1 % of its February 2020 level, 66.1 % on the peak day** (Tuesday 20 October 2026). It's badge swipes against a baseline Kastle calls normal peak occupancy, so it's **not a share of desks**: never say "half-empty" or "every desk" ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/)).
 
 Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of about 7 %), ASHRAE 90.1 §6.5.3.8 (the airflow clause is verified).
 
