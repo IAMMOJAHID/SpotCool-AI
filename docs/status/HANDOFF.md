@@ -8,12 +8,12 @@
   - BOPTEST or RC, the BMS and the VRF, cameras, calendar, occupants, recorder, report, and the judges' dashboard;
   - BOPTEST runs survive a dropped tunnel;
   - golden evals guard it in CI.
-- **The headline figure** is **19.94 % saved**, the policy's upper bound with perfect perception (stub agent, in simulation): §7 and `docs/release/numbers.md`. **Never quote 21.14 %, 18.2 %, 27.1 %, 32.8 % or "up to 60 %".**
+- **The headline figure** is **19.94 % saved, SpotCool's own** (Nov 4, agent lane): SpotCool's agent with SAM 3.1 on CCTV clips, on a paced BOPTEST run whose report says `Quotable` (`runs/ag3-boptest-agent-s60`). The stub's 19.94 % stays as the perfect-perception upper bound; the agent matched it exactly. See `docs/release/numbers.md` and `docs/agent/HANDOFF.md`. **Never quote 21.14 %, 18.2 %, 27.1 %, 32.8 % or "up to 60 %".**
 - **Nothing is building.** The video pipeline is merged, and its draft cut (176 s) builds from placeholders. It waits for the user's footage, takes and narration (§8).
 - **Blocked on the user:**
   - **No footage is filmed yet:** `C:\Users\hussa\dev\footage` is empty;
   - **the leaked API keys** on Person A's branches must be rotated;
-  - **no run with Person A's agent** yet (§8 step 8).
+  - *(done Nov 4: the agent lane built and scored SpotCool's own agent; see `docs/agent/HANDOFF.md`)*
 
 ## Resume here (a fresh session or after `/compact`)
 1. Read this file, then `packages/world/AGENTS.md`. Don't re-plan: the order and the gate flow are in §0 and §8.

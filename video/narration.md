@@ -35,7 +35,7 @@ In the meeting room, a phone stands in for the CCTV camera. As a person walks ac
 
 ## results
 
-With perfect perception, from a stub agent, SpotCool's policy used 19.94 % less HVAC energy than the baseline on BOPTEST's office model. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. Treat it as an upper bound: BOPTEST's occupant heat also follows its own schedule, not the cameras.
+SpotCool's agent watched every zone through Meta's SAM, and it was right about who was there at every step. On BOPTEST's office model it used 19.94 % less HVAC energy than the baseline. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule, not the cameras.
 
 ## rollout
 

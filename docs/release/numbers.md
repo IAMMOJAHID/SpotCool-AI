@@ -33,7 +33,21 @@ BOPTEST's own discomfort KPIs (`tdis_tot` 9.85 against 0.15 K h per zone, `idis_
 
 ## SpotCool's own figure
 
-**SpotCool's own figure needs Person A's agent**: a paced BOPTEST run (speed 60) of `hybrid_tuesday` with A's agent, whose report says `Quotable`. Until that run exists, the video shows no saving as SpotCool's own.
+**19.94 % HVAC energy saved, quotable as SpotCool's own.** SpotCool's agent (`packages/agent`, built from Person A's MVP) perceived each zone with SAM 3.1 on CCTV clips and drove the BACnet BMS on a paced BOPTEST run whose report says `Quotable`.
+
+| Figure | Run | Source |
+|---|---|---|
+| **19.94 % HVAC energy saved**: 230.4 against 287.8 kWh | BOPTEST `multizone_office_simple_air`, `hybrid_tuesday`, SpotCool's agent with SAM 3.1 on MEVA CCTV clips, speed 60, recorded 3 Nov 18:43 UTC (4 Nov 00:13 IST) | `runs/ag3-boptest-agent-s60` (commit `1689f76`). Verdict `Quotable`: BOPTEST's own `ener_tot` and the world's integration agree (0.000 %, no fallbacks, no events dropped). Agent activity: 40 accepted priority-10 zone writes from the agent's own address, no heartbeat-timeout release, occupancy right on 240 of 240 zone-steps, every write one step after its decision |
+| Comfort where people were: 2.13 against 0.33 K h | the same run | the same report |
+| Cost about -20 %, emissions about -20 %; peak demand unchanged | the same run | `cost_tot` 0.0130 against 0.0163, `emis_tot` 0.0473 against 0.0590, `pele_tot` 0.0183 against 0.0184 |
+| **The control day: 5.68 % saved** when everyone is in from 08:30 to 18:00; comfort 2.99 against 0.56 K h | BOPTEST, `all_hands_day`, the same agent, speed 60, recorded 3 Nov 18:58 UTC | `runs/ag3-boptest-allhands-s60`, `Quotable`. Occupancy right on 239 of 240 zone-steps: the one miss is East at 13:15, a single person SAM didn't see. The saving comes almost entirely from the empty hours before 08:30 and after 18:00. Use it to show the agent saves little when the building is full |
+
+- **On screen it carries the label** "SpotCool saved (SAM 3.1 perception, in simulation)".
+- **Say with it:**
+  - the cameras played public MEVA dataset clips (CC BY 4.0), one per zone and scene;
+  - the agent read them with SAM 3.1 and got occupancy right on every zone-step, which is why it matches the perfect-perception upper bound above exactly (same policy, same plant, same speed);
+  - BOPTEST's occupant heat follows its own schedule, not the cameras.
+- **Never say** that the agent counted people exactly. Only occupied or empty is scored.
 
 ## Never quote
 
