@@ -1,7 +1,7 @@
 name: World CI
 
 # The world's checks: lint, types and tests of the Python workspace (contracts, world) and the
-# footage scripts, the golden evals, the scenario library's lint, the dashboard, and a check
+# footage and video scripts, the golden evals, the scenario library's lint, the dashboard, and a check
 # that nothing which must stay out of the repo is tracked. The last paths of each list trigger
 # the hygiene job wherever such a file is added.
 on:
@@ -9,6 +9,7 @@ on:
     paths:
       - "packages/**"
       - "scripts/**"
+      - "video/**"
       - "apps/dashboard/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -31,6 +32,7 @@ on:
     paths:
       - "packages/**"
       - "scripts/**"
+      - "video/**"
       - "apps/dashboard/**"
       - "pyproject.toml"
       - "uv.lock"
@@ -80,10 +82,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Ruff lint
-        run: uv run ruff check packages
+        run: uv run ruff check packages scripts
 
       - name: Ruff format
-        run: uv run ruff format --check packages
+        run: uv run ruff format --check packages scripts
 
       - name: Pyright
         run: uv run pyright packages
