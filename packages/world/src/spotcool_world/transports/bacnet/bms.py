@@ -48,6 +48,7 @@ from spotcool_world.processors.frame_processor import FrameDirection, FrameProce
 from spotcool_world.processors.telemetry import EnergyMeter
 from spotcool_world.services.boptest.catalog import MANAGED_INPUTS, load_catalog, zone_damper
 from spotcool_world.transports.bacnet.bms_logic import (
+    HEARTBEAT_TIMEOUT_REASON,
     OCCUPIED_HOURS,
     HeartbeatWatchdog,
     OccupancyMode,
@@ -333,7 +334,7 @@ class BacnetBmsTransport(BaseTransport):
             if point.array is not None and point.array.slots[AGENT_PRIORITY - 1] is not None:
                 self._apply(point, None, AGENT_PRIORITY)
                 write = NetworkWrite(point.spec, AGENT_PRIORITY, None, client)
-                self._record(write, "heartbeat timeout", accepted=True)
+                self._record(write, HEARTBEAT_TIMEOUT_REASON, accepted=True)
 
     def _lost_address(self) -> str | None:
         """Check the bound address; return the error to report when it has just been lost.

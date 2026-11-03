@@ -12,6 +12,12 @@ to its end-of-step value. Below it, ``verdict`` says whether the plants' own sav
 quoted (``quote_blockers``). The report adds recovery times, which the contract's ``KpiData``
 has no field for. A stub run's report (``stub_agent`` in the manifest's settings) opens with
 ``STUB_AGENT_NOTE``.
+
+The agent-activity section (``agent_activity``) is the proof that an agent acted: the accepted
+priority-10 writes to zone points per client, from the BMS's own ``bms_write`` records; the
+slots the BMS's heartbeat watchdog released; and how often the agent's ``perception`` agreed
+with the scenario on occupied or empty. A run without such a write, or with any heartbeat
+release, is never quotable.
 """
 
 import re
@@ -19,8 +25,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from spotcool_contracts import ZONES, Zone
+from spotcool_contracts import ZONES, Zone, load_point_map
 from spotcool_contracts.events import (
+    BmsWriteData,
+    EventSource,
     EventType,
     MetricsData,
     PlantMeasurementsData,
@@ -28,6 +36,7 @@ from spotcool_contracts.events import (
     ScenarioStateData,
     ZoneMeasurement,
 )
+from spotcool_contracts.priorities import AGENT_PRIORITY
 from spotcool_world.clocks import SimClock
 from spotcool_world.processors.kpi import (
     CROSS_CHECK_PCT,
@@ -48,6 +57,7 @@ from spotcool_world.serializers.jsonl import (
     read_records,
 )
 from spotcool_world.services.boptest.catalog import load_catalog
+from spotcool_world.transports.bacnet.bms_logic import HEARTBEAT_TIMEOUT_REASON
 
 REPORT_FILE = "report.md"
 """The report's name inside the run directory."""
@@ -68,6 +78,13 @@ ZONES_CHART = "zone_temperatures.png"
 OCCUPANCY_CHART = "occupancy.png"
 BOPTEST_PLANTS = ("boptest-local", "boptest-hosted")
 """The plants whose own energy is independent of the world's integration: only theirs is quoted."""
+ZONE_COMMAND = re.compile(r"ZN-[A-Z]+-(OCC-SENSOR|CLG-SP)")
+"""The zone points an agent commands: each zone's occupancy sensor and cooling setpoint."""
+NO_AGENT_WRITES = (
+    "No agent wrote a zone point (`ZN-*-OCC-SENSOR`, `ZN-*-CLG-SP`) at priority 10 that the BMS "
+    "accepted, so nothing acted on the SpotCool run."
+)
+"""The blocker of a run in which no agent acted."""
 
 _LABELS: dict[Run, str] = {"spotcool": "SpotCool", "baseline": "Baseline"}
 _COLORS: dict[Run, str] = {"spotcool": "#2a78d6", "baseline": "#eb6834"}  # dataviz slots 1, 2
@@ -97,12 +114,44 @@ class RecordedRun:
         states: The scenario state of each tick, by the tick's time.
         fallbacks: Each plant run's steps whose power fell back to its end-of-step value (the
             last ``POWER_FALLBACKS_METRIC`` sample; 0 without one).
+        writes: The BMS's write records (its device's ``bms_write`` events) with their sim
+            times, in recorded order: every network write, accepted or refused, and the
+            releases the BMS made itself.
+        perceptions: Each agent ``perception`` event's people per zone, by its sim time.
     """
 
     manifest: RunManifest
     samples: dict[Run, list[Sample]]
     states: list[tuple[float, ScenarioStateData]]
     fallbacks: dict[Run, int] = field(default_factory=lambda: dict.fromkeys(RUNS, 0))
+    writes: list[tuple[float | None, BmsWriteData]] = field(default_factory=list)
+    perceptions: list[tuple[float, dict[Zone, int]]] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class AgentActivity:
+    """What the agents did on a recorded run, and how well they saw.
+
+    Parameters:
+        writes: Accepted priority-10 writes to zone points (``ZONE_COMMAND``) per client
+            (``ip:port``); the BMS's own releases are left out.
+        heartbeat_releases: Slots the BMS's heartbeat watchdog released.
+        agreed: Zone-steps where an agent's ``perception`` and the scenario agree on occupied
+            or empty.
+        compared: Zone-steps with both an agent's perception and the scenario's state.
+        zone_steps: The run's zone-steps: its scenario states times the zones.
+    """
+
+    writes: dict[str, int]
+    heartbeat_releases: int
+    agreed: int
+    compared: int
+    zone_steps: int
+
+    @property
+    def agreement_pct(self) -> float | None:
+        """The share of the compared zone-steps that agree (%), or ``None`` without any."""
+        return 100 * self.agreed / self.compared if self.compared else None
 
 
 @dataclass(frozen=True)
@@ -167,9 +216,21 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
     raws: dict[Run, list[RawRecord]] = {run: [] for run in RUNS}
     states: list[tuple[float, ScenarioStateData]] = []
     fallbacks: dict[Run, int] = dict.fromkeys(RUNS, 0)
+    writes: list[tuple[float | None, BmsWriteData]] = []
+    perceptions: list[tuple[float, dict[Zone, int]]] = []
+    bms = load_point_map("office_bms").device_name
     for record in read_records(folder / EVENTS_FILE):
         if isinstance(record, RawRecord):
             raws[record.run].append(record)
+            continue
+        envelope = record.envelope
+        if envelope.type is EventType.BMS_WRITE:
+            write = BmsWriteData.model_validate(envelope.data)
+            if write.device == bms:
+                writes.append((envelope.sim_time_s, write))
+        elif envelope.type is EventType.PERCEPTION:
+            if envelope.source is EventSource.AGENT and envelope.sim_time_s is not None:
+                perceptions.append((envelope.sim_time_s, _people(envelope.data.get("people"))))
         elif record.envelope.type is EventType.SCENARIO_STATE:
             t_s = record.envelope.sim_time_s
             if t_s is not None:
@@ -182,7 +243,40 @@ def load_run(run_dir: Path, run_id: str) -> RecordedRun:
     samples: dict[Run, list[Sample]] = {
         run: drawn for run, records in raws.items() if (drawn := _samples(run, records))
     }
-    return RecordedRun(manifest, samples, sorted(states, key=lambda entry: entry[0]), fallbacks)
+    by_time = sorted(states, key=lambda entry: entry[0])
+    return RecordedRun(manifest, samples, by_time, fallbacks, writes, perceptions)
+
+
+def agent_activity(run: RecordedRun) -> AgentActivity:
+    """What the agents did on the run (see ``AgentActivity``).
+
+    The agreement aligns each perception with the scenario state of the same sim time: an agent
+    stamps what it saw with the start of the step it saw, and the latest perception of a step
+    counts. A zone a perception leaves out (the agent had no count) is not compared.
+
+    Args:
+        run: The recorded run.
+    """
+    writes: dict[str, int] = {}
+    released = 0
+    for _, write in run.writes:
+        if write.reason == HEARTBEAT_TIMEOUT_REASON:
+            released += 1
+        elif write.accepted and write.priority == AGENT_PRIORITY:
+            if ZONE_COMMAND.fullmatch(write.object_name):
+                writes[write.client] = writes.get(write.client, 0) + 1
+    truth = {round(t_s): state for t_s, state in run.states}
+    seen = {round(t_s): people for t_s, people in run.perceptions}
+    agreed = compared = 0
+    for t_s, people in seen.items():
+        state = truth.get(t_s)
+        if state is None:
+            continue
+        for scene in state.zones:
+            if scene.zone in people:
+                compared += 1
+                agreed += (people[scene.zone] > 0) == (scene.people > 0)
+    return AgentActivity(writes, released, agreed, compared, len(run.states) * len(Zone))
 
 
 def check_energy(run: RecordedRun) -> EnergyCheck:
@@ -218,7 +312,9 @@ def quote_blockers(run: RecordedRun) -> list[str]:
     integration is its check (``check_energy``). It takes a BOPTEST run that finished, lost no
     events, ran paced and was not driven by the stub agent, with both runs measured, both
     plants' energy, no power that fell back to its end-of-step value, and each run's
-    integration within ``CROSS_CHECK_PCT`` of its plant's own.
+    integration within ``CROSS_CHECK_PCT`` of its plant's own. An agent must have acted (an
+    accepted priority-10 zone write, ``agent_activity``), and its heartbeat must never have
+    lapsed.
 
     Args:
         run: The recorded run.
@@ -257,6 +353,15 @@ def quote_blockers(run: RecordedRun) -> list[str]:
         blockers.append(
             "The run was unpaced (speed 0): the agent's writes land at random points between "
             "steps, so it does not reproduce."
+        )
+    activity = agent_activity(run)
+    if not activity.writes:
+        blockers.append(NO_AGENT_WRITES)
+    if activity.heartbeat_releases:
+        blockers.append(
+            f"The BMS's heartbeat watchdog released {activity.heartbeat_releases} priority-10 "
+            "slots: the agent's heartbeat stopped, so part of the run fell back to the "
+            "building's own control."
         )
     if manifest.settings.get("stub_agent"):
         blockers.append(
@@ -388,6 +493,10 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
         "",
         *_verdict_lines(run),
         "",
+        "## Agent activity",
+        "",
+        *_activity_lines(agent_activity(run)),
+        "",
         "## Recovery after arrivals",
         "",
         *_recovery_lines(found, runs),
@@ -406,6 +515,32 @@ def _markdown(run: RecordedRun, found: list[Arrival]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _activity_lines(activity: AgentActivity) -> list[str]:
+    """The agent-activity section: writes per client, heartbeat releases, agreement."""
+    if activity.writes:
+        lines = [
+            "Accepted priority-10 writes to zone points (`ZN-*-OCC-SENSOR`, `ZN-*-CLG-SP`) on "
+            "the SpotCool run, by client:",
+            "",
+            "| Client | Writes |",
+            "|---|---:|",
+            *(f"| {client} | {count} |" for client, count in sorted(activity.writes.items())),
+        ]
+    else:
+        lines = ["No agent wrote a zone point at priority 10."]
+    lines += ["", f"- Heartbeat-timeout releases: {activity.heartbeat_releases}."]
+    pct = activity.agreement_pct
+    if pct is None:
+        lines.append("- Occupancy agreement: n/a (no agent perception matches a scenario state).")
+    else:
+        lines.append(
+            f"- Occupancy agreement: {pct:.2f} % ({activity.agreed} of the {activity.compared} "
+            "zone-steps the agent perceived agree with the scenario on occupied or empty; it "
+            f"perceived {activity.compared} of the run's {activity.zone_steps})."
+        )
+    return lines
 
 
 def _verdict_lines(run: RecordedRun) -> list[str]:
@@ -557,3 +692,15 @@ def _draw_charts(run: RecordedRun, folder: Path) -> None:
         ax.yaxis.set_major_locator(MaxNLocator(integer=True))
         ax.set_ylabel(ZONES[zone].display_name, color=_MUTED)
     fig.savefig(folder / OCCUPANCY_CHART, dpi=120)
+
+
+def _people(value: object) -> dict[Zone, int]:
+    """A perception's ``people`` as counts per zone, leaving out entries that are not both."""
+    if not isinstance(value, dict):
+        return {}
+    zones = {zone.value: zone for zone in Zone}
+    return {
+        zones[name]: count
+        for name, count in value.items()
+        if name in zones and isinstance(count, int) and count >= 0
+    }

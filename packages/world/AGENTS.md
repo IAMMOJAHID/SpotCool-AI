@@ -297,8 +297,9 @@ objects, the application that names each write's client, the write rules both de
   measurements, energy meter, schedule and standby states start afresh, while the priority
   arrays and the heartbeat watchdog carry on.
 - **Heartbeat watchdog** (wall time, injectable clock): once `SPOTCOOL-HEARTBEAT` has been
-  written, 120 s without a change of its value releases every priority-10 slot, reason
-  "heartbeat timeout". Slot 8 is never touched.
+  written, 120 s without a change of its value releases every priority-10 slot, each recorded
+  as an accepted `bms_write` with reason "heartbeat timeout" (`HEARTBEAT_TIMEOUT_REASON`) and
+  the BMS's own address as the client. Slot 8 is never touched.
 - **Network.** By default the machine's primary IPv4 address (its default route's) with /24, UDP
   47808; `address` (`192.168.1.20` or `192.168.1.20/24`) and `port` override it, from
   `WorldSettings.bms_address` and `bms_port`. Tests marked `bacnet` use 127.0.0.1 and ports from
@@ -670,8 +671,18 @@ dashboard server needs the `dashboard` extra and the report the `report` extra (
     quotable:` with every blocker (`quote_blockers`, one sentence each). It blocks a plant that
     is not BOPTEST (RC's cross-check is circular), a run that did not finish, dropped events, a
     missing run or plant energy, any power fallback, a run more than `CROSS_CHECK_PCT` off its
-    plant's own, an unpaced run (speed 0) and a stub-agent run (an upper bound at best). A
-    step recovered after a dropped connection does not: its values are BOPTEST's own.
+    plant's own, an unpaced run (speed 0), a run no agent acted on (no accepted priority-10
+    write to a zone point), any heartbeat-timeout release, and a stub-agent run (an upper
+    bound at best). A step recovered after a dropped connection does not: its values are
+    BOPTEST's own.
+  - Agent activity (`agent_activity`), the proof that an agent acted, from the BMS's own
+    `bms_write` records (`RecordedRun.writes`) and the agents' `perception` events
+    (`RecordedRun.perceptions`): the accepted priority-10 writes to `ZN-*-OCC-SENSOR` and
+    `ZN-*-CLG-SP` per client (the stub's count too), the slots the heartbeat watchdog released
+    (reason `HEARTBEAT_TIMEOUT_REASON`), and the occupancy agreement: the share of zone-steps
+    where an agent's people count and the scenario agree on occupied or empty, aligned by sim
+    time (a perception is stamped with the start of the step it saw; a zone it leaves out is
+    not compared), with how many of the run's zone-steps were compared.
   - Recovery: for each zone and arrival (people after a step with none), the minutes until the
     zone is no warmer than the baseline's cooling setpoint + 0.5 K, from the arrival's stamp
     on. Arrivals that never recover are listed.
