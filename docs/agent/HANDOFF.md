@@ -1,6 +1,6 @@
 # Agent lane handoff: SpotCool's real agent (from Person A's MVP)
 
-**Last updated:** 2026-11-03, about 18:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-03, about 23:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
 
 **Audience:** the next Claude Code session (or person) continuing the agent lane.
 - The world's own status is `docs/status/HANDOFF.md`.
@@ -31,11 +31,11 @@
 | WP | What | Status |
 |---|---|---|
 | AG0 | Pre-flight: trunk, key, probe, D1 start, AG1 brief | **Done** (see "Measured" below) |
-| D1 | Real CCTV footage for the cameras | **In progress (lead).** WiseNET's host (`data.4tu.nl`) is down from every network we tried, so this switched to **MEVA** (CC BY 4.0, public S3, `scripts/footage/meva_fetch.py`) |
-| AG1 | Agent core: cameras → SAM 3.1 → BACnet BMS; dashboard events; `/chat` and `/voice` acknowledgements; the report's agent activity and 2 blockers; the end-to-end eval | **Brief ready**, `docs/agent/workpackages/AG1-agent-core.md`. Builder next |
+| D1 | Real CCTV footage for the cameras | **In progress (lead).** WiseNET's host (`data.4tu.nl`) is down from every network we tried, so this switched to **MEVA** (CC BY 4.0, public S3). Clips are in `C:/Users/hussa/dev/footage/raw/meva/`; SAM scans picked windows that are stable at 1 s (no frame without people in an occupied window) |
+| AG1 | Agent core: cameras → SAM 3.1 → BACnet BMS; dashboard events; `/chat` and `/voice` acknowledgements; the report's agent activity and blockers; the end-to-end eval | **Done** on `ag/ag1-agent-core` (build `b9e42ac` `d4fed74` `706a0a4`, review fixes `d491c2c` `2de469e`). The eval on RC matches the stub: 15.4469 % against 15.4469 %, 30/30 writes one step late, 240/240 agreement. Builder `ab9df4e1b4b50ea81`, reviewer `a7e31493b0cfa9325` |
 | AG2 | Perception rehearsal on RC with SAM on real footage; choose the speed | Planned |
 | AG3 | The scored BOPTEST run → "Quotable" | Planned |
-| AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | Planned |
+| AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | Brief drafted; the builder starts once AG1 is merged |
 | AG5 | Video and release: takes, narration after AG3, final cut | Planned |
 
 ## Measured (AG0, Nov 3)
@@ -47,6 +47,23 @@
 - **SAM sees nobody in the world's synthetic silhouettes.** So live runs need real footage (D1), and CI uses the blob counter instead.
 - **muse-wonder-1.0:** about 2.2 s for a short reply.
 - **WiseNET:** `data.4tu.nl:443` refused or timed out from the laptop, from a GitHub Codespace and from Anthropic's fetcher. The Codespace was deleted.
+
+## AG1 decisions and deviations (Nov 3)
+
+- **The report refuses an agent run** that has:
+  - no accepted priority-10 zone write;
+  - a heartbeat-timeout release;
+  - no perception events;
+  - coverage below `MIN_COVERAGE` (0.95);
+  - agreement below `MIN_AGREEMENT` (0.90).
+
+  It prints the agent's writes per client, coverage, agreement and the decision-to-write lags. That proves an agent acted and saw the people, and catches blind, partial and silent runs.
+- **BACnet requests go one at a time.** Several requests at once to a BMS that wasn't up yet left bacpypes3 0.0.110 deaf to it.
+- **The agent is BACnet device 1910, on UDP 47820.** It reaches the world at the machine's primary IPv4 by default, like the world binds its BMS. A `SIM-CLOCK` that stays silent for 10 s is logged.
+- **Releases skip the operator back-off.** A NULL write at priority 10 never overrides an operator's slot 8, so the agent always releases its own slot, unlike the stub. That avoids a watchdog release, which would block the quote.
+- **A step's deadline margin is `max(2.5, 0.4 × step_wall_s)`.** One failing step is logged and skipped, never fatal.
+- **On a new run** (`SIM-CLOCK` going back, or an initial state appearing after steps), the agent releases its old slots and resets its state.
+- **Start the agent before the world.** The run's initial state (`HVAC-ENERGY` 0) isn't treated as a step.
 
 ## Binding decisions (the plan's summary)
 

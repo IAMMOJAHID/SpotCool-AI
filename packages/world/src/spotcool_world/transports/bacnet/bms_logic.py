@@ -175,6 +175,10 @@ class ZoneStandby:
         self._shut_off = False
 
 
+HEARTBEAT_TIMEOUT_REASON = "heartbeat timeout"
+"""The reason of the releases the BMS makes when the agent's heartbeat stops, as it records them."""
+
+
 class HeartbeatWatchdog:
     """Notices when the agent's heartbeat stops, on wall time.
 

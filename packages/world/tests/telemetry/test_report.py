@@ -1,4 +1,4 @@
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,6 +8,7 @@ import pytest
 
 from spotcool_contracts import Zone
 from spotcool_contracts.events import (
+    BmsWriteData,
     EventEnvelope,
     EventSource,
     EventType,
@@ -15,20 +16,25 @@ from spotcool_contracts.events import (
     MetricsData,
     Run,
     ScenarioStateData,
+    TickData,
 )
 from spotcool_world.processors.plant_processor import POWER_FALLBACKS_METRIC
 from spotcool_world.runner.cli import main
 from spotcool_world.runner.report import (
+    NO_AGENT_WRITES,
+    NO_PERCEPTION,
     OCCUPANCY_CHART,
     POWER_CHART,
     REPORT_FILE,
     ZONES_CHART,
     RecordedRun,
+    agent_activity,
     arrivals,
     check_energy,
     load_run,
     quote_blockers,
     verdict,
+    write_lags,
     write_report,
 )
 from spotcool_world.serializers import (
@@ -71,6 +77,44 @@ PEOPLE: list[Mapping[Zone, int]] = [
 # SpotCool's temperatures at the stamps 07:00 ... 08:00; the baseline holds 24 degC.
 SOUTH = [27.0, 27.0, 25.5, 24.4, 24.0]  # within 0.5 K of 24 degC at 07:45: 30 min after 07:15
 CORE = [26.0] * 5  # never within 0.5 K
+AGENT = "192.168.1.30:47820"
+"""The agent's BACnet client, as the BMS records its writes."""
+
+
+def bms_write(
+    object_name: str = "ZN-SOU-OCC-SENSOR",
+    value: float | str | None = "Unoccupied",
+    *,
+    client: str = AGENT,
+    priority: int = 10,
+    accepted: bool = True,
+    reason: str | None = None,
+    device: str = "SpotCool-Office-BMS",
+) -> BmsWriteData:
+    """A write as the BMS records it; by default an agent's accepted zone write."""
+    return BmsWriteData(
+        device=device,
+        object_id="binary-value,453",
+        object_name=object_name,
+        priority=priority,
+        value=value,
+        client=client,
+        accepted=accepted,
+        reason=reason,
+    )
+
+
+HEARTBEAT_RELEASE = bms_write(
+    "ZN-SOU-CLG-SP", None, client="192.168.1.20:47808", reason="heartbeat timeout"
+)
+"""The BMS's watchdog releasing an agent's slot."""
+
+
+def agent_event(kind: str, data: dict[str, Any], t_s: float) -> EventEnvelope:
+    """An agent event about the step that ends at ``t_s``."""
+    return EventEnvelope(
+        type=EventType(kind), source=EventSource.AGENT, t_ms=0, sim_time_s=t_s - STEP_S, data=data
+    )
 
 
 def write_run(
@@ -85,11 +129,15 @@ def write_run(
     missing_at_start: tuple[str, ...] = (),
     ener_tot: tuple[float | None, float | None] = ENER_TOT,
     fallbacks: Mapping[Run, int] | None = None,
+    writes: tuple[BmsWriteData, ...] = (bms_write(),),
+    seen: Sequence[Mapping[Zone, int] | None] | None = None,
 ) -> Path:
     """A paced, finished BOPTEST run of an hour, without the stub agent: one that may be quoted.
 
     ``fallbacks`` records each run's power fallbacks as the plant processor does, one metric
-    sample with the count so far per fallback.
+    sample with the count so far per fallback. ``writes`` are recorded as the BMS's, taken at
+    the 07:15 tick, each after an agent decision at the 07:00 step's close; ``seen`` is the
+    agent's perception of each tick's people (by default the scenario's; ``None``: none).
     """
     folder = run_dir / run_id
     kpis: dict[Run, KpiData] = {
@@ -116,6 +164,27 @@ def write_run(
                     EventType.SCENARIO_STATE, EventSource.WORLD, state, t_s - STEP_S
                 )
                 writer.write(EventRecord(envelope=envelope))
+                looked = (people if seen is None else seen)[index - 1]
+                if looked is not None:
+                    counts = {z.value: n for z, n in looked.items()}
+                    perceived = {"people": {z.value: 0 for z in Zone} | counts, "masks": {}}
+                    writer.write(EventRecord(envelope=agent_event("perception", perceived, t_s)))
+            if index == 1:
+                for write in writes:
+                    decided = {
+                        "zone": "sou",
+                        "point": write.object_name,
+                        "value": write.value,
+                        "priority": 10,
+                        "reason": "the zone is empty",
+                    }
+                    writer.write(EventRecord(envelope=agent_event("decision", decided, t_s)))
+            if index == 2:
+                for write in writes:
+                    envelope = EventEnvelope.build(
+                        EventType.BMS_WRITE, EventSource.WORLD, write, t_s - STEP_S
+                    )
+                    writer.write(EventRecord(envelope=envelope))
             temps = {Zone.SOU: south[index], Zone.COR: core[index]}
             spotcool = make_raw(temps, meter_w=1000 / 7)  # 1 kW
             baseline = make_raw(meter_w=2000 / 7)  # 2 kW
@@ -123,6 +192,12 @@ def write_run(
                 del spotcool[key], baseline[key]
             writer.write(RawRecord(run="spotcool", index=index, sim_time_s=t_s, raw=spotcool))
             writer.write(RawRecord(run="baseline", index=index, sim_time_s=t_s, raw=baseline))
+            if index:  # a tick's own event closes it
+                tick = TickData(index=index - 1, step_s=STEP_S, clock="07:00", day_of_year=200)
+                envelope = EventEnvelope.build(
+                    EventType.TICK, EventSource.WORLD, tick, t_s - STEP_S
+                )
+                writer.write(EventRecord(envelope=envelope))
         for name, count in (fallbacks or {}).items():
             for so_far in range(1, count + 1):
                 sample = MetricsData(
@@ -183,6 +258,13 @@ def test_a_tiny_run_renders_with_its_kpis_recovery_times_and_charts(
         "| South | 07:15 | 5 | 30 | 0 |",
         "| Core | 07:45 | 3 | never | 0 |",
         "- SpotCool: Core at 07:45 (3 people)",
+        "## Agent activity",
+        f"| {AGENT} | 1 |",
+        "- Heartbeat-timeout releases: 0.",
+        "- Occupancy agreement: 100.00 % (20 of the 20 zone-steps the agent perceived agree with "
+        "the scenario on occupied or empty; it perceived 20 of the run's 20, 100.0 %).",
+        "- Decision-to-write lags: 1 step 1 (100.0 %), 2 steps 0 (0.0 %), 3+ steps 0 (0.0 %), "
+        "of 1 writes.",
     ]:
         assert row in text
     assert "| Core | 07:00" not in text  # occupied from the start: not an arrival
@@ -279,6 +361,12 @@ def test_a_paced_whole_boptest_run_without_a_stub_is_quotable(quotable: Recorded
             "A stub agent ran it, with perfect perception: quote it only as an upper bound with "
             "perfect perception, labelled so.",
         ),
+        (lambda run: replace(run, writes=[]), NO_AGENT_WRITES),
+        (
+            lambda run: replace(run, writes=[*run.writes, (T0 + 2 * STEP_S, HEARTBEAT_RELEASE)]),
+            "The BMS's heartbeat watchdog released 1 priority-10 slots: the agent's heartbeat "
+            "stopped, so part of the run fell back to the building's own control.",
+        ),
     ],
     ids=[
         "rc",
@@ -292,6 +380,8 @@ def test_a_paced_whole_boptest_run_without_a_stub_is_quotable(quotable: Recorded
         "off-its-plant",
         "unpaced",
         "stub-agent",
+        "no-agent-writes",
+        "heartbeat-timeout",
     ],
 )
 def test_each_blocker_stops_the_quote_on_its_own(
@@ -404,3 +494,111 @@ async def test_a_recorded_world_run_gets_its_report(
     ):
         assert row in report
     assert (run.folder / ZONES_CHART).exists()
+
+
+@pytest.mark.parametrize(
+    "write",
+    [
+        bms_write(accepted=False, reason="value-out-of-range"),
+        bms_write(priority=8),
+        bms_write("SPOTCOOL-HEARTBEAT", "On"),
+        bms_write("IDU-VANE-V", "Pos1", device="VRF-Gateway-MeetingRoom"),
+        HEARTBEAT_RELEASE,
+    ],
+    ids=["refused", "operator", "heartbeat", "vrf", "watchdog-release"],
+)
+def test_only_an_accepted_priority_10_zone_write_counts_as_an_agent_acting(
+    write: BmsWriteData, tmp_path: Path, make_raw: Raw, make_state: State
+) -> None:
+    write_run(tmp_path, make_raw, make_state, writes=(write,))
+    run = load_run(tmp_path, "tiny")
+    assert agent_activity(run).writes == {}
+    assert NO_AGENT_WRITES in quote_blockers(run)
+    text = write_report(tmp_path, "tiny").read_text(encoding="utf-8")
+    assert "No agent wrote a zone point at priority 10." in text
+
+
+def test_agent_writes_are_counted_per_client_and_releases_count(
+    tmp_path: Path, make_raw: Raw, make_state: State
+) -> None:
+    writes = (bms_write(), bms_write("ZN-SOU-CLG-SP", None), bms_write(client="10.0.0.9:47820"))
+    write_run(tmp_path, make_raw, make_state, writes=writes)
+    activity = agent_activity(load_run(tmp_path, "tiny"))
+    assert activity.writes == {AGENT: 2, "10.0.0.9:47820": 1}
+    assert activity.heartbeat_releases == 0
+
+
+def test_occupancy_agreement_compares_occupied_or_empty_where_the_agent_counted(
+    tmp_path: Path, make_raw: Raw, make_state: State
+) -> None:
+    # The agent sees 2 in South at 07:00 (empty: wrong), counts 3 for Core's 2 (occupied:
+    # right), and leaves West out at 07:30 (no count: not compared).
+    seen: list[Mapping[Zone, int]] = [{Zone.COR: 3, Zone.SOU: 2}, *PEOPLE[1:]]
+    write_run(tmp_path, make_raw, make_state, seen=seen)
+    run = load_run(tmp_path, "tiny")
+    t_s, people = run.perceptions[2]
+    run.perceptions[2] = (t_s, {zone: n for zone, n in people.items() if zone is not Zone.WES})
+    activity = agent_activity(run)
+    assert (activity.agreed, activity.compared, activity.zone_steps) == (18, 19, 20)
+    assert activity.agreement_pct == pytest.approx(100 * 18 / 19)
+
+
+BLIND = (
+    "The agent's occupancy agreed with the scenario on 70.0 % of the zone-steps it perceived, "
+    "below 90 %."
+)
+PARTIAL = (
+    "The agent perceived 50.0 % of the run's zone-steps, below 95 %: it was blind or stopped "
+    "for part of the run."
+)
+
+
+@pytest.mark.parametrize(
+    ("seen", "blocker"),
+    [
+        ([{}] * 4, BLIND),  # it saw nobody, while people were there on 6 of 20 zone-steps
+        ([PEOPLE[0], PEOPLE[1], None, None], PARTIAL),  # its perception stopped at 07:30
+        ([None] * 4, NO_PERCEPTION),
+    ],
+    ids=["blind", "partial", "no-perception"],
+)
+def test_a_blind_partial_or_silent_agent_run_is_refused(
+    seen: list[Mapping[Zone, int] | None],
+    blocker: str,
+    tmp_path: Path,
+    make_raw: Raw,
+    make_state: State,
+) -> None:
+    write_run(tmp_path, make_raw, make_state, seen=seen)
+    run = load_run(tmp_path, "tiny")
+    assert quote_blockers(run) == [blocker]
+    assert verdict(run) == ["Not quotable:", blocker]
+
+
+def test_a_stub_run_is_blocked_by_the_stub_alone_whatever_its_perception(
+    tmp_path: Path, make_raw: Raw, make_state: State
+) -> None:
+    write_run(tmp_path, make_raw, make_state, seen=[None] * 4)
+    run = with_manifest(load_run(tmp_path, "tiny"), settings=PACED | {"stub_agent": True})
+    assert len(quote_blockers(run)) == 1 and "stub agent" in quote_blockers(run)[0]
+
+
+def test_write_lags_pair_each_points_decisions_with_its_writes_in_order(
+    quotable: RecordedRun,
+) -> None:
+    point = "ZN-SOU-OCC-SENSOR"
+    run = replace(
+        quotable,
+        decisions=[
+            (T0, point),
+            (T0 + STEP_S, point),
+            (T0 + STEP_S, "ZN-SOU-CLG-SP"),
+            (T0 + 3 * STEP_S, point),
+        ],
+        taken=[(point, 1), (point, 4), ("SPOTCOOL-HEARTBEAT", 2)],
+    )
+    # 07:00 taken at the 07:15 tick (1); 07:15 at 08:00 (3); the setpoint never; 07:45 is the
+    # last step's close, left out
+    assert write_lags(run) == {1: 1, 3: 1, None: 1}
+    assert agent_activity(run).lags == write_lags(run)
+    assert write_lags(quotable) == {1: 1}
