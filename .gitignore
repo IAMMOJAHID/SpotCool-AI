@@ -74,6 +74,11 @@ data/datasets/
 # World runs, video renders and generated contract schemas
 runs/
 video/raw/
+video/takes/
 video/renders/
+# HyperFrames' local state and default outputs inside each composition
+video/motion/*/.hyperframes/
+video/motion/*/renders/
+video/motion/*/snapshots/
 schemas/
 

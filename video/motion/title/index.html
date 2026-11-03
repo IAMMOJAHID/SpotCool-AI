@@ -1,0 +1,119 @@
+<!doctype html>
+<!-- The opening title. Its text comes from the storyboard's title beat (on_screen_text). -->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id": "title", "type": "string", "label": "Title", "default": "SpotCool"},
+    {"id": "tagline", "type": "string", "label": "Tagline", "default": "Cooling that follows people"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SpotCool: title</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --ink: #f2f1ec;
+        --muted: #a3acb6;
+        --cool: #63d3e8;
+        --spot: #3d8bf0;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #title-scene {
+        position: absolute;
+        inset: 0;
+      }
+      #title-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+      #title-glow {
+        position: absolute;
+        left: 260px;
+        top: -60px;
+        width: 1200px;
+        height: 1200px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(99, 211, 232, 0.2) 0%, rgba(61, 139, 240, 0.08) 38%, rgba(11, 15, 20, 0) 70%);
+      }
+      #title-stack {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 380px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+      #title-word {
+        font-size: 176px;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1;
+      }
+      #title-rule {
+        width: 220px;
+        height: 4px;
+        margin: 40px 0 34px;
+        border-radius: 2px;
+        background: var(--cool);
+      }
+      #title-tagline {
+        font-size: 48px;
+        font-weight: 400;
+        color: var(--muted);
+        letter-spacing: 0.01em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="title" data-start="0" data-duration="4" data-width="1920" data-height="1080">
+      <div id="title-scene" class="clip" data-start="0" data-duration="4" data-track-index="1">
+        <div id="title-bg"></div>
+        <div id="title-glow" data-layout-ignore></div>
+        <div id="title-stack">
+          <div id="title-word" data-var-text="title">SpotCool</div>
+          <div id="title-rule"></div>
+          <div id="title-tagline" data-var-text="tagline">Cooling that follows people</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // A reveal ends at 0.01 %, not 0: the browser shortens "inset(0% 0% 0% 0%)" to "inset(0%)",
+      // and GSAP cannot tween between the two forms, so it would jump at the end.
+      const tl = gsap.timeline({ paused: true });
+      // The spot of cool air drifts in behind the name: a camera-like move, both ways eased.
+      tl.fromTo("#title-glow", { x: -320, opacity: 0 }, { x: 0, opacity: 1, duration: 3.9, ease: "power2.inOut" }, 0);
+      tl.fromTo("#title-word", { opacity: 0, filter: "blur(10px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.6, ease: "power4.out" }, 0.25);
+      tl.fromTo("#title-rule", { clipPath: "inset(0% 50% 0% 50%)" }, { clipPath: "inset(0% 0.01% 0% 0.01%)", duration: 0.7, ease: "expo.out" }, 0.75);
+      tl.fromTo("#title-tagline", { opacity: 0, color: "#4d5662" }, { opacity: 1, color: "#a3acb6", duration: 0.6, ease: "power2.out" }, 1.05);
+      window.__timelines["title"] = tl;
+    </script>
+  </body>
+</html>
