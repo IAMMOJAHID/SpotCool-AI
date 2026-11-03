@@ -9,6 +9,7 @@ Ledger of every media asset in the SpotCool demo and video, and of the software 
 | `footage/clips/<zone>_<scene>.mp4` (the 12 clips in `docs/footage/shot_list.md`), `footage/audio/south_complaint.wav`, `footage/raw/phone/live_backup.mp4` | Own recordings of consenting team members: zone scenes, the meeting-room complaint, the live phone segment | Filmed by the team, 2 November 2026 | Own work, SpotCool team | SpotCool team, consent on file (`docs/footage/consent.md`; signed sheets kept outside the repo) | WP8 |
 | `footage/datasets/wisenet/` (`index.yaml`, `video<set>_<camera>.mp4`) | WiseNET multi-camera indoor dataset, I3M building, Dijon: selected sets, normalized (`scripts/footage/wisenet_codespace.md`) | <https://data.4tu.nl/datasets/5f790109-8369-4207-a3ee-35174c144483> (doi:10.4121/uuid:c1fb5962-e939-4c51-bfd5-eac6f2935d44) | CC0 1.0, from the record's citation metadata. Confirm on the 4TU page when downloading, and note the date here. | Not required. We credit: "WiseNET dataset by R. Marroquin, J. Dubois and C. Nicolle, 4TU.ResearchData, 2019." | WP8 |
 | `footage/datasets/meva/<clip>.mp4`: one row per clip used. None fetched yet; candidates are in `scripts/footage/meva_fetch.py`. | MEVA (Multiview Extended Video with Activities), indoor camera clips, trimmed and re-encoded to 1280x720 H.264 | <https://registry.opendata.aws/mevadata/> (s3://mevadata-public-01) | CC BY 4.0 (<http://mevadata.org/resources/MEVA-data-license.txt>) | "Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA), licensed under CC BY 4.0. Accessed on `<date>` from <https://registry.opendata.aws/mevadata>. Changes: trimmed and re-encoded. | WP8 |
+| `video/raw/music/<file>`: one track, not chosen yet | Music under the narration (`assemble.py --music`) | the track's page on the YouTube Audio Library or Pixabay Music | as that page states (record it here) | as that page requires | WP9 (template), the user |
 | `video/` b-roll: one row per clip used, none chosen yet | Pexels stock video | `https://www.pexels.com/video/<id>/` per clip; licence at <https://www.pexels.com/license/> | Pexels licence: free to use and modify. Don't sell unaltered copies, imply endorsement, or show identifiable people in a bad light. | Not required. We credit: "Video by `<creator>` on Pexels." | WP8 (template), WP9 |
 
 ## Not allowed in the public video or repo
@@ -161,11 +162,21 @@ Only the six bundled packages above ship in `dist/`.
 | IP Webcam (Android, by Pavel Khlebovich) | | **Unverified**: a free app from Google Play | the live phone camera |
 | GitHub Actions, GitHub Codespaces | | GitHub's terms; free for this public repo, and 120 core-hours a month | CI; the BOPTEST stack |
 
-### Video tools (WP9, as planned)
+### Video tools (WP9)
+
+Read on 3 November 2026 (WP9) from each tool's own metadata, as noted.
 
 | What | Version | Licence | Used for |
 |---|---|---|---|
-| OBS Studio | installed in `C:\Program Files\obs-studio` | GPL-2.0 (its `data/obs-studio/license/gplv2.txt`) | recording the takes |
-| FFmpeg | 8.0.1 | GPL-3.0-or-later as built here (`ffmpeg -L`; built with `--enable-gpl --enable-version3`). FFmpeg itself is LGPL-2.1-or-later without those options. | footage normalizing, audio extraction, the edit |
-| HyperFrames | | **Unverified**: Apache-2.0 per `docs/status/HANDOFF.md` section 6; not installed in this repo | motion graphics |
-| Kokoro-82M, faster-whisper, Shotcut or Kdenlive | | **Unverified**: Apache-2.0, MIT and GPL per `docs/status/HANDOFF.md` section 6; none installed yet | narration, captions, the edit |
+| OBS Studio, with its bundled obs-websocket 5 | 32.2.2 (`obs64 --version`), in `C:\Program Files\obs-studio` | GPL-2.0 (its `data/obs-studio/license/gplv2.txt`) | recording the takes, driven by `scripts/video/take.py` |
+| FFmpeg and ffprobe | 8.0.1 (gyan.dev full build) | GPL-3.0-or-later as built here (`ffmpeg -L`; built with `--enable-gpl --enable-version3`). FFmpeg itself is LGPL-2.1-or-later without those options. | footage normalizing, audio extraction, and the whole assembly: cutting, captions burned in (libass), music under the voice, loudness |
+| HyperFrames CLI | 0.8.6, pinned (`hyperframes@0.8.6`, run through npx) | Apache-2.0 (`npm view hyperframes@0.8.6 license`, and the `license` field of its `package.json` in the npx cache) | the motion graphics in `video/motion/` |
+| GSAP | 3.14.2, loaded by each composition from jsDelivr | GSAP's Standard "no charge" licence, <https://gsap.com/standard-license> (`npm view gsap@3.14.2 license`); free, commercial use included | the compositions' timelines |
+| Chrome headless shell | 131.0.6778.204, in Puppeteer's cache (`~/.cache/puppeteer`), already on this PC | BSD-3-Clause (its `LICENSE.headless_shell`), plus the third-party notices Chromium carries | HyperFrames' renderer |
+| Inter, JetBrains Mono | as fetched by HyperFrames from Google Fonts into `~/.cache/hyperframes/fonts` | **Unverified**: SIL OFL 1.1 per Google Fonts; the cached WOFF2 files carry no readable licence | the compositions' type |
+| Segoe UI | Windows' system font | **Unverified**: Microsoft's, installed with Windows; rendered into frames, never redistributed | the burned-in captions, slates and labels |
+| System.Speech, voice "Microsoft David Desktop" | 4.0.0.0, Windows' own | **Unverified**: part of Windows; nothing installed | the placeholder narration only; the final cut uses the recorded voice |
+| websockets | 17.4 | BSD-3-Clause (above, in the world's packages) | `take.py`'s obs-websocket client |
+| Audacity, or a phone voice recorder | the user's | Audacity: GPL-2.0-or-later (**unverified**, not installed here) | recording `video/raw/narration.wav` |
+
+Not used, though planned: Kokoro-82M (the placeholder is Windows' own voice), faster-whisper (the captions come from `video/narration.md` and the recording's timing, so nothing is transcribed), and Shotcut or Kdenlive (the edit is `scripts/video/assemble.py`).
