@@ -98,3 +98,14 @@ As in each decision. The evals carry the `eval` marker and run in CI's `evals` j
   - the dashboard's `npm ci`, `gen:types`, `build`, `lint`, `test` and `test:e2e`.
 - The CI workflow is valid, and runs green on the branch: the lead pushes.
 - The runbooks, `CREDITS.md` and `docs/release/` are written, plus the changelog fragments.
+
+## Amendments by the lead after the build and the review (binding)
+- **The honesty check is a control day.** `evals/scenarios/all_day_occupied.yaml` has every zone occupied 07:00–19:00, and must save less than 0.5 % (it measured 0.0000 %).
+  - `all_hands_day` keeps its realistic 08:30 arrival and 18:00 departure. Its 2.34 % comes from genuinely empty hours, so it has its own band.
+  - The ordering control < all_hands_day < hybrid_tuesday < empty_friday is one eval.
+- **The stub commands at each step's close.** Writes take effect from the next step in a paced run whose step leaves time for the round trips. At speed 0 they lag 2–4 steps.
+  - The world never waits for an agent.
+  - The evals check every write's lag from the saved record.
+  - The live eval runs at speed 60, and saves to `SPOTCOOL_LIVE_RUN_DIR`.
+- **The booking and 19:00 rules are evaluated for the step a command applies to,** so pre-cooling takes effect 30 minutes ahead, as Person A's handoff advises.
+- **The take runbooks set `SPOTCOOL_WORLD_FOOTAGE_DIR`,** and check that the cameras show the clips before a take.
