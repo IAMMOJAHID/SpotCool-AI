@@ -1,0 +1,108 @@
+# BACnet point map: VRF-Gateway-MeetingRoom
+# Simulated BACnet gateway for one VRF indoor unit in the South meeting room. Contract v0.1.
+#
+# Real gateways expose these points: Mitsubishi Electric ("Air Direction Setup") and Daikin iTM
+# ("Airflow Direction") support louver positions; LG MultiSITE supports swing on/off only. Which
+# brand the device emulates is chosen at runtime from vrf_profiles.yaml; a client reads the
+# profile to learn which louver states are available.
+#
+# Louver positions: vertical 1 = horizontal throw ... 5 = steepest downward; horizontal
+# 1 = far left ... 5 = far right (seen from the unit). The motors slew at up to 15 deg/s, so
+# the *-ANGLE points lag the commanded position.
+device_name: VRF-Gateway-MeetingRoom
+device_instance: 2001
+udp_port: 47810
+vendor_name: SpotCool World (simulated)
+description: BACnet gateway for the South meeting-room VRF indoor unit.
+points:
+  - object_type: binary-value
+    instance: 1
+    name: IDU-ONOFF
+    description: Indoor unit on/off (commandable)
+    writability: commandable
+    states: ["Off", "On"]
+    relinquish_default: "On"
+    haystack: [point, cmd, run, writable]
+    brick: On_Off_Command
+    source: device
+  - object_type: analog-value
+    instance: 2
+    name: IDU-SP
+    description: Indoor unit cooling setpoint (commandable)
+    units: degrees-celsius
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    relinquish_default: 24.0
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    source: device
+  - object_type: multi-state-value
+    instance: 3
+    name: IDU-MODE
+    description: Operating mode (commandable)
+    writability: commandable
+    states: [Cool, Dry, Fan, Auto]
+    relinquish_default: 1
+    haystack: [point, cmd, enum, writable]
+    brick: Mode_Command
+    source: device
+  - object_type: multi-state-value
+    instance: 4
+    name: IDU-FAN
+    description: Fan speed (commandable)
+    writability: commandable
+    states: [Auto, Low, Mid, High]
+    relinquish_default: 1
+    haystack: [point, cmd, fan, speed, enum, writable]
+    brick: Fan_Speed_Command
+    source: device
+  - object_type: multi-state-value
+    instance: 5
+    name: IDU-VANE-V
+    description: Vertical louver position (commandable; availability depends on the brand profile)
+    writability: commandable
+    states: [Pos1, Pos2, Pos3, Pos4, Pos5, Swing]
+    relinquish_default: 3
+    haystack: [point, cmd, damper, enum, writable]
+    source: device
+  - object_type: multi-state-value
+    instance: 6
+    name: IDU-VANE-H
+    description: Horizontal louver position (commandable; availability depends on the brand profile)
+    writability: commandable
+    states: [Pos1, Pos2, Pos3, Pos4, Pos5, Swing]
+    relinquish_default: 3
+    haystack: [point, cmd, damper, enum, writable]
+    source: device
+  - object_type: analog-input
+    instance: 7
+    name: IDU-ROOM-T
+    description: Room temperature at the indoor unit's return-air sensor
+    units: degrees-celsius
+    haystack: [point, sensor, return, air, temp]
+    brick: Return_Air_Temperature_Sensor
+    source: device
+  - object_type: analog-input
+    instance: 8
+    name: IDU-PWR
+    description: Indoor and outdoor unit electric power attributed to this indoor unit
+    units: kilowatts
+    haystack: [point, sensor, elec, power]
+    brick: Electric_Power_Sensor
+    source: device
+  - object_type: analog-input
+    instance: 9
+    name: IDU-VANE-V-ANGLE
+    description: Measured vertical louver angle (0 = horizontal, negative = downward)
+    units: degrees-angular
+    haystack: [point, sensor, damper]
+    source: device
+  - object_type: analog-input
+    instance: 10
+    name: IDU-VANE-H-ANGLE
+    description: Measured horizontal louver angle (negative = left, positive = right)
+    units: degrees-angular
+    haystack: [point, sensor, damper]
+    source: device

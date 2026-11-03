@@ -1,0 +1,547 @@
+# BACnet point map: SpotCool-Office-BMS
+# Simulated building management system for BOPTEST `multizone_office_simple_air`
+# (5-zone VAV office, 1662.66 m2). Contract v0.1, shared by the world (server) and the agent (client).
+#
+# Units on the wire are BMS units (degrees-celsius, kilowatts, liters-per-second, percent).
+# The world converts to and from BOPTEST units (K, W, m3/s, fraction) using `boptest.conversion`.
+#
+# Writing rules (see spotcool_contracts.priorities):
+#   * SpotCool writes commandable points at priority 10 and releases them with NULL.
+#   * Operators write at priority 8; the agent never overwrites a value held at 8 or above.
+#   * With no active slot, a setpoint falls back to its relinquish default: the value the
+#     building's own schedule applies, read live from the baseline run.
+#   * If SPOTCOOL-HEARTBEAT stops toggling for 120 s, the BMS releases every priority-10 command.
+device_name: SpotCool-Office-BMS
+device_instance: 1001
+udp_port: 47808
+vendor_name: SpotCool World (simulated)
+description: Building management system of a 5-zone VAV office (BOPTEST multizone_office_simple_air).
+points:
+  # ---- Zone Core (cor) ----
+  - object_type: analog-input
+    instance: 101
+    name: ZN-COR-T
+    description: Core zone air temperature
+    units: degrees-celsius
+    zone: cor
+    haystack: [point, sensor, zone, air, temp]
+    brick: Zone_Air_Temperature_Sensor
+    boptest: {read: hvac_reaZonCor_TZon_y, conversion: "K->degC"}
+  - object_type: analog-value
+    instance: 201
+    name: ZN-COR-CLG-SP
+    description: Core zone cooling setpoint (commandable; SpotCool writes at priority 10)
+    units: degrees-celsius
+    zone: cor
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    boptest:
+      write: hvac_oveZonSupCor_TZonCooSet_u
+      read: hvac_oveZonSupCor_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupCor_TZonCooSet_u
+      conversion: "K->degC"
+  - object_type: analog-value
+    instance: 251
+    name: ZN-COR-HTG-SP
+    description: Core zone heating setpoint (read-only)
+    units: degrees-celsius
+    zone: cor
+    haystack: [point, sp, zone, air, temp, heating]
+    brick: Zone_Air_Heating_Temperature_Setpoint
+    boptest: {read: hvac_oveZonSupCor_TZonHeaSet_u, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 301
+    name: ZN-COR-CO2
+    description: Core zone air CO2 concentration
+    units: parts-per-million
+    zone: cor
+    haystack: [point, sensor, zone, air, co2]
+    brick: CO2_Level_Sensor
+    boptest: {read: hvac_reaZonCor_CO2Zon_y}
+  - object_type: analog-input
+    instance: 351
+    name: ZN-COR-SA-FLOW
+    description: Core zone VAV discharge airflow
+    units: liters-per-second
+    zone: cor
+    haystack: [point, sensor, zone, discharge, air, flow]
+    brick: Discharge_Air_Flow_Sensor
+    boptest: {read: hvac_reaZonCor_V_flow_y, conversion: "m3/s->L/s"}
+  - object_type: multi-state-value
+    instance: 401
+    name: ZN-COR-OCC-MODE
+    description: Core zone occupancy mode decided by the BMS (schedule plus occupancy-sensor input)
+    zone: cor
+    states: [Occupied, Standby, Unoccupied]
+    haystack: [point, zone, occupied, enum]
+    brick: Occupancy_Status
+    source: bms
+  - object_type: binary-value
+    instance: 451
+    name: ZN-COR-OCC-SENSOR
+    description: >-
+      Core zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
+    zone: cor
+    writability: commandable
+    states: [Unoccupied, Occupied]
+    relinquish_default: Occupied
+    haystack: [point, zone, occupancy, sensor, writable]
+    brick: Occupancy_Sensor
+    source: agent
+  # ---- Zone North (nor) ----
+  - object_type: analog-input
+    instance: 102
+    name: ZN-NOR-T
+    description: North zone air temperature
+    units: degrees-celsius
+    zone: nor
+    haystack: [point, sensor, zone, air, temp]
+    brick: Zone_Air_Temperature_Sensor
+    boptest: {read: hvac_reaZonNor_TZon_y, conversion: "K->degC"}
+  - object_type: analog-value
+    instance: 202
+    name: ZN-NOR-CLG-SP
+    description: North zone cooling setpoint (commandable; SpotCool writes at priority 10)
+    units: degrees-celsius
+    zone: nor
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    boptest:
+      write: hvac_oveZonSupNor_TZonCooSet_u
+      read: hvac_oveZonSupNor_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupNor_TZonCooSet_u
+      conversion: "K->degC"
+  - object_type: analog-value
+    instance: 252
+    name: ZN-NOR-HTG-SP
+    description: North zone heating setpoint (read-only)
+    units: degrees-celsius
+    zone: nor
+    haystack: [point, sp, zone, air, temp, heating]
+    brick: Zone_Air_Heating_Temperature_Setpoint
+    boptest: {read: hvac_oveZonSupNor_TZonHeaSet_u, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 302
+    name: ZN-NOR-CO2
+    description: North zone air CO2 concentration
+    units: parts-per-million
+    zone: nor
+    haystack: [point, sensor, zone, air, co2]
+    brick: CO2_Level_Sensor
+    boptest: {read: hvac_reaZonNor_CO2Zon_y}
+  - object_type: analog-input
+    instance: 352
+    name: ZN-NOR-SA-FLOW
+    description: North zone VAV discharge airflow
+    units: liters-per-second
+    zone: nor
+    haystack: [point, sensor, zone, discharge, air, flow]
+    brick: Discharge_Air_Flow_Sensor
+    boptest: {read: hvac_reaZonNor_V_flow_y, conversion: "m3/s->L/s"}
+  - object_type: multi-state-value
+    instance: 402
+    name: ZN-NOR-OCC-MODE
+    description: North zone occupancy mode decided by the BMS (schedule plus occupancy-sensor input)
+    zone: nor
+    states: [Occupied, Standby, Unoccupied]
+    haystack: [point, zone, occupied, enum]
+    brick: Occupancy_Status
+    source: bms
+  - object_type: binary-value
+    instance: 452
+    name: ZN-NOR-OCC-SENSOR
+    description: >-
+      North zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
+    zone: nor
+    writability: commandable
+    states: [Unoccupied, Occupied]
+    relinquish_default: Occupied
+    haystack: [point, zone, occupancy, sensor, writable]
+    brick: Occupancy_Sensor
+    source: agent
+  # ---- Zone South (sou) ----
+  - object_type: analog-input
+    instance: 103
+    name: ZN-SOU-T
+    description: South zone air temperature
+    units: degrees-celsius
+    zone: sou
+    haystack: [point, sensor, zone, air, temp]
+    brick: Zone_Air_Temperature_Sensor
+    boptest: {read: hvac_reaZonSou_TZon_y, conversion: "K->degC"}
+  - object_type: analog-value
+    instance: 203
+    name: ZN-SOU-CLG-SP
+    description: South zone cooling setpoint (commandable; SpotCool writes at priority 10)
+    units: degrees-celsius
+    zone: sou
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    boptest:
+      write: hvac_oveZonSupSou_TZonCooSet_u
+      read: hvac_oveZonSupSou_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupSou_TZonCooSet_u
+      conversion: "K->degC"
+  - object_type: analog-value
+    instance: 253
+    name: ZN-SOU-HTG-SP
+    description: South zone heating setpoint (read-only)
+    units: degrees-celsius
+    zone: sou
+    haystack: [point, sp, zone, air, temp, heating]
+    brick: Zone_Air_Heating_Temperature_Setpoint
+    boptest: {read: hvac_oveZonSupSou_TZonHeaSet_u, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 303
+    name: ZN-SOU-CO2
+    description: South zone air CO2 concentration
+    units: parts-per-million
+    zone: sou
+    haystack: [point, sensor, zone, air, co2]
+    brick: CO2_Level_Sensor
+    boptest: {read: hvac_reaZonSou_CO2Zon_y}
+  - object_type: analog-input
+    instance: 353
+    name: ZN-SOU-SA-FLOW
+    description: South zone VAV discharge airflow
+    units: liters-per-second
+    zone: sou
+    haystack: [point, sensor, zone, discharge, air, flow]
+    brick: Discharge_Air_Flow_Sensor
+    boptest: {read: hvac_reaZonSou_V_flow_y, conversion: "m3/s->L/s"}
+  - object_type: multi-state-value
+    instance: 403
+    name: ZN-SOU-OCC-MODE
+    description: South zone occupancy mode decided by the BMS (schedule plus occupancy-sensor input)
+    zone: sou
+    states: [Occupied, Standby, Unoccupied]
+    haystack: [point, zone, occupied, enum]
+    brick: Occupancy_Status
+    source: bms
+  - object_type: binary-value
+    instance: 453
+    name: ZN-SOU-OCC-SENSOR
+    description: >-
+      South zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
+    zone: sou
+    writability: commandable
+    states: [Unoccupied, Occupied]
+    relinquish_default: Occupied
+    haystack: [point, zone, occupancy, sensor, writable]
+    brick: Occupancy_Sensor
+    source: agent
+  # ---- Zone East (eas) ----
+  - object_type: analog-input
+    instance: 104
+    name: ZN-EAS-T
+    description: East zone air temperature
+    units: degrees-celsius
+    zone: eas
+    haystack: [point, sensor, zone, air, temp]
+    brick: Zone_Air_Temperature_Sensor
+    boptest: {read: hvac_reaZonEas_TZon_y, conversion: "K->degC"}
+  - object_type: analog-value
+    instance: 204
+    name: ZN-EAS-CLG-SP
+    description: East zone cooling setpoint (commandable; SpotCool writes at priority 10)
+    units: degrees-celsius
+    zone: eas
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    boptest:
+      write: hvac_oveZonSupEas_TZonCooSet_u
+      read: hvac_oveZonSupEas_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupEas_TZonCooSet_u
+      conversion: "K->degC"
+  - object_type: analog-value
+    instance: 254
+    name: ZN-EAS-HTG-SP
+    description: East zone heating setpoint (read-only)
+    units: degrees-celsius
+    zone: eas
+    haystack: [point, sp, zone, air, temp, heating]
+    brick: Zone_Air_Heating_Temperature_Setpoint
+    boptest: {read: hvac_oveZonSupEas_TZonHeaSet_u, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 304
+    name: ZN-EAS-CO2
+    description: East zone air CO2 concentration
+    units: parts-per-million
+    zone: eas
+    haystack: [point, sensor, zone, air, co2]
+    brick: CO2_Level_Sensor
+    boptest: {read: hvac_reaZonEas_CO2Zon_y}
+  - object_type: analog-input
+    instance: 354
+    name: ZN-EAS-SA-FLOW
+    description: East zone VAV discharge airflow
+    units: liters-per-second
+    zone: eas
+    haystack: [point, sensor, zone, discharge, air, flow]
+    brick: Discharge_Air_Flow_Sensor
+    boptest: {read: hvac_reaZonEas_V_flow_y, conversion: "m3/s->L/s"}
+  - object_type: multi-state-value
+    instance: 404
+    name: ZN-EAS-OCC-MODE
+    description: East zone occupancy mode decided by the BMS (schedule plus occupancy-sensor input)
+    zone: eas
+    states: [Occupied, Standby, Unoccupied]
+    haystack: [point, zone, occupied, enum]
+    brick: Occupancy_Status
+    source: bms
+  - object_type: binary-value
+    instance: 454
+    name: ZN-EAS-OCC-SENSOR
+    description: >-
+      East zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
+    zone: eas
+    writability: commandable
+    states: [Unoccupied, Occupied]
+    relinquish_default: Occupied
+    haystack: [point, zone, occupancy, sensor, writable]
+    brick: Occupancy_Sensor
+    source: agent
+  # ---- Zone West (wes) ----
+  - object_type: analog-input
+    instance: 105
+    name: ZN-WES-T
+    description: West zone air temperature
+    units: degrees-celsius
+    zone: wes
+    haystack: [point, sensor, zone, air, temp]
+    brick: Zone_Air_Temperature_Sensor
+    boptest: {read: hvac_reaZonWes_TZon_y, conversion: "K->degC"}
+  - object_type: analog-value
+    instance: 205
+    name: ZN-WES-CLG-SP
+    description: West zone cooling setpoint (commandable; SpotCool writes at priority 10)
+    units: degrees-celsius
+    zone: wes
+    writability: commandable
+    min_value: 16.0
+    max_value: 30.0
+    resolution: 0.5
+    haystack: [point, sp, zone, air, temp, cooling, writable]
+    brick: Zone_Air_Cooling_Temperature_Setpoint
+    boptest:
+      write: hvac_oveZonSupWes_TZonCooSet_u
+      read: hvac_oveZonSupWes_TZonCooSet_u
+      relinquish_from_baseline: hvac_oveZonSupWes_TZonCooSet_u
+      conversion: "K->degC"
+  - object_type: analog-value
+    instance: 255
+    name: ZN-WES-HTG-SP
+    description: West zone heating setpoint (read-only)
+    units: degrees-celsius
+    zone: wes
+    haystack: [point, sp, zone, air, temp, heating]
+    brick: Zone_Air_Heating_Temperature_Setpoint
+    boptest: {read: hvac_oveZonSupWes_TZonHeaSet_u, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 305
+    name: ZN-WES-CO2
+    description: West zone air CO2 concentration
+    units: parts-per-million
+    zone: wes
+    haystack: [point, sensor, zone, air, co2]
+    brick: CO2_Level_Sensor
+    boptest: {read: hvac_reaZonWes_CO2Zon_y}
+  - object_type: analog-input
+    instance: 355
+    name: ZN-WES-SA-FLOW
+    description: West zone VAV discharge airflow
+    units: liters-per-second
+    zone: wes
+    haystack: [point, sensor, zone, discharge, air, flow]
+    brick: Discharge_Air_Flow_Sensor
+    boptest: {read: hvac_reaZonWes_V_flow_y, conversion: "m3/s->L/s"}
+  - object_type: multi-state-value
+    instance: 405
+    name: ZN-WES-OCC-MODE
+    description: West zone occupancy mode decided by the BMS (schedule plus occupancy-sensor input)
+    zone: wes
+    states: [Occupied, Standby, Unoccupied]
+    haystack: [point, zone, occupied, enum]
+    brick: Occupancy_Status
+    source: bms
+  - object_type: binary-value
+    instance: 455
+    name: ZN-WES-OCC-SENSOR
+    description: >-
+      West zone occupancy-sensor input (commandable). SpotCool may act as a virtual occupancy
+      sensor; the BMS then runs occupied-standby on its own (ASHRAE 90.1-2019 section 6.5.3.8,
+      G36): 5 minutes after the zone empties during scheduled occupancy it sets the cooling
+      setpoint up 0.5 K and the heating setpoint back 0.5 K, and shuts the zone airflow off
+      while the zone temperature is between them.
+    zone: wes
+    writability: commandable
+    states: [Unoccupied, Occupied]
+    relinquish_default: Occupied
+    haystack: [point, zone, occupancy, sensor, writable]
+    brick: Occupancy_Sensor
+    source: agent
+  # ---- Plant and building ----
+  - object_type: analog-input
+    instance: 501
+    name: AHU-SF-PWR
+    description: AHU supply fan electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, discharge, fan]
+    brick: Electric_Power_Sensor
+    boptest: {read: hvac_reaAhu_PFanSup_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 502
+    name: AHU-CLG-PUMP-PWR
+    description: AHU cooling-coil pump electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, pump, cooling]
+    brick: Electric_Power_Sensor
+    boptest: {read: hvac_reaAhu_PPumCoo_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 503
+    name: AHU-HTG-PUMP-PWR
+    description: AHU heating-coil pump electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, pump, heating]
+    brick: Electric_Power_Sensor
+    boptest: {read: hvac_reaAhu_PPumHea_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 504
+    name: CH-PWR
+    description: Chiller electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, chiller]
+    brick: Electric_Power_Sensor
+    boptest: {read: chi_reaPChi_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 505
+    name: CHW-PUMP-PWR
+    description: Chilled-water distribution pump electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, pump, chilled, water]
+    brick: Electric_Power_Sensor
+    boptest: {read: chi_reaPPumDis_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 506
+    name: HP-PWR
+    description: Heat pump electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, heatPump]
+    brick: Electric_Power_Sensor
+    boptest: {read: heaPum_reaPHeaPum_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 507
+    name: HW-PUMP-PWR
+    description: Hot-water distribution pump electric power
+    units: kilowatts
+    haystack: [point, sensor, elec, power, pump, hot, water]
+    brick: Electric_Power_Sensor
+    boptest: {read: heaPum_reaPPumDis_y, conversion: "W->kW"}
+  - object_type: analog-input
+    instance: 510
+    name: HVAC-TOTAL-PWR
+    description: Total HVAC electric power (sum of 501-507; same basis as BOPTEST's ElectricPower KPI)
+    units: kilowatts
+    haystack: [point, sensor, elec, power, total]
+    brick: Electric_Power_Sensor
+    source: derived
+  - object_type: analog-input
+    instance: 511
+    name: HVAC-ENERGY
+    description: HVAC electric energy since the start of the run
+    units: kilowatt-hours
+    haystack: [point, sensor, elec, energy, total]
+    brick: Energy_Sensor
+    source: derived
+  - object_type: analog-input
+    instance: 520
+    name: OA-T
+    description: Outdoor air dry-bulb temperature
+    units: degrees-celsius
+    haystack: [point, sensor, outside, air, temp]
+    brick: Outside_Air_Temperature_Sensor
+    boptest: {read: weaSta_reaWeaTDryBul_y, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 521
+    name: OA-RH
+    description: Outdoor air relative humidity
+    units: percent-relative-humidity
+    haystack: [point, sensor, outside, air, humidity]
+    brick: Outside_Air_Humidity_Sensor
+    boptest: {read: weaSta_reaWeaRelHum_y, conversion: "1->%"}
+  - object_type: analog-input
+    instance: 530
+    name: AHU-SAT
+    description: AHU supply air temperature
+    units: degrees-celsius
+    haystack: [point, sensor, discharge, air, temp, ahu]
+    brick: Supply_Air_Temperature_Sensor
+    boptest: {read: hvac_reaAhu_TSup_y, conversion: "K->degC"}
+  - object_type: analog-input
+    instance: 531
+    name: AHU-SF-SPD
+    description: AHU supply fan speed command
+    units: percent
+    haystack: [point, cmd, discharge, fan, speed, ahu]
+    brick: Fan_Speed_Command
+    boptest: {read: hvac_oveAhu_yFan_u, conversion: "1->%"}
+  - object_type: binary-input
+    instance: 601
+    name: WES-ENTRANCE-DOOR
+    description: Reception entrance door contact (driven by the scenario script)
+    zone: wes
+    states: [Closed, Open]
+    haystack: [point, sensor, door, contact]
+    source: scenario
+  - object_type: binary-value
+    instance: 901
+    name: SPOTCOOL-HEARTBEAT
+    description: >-
+      Agent heartbeat (commandable at priority 10). Toggle at least every 30 s; if it stops
+      changing for 120 s the BMS releases every priority-10 command.
+    writability: commandable
+    states: ["Off", "On"]
+    relinquish_default: "Off"
+    haystack: [point, cmd, writable]
+    source: agent
+  - object_type: analog-value
+    instance: 950
+    name: SIM-CLOCK
+    description: >-
+      Simulation time in seconds since 1 January 00:00 of the BOPTEST year. Demo
+      instrumentation only; a real BMS has its own clock.
+    units: seconds
+    haystack: [point, sensor]
+    source: derived

@@ -61,6 +61,24 @@ Before posting review feedback, review agents must run a **Self-Verification Ste
 
 ---
 
+## 4a. Output Rules
+
+* **Count first:** The summary starts with the finding count, e.g. `2 findings (1 P0, 1 P1)`. If there is nothing to fix, say `No issues found.` and stop.
+* **Nit cap:** At most 3 `P2` findings per review. Drop the rest.
+* **Pre-existing:** Tag bugs the PR did not introduce as `Pre-existing` so they aren't blamed on the author.
+* **No repeats:** Don't re-post a finding already on the PR. After round 2, review only the new commits.
+* **Skip paths:** `temp/`, `resources/`, `evals/` fixtures, lockfiles, and generated files.
+
+## 4b. Design Conformance (EGM)
+
+Features that need design decisions go through EGM before code: `/egm:egm-brainstorm` → `/egm:egm-draft` → `/egm:egm-review`. The approved spec lives in `docs/designs/` and is listed in `docs/designs/SITEMAP.md`.
+
+* If the PR's **Design** section links a spec, check the code against it. A divergence that isn't reflected in the spec is a finding: the doc now *lies* (see §2).
+* Design changes go back through `/egm:egm-review`, not code review.
+* Run `/egm:egm-drift-report` weekly to catch specs that no longer match the code.
+
+---
+
 ## 5. Review Flow & Lifecycle
 
 ```

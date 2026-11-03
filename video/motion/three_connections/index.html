@@ -1,0 +1,249 @@
+<!doctype html>
+<!-- How SpotCool plugs in: three connections a building already has, drawn as the narration names them. -->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id": "headline", "type": "string", "label": "Headline", "default": "Three connections the building already has"},
+    {"id": "hub", "type": "string", "label": "Hub", "default": "SpotCool"},
+    {"id": "cctv_title", "type": "string", "label": "CCTV title", "default": "CCTV cameras"},
+    {"id": "cctv_body", "type": "string", "label": "CCTV body", "default": "count the people in each zone"},
+    {"id": "bms_title", "type": "string", "label": "BMS title", "default": "Building management system"},
+    {"id": "bms_body", "type": "string", "label": "BMS body", "default": "eases the cooling where nobody is"},
+    {"id": "complaints_title", "type": "string", "label": "Complaints title", "default": "Complaints"},
+    {"id": "complaints_body", "type": "string", "label": "Complaints body", "default": "so a cold meeting room is heard"},
+    {"id": "footer", "type": "string", "label": "Footer", "default": "No new sensors"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SpotCool: three connections</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111821;
+        --line: #2a3542;
+        --ink: #f2f1ec;
+        --muted: #a3acb6;
+        --cool: #63d3e8;
+        --spot: #3d8bf0;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #conn-scene {
+        position: absolute;
+        inset: 0;
+      }
+      #conn-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+      #conn-headline {
+        position: absolute;
+        left: 160px;
+        top: 110px;
+        width: 1500px;
+        font-size: 58px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .conn-card {
+        position: absolute;
+        left: 160px;
+        width: 700px;
+        height: 150px;
+        padding: 28px 26px 0 132px;
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+      }
+      #conn-cctv { top: 270px; }
+      #conn-bms { top: 485px; }
+      #conn-complaints { top: 700px; }
+      .conn-title {
+        font-size: 36px;
+        font-weight: 700;
+        line-height: 1.1;
+        white-space: nowrap;
+      }
+      .conn-body {
+        margin-top: 10px;
+        font-size: 28px;
+        color: var(--muted);
+      }
+      .conn-icon {
+        position: absolute;
+        left: 30px;
+        top: 33px;
+        width: 80px;
+        height: 80px;
+        border-radius: 18px;
+        background: rgba(99, 211, 232, 0.12);
+      }
+      /* A camera: a body and a lens. */
+      #conn-cctv .conn-icon i {
+        position: absolute;
+        left: 14px;
+        top: 24px;
+        width: 44px;
+        height: 32px;
+        border: 4px solid var(--cool);
+        border-radius: 6px;
+      }
+      #conn-cctv .conn-icon b {
+        position: absolute;
+        left: 58px;
+        top: 32px;
+        width: 10px;
+        height: 16px;
+        background: var(--cool);
+        border-radius: 2px;
+      }
+      /* A BMS: three rack units. */
+      #conn-bms .conn-icon i {
+        position: absolute;
+        left: 18px;
+        width: 44px;
+        height: 10px;
+        border-radius: 3px;
+        background: var(--cool);
+      }
+      #conn-bms .conn-icon i:nth-child(1) { top: 20px; }
+      #conn-bms .conn-icon i:nth-child(2) { top: 35px; }
+      #conn-bms .conn-icon i:nth-child(3) { top: 50px; }
+      /* A complaint: a speech bubble. */
+      #conn-complaints .conn-icon i {
+        position: absolute;
+        left: 16px;
+        top: 18px;
+        width: 48px;
+        height: 34px;
+        border: 4px solid var(--cool);
+        border-radius: 12px;
+      }
+      #conn-complaints .conn-icon b {
+        position: absolute;
+        left: 24px;
+        top: 50px;
+        width: 12px;
+        height: 12px;
+        background: var(--cool);
+        clip-path: polygon(0 0, 100% 0, 0 100%);
+      }
+      /* Each connector: a rotated arm (static) holding a line that draws (clip-path). */
+      .conn-arm {
+        position: absolute;
+        left: 860px;
+        height: 4px;
+        transform-origin: 0 50%;
+      }
+      .conn-line {
+        display: block;
+        width: 100%;
+        height: 4px;
+        border-radius: 2px;
+        background: linear-gradient(90deg, rgba(99, 211, 232, 0.25), var(--cool));
+      }
+      #conn-arm-cctv { top: 343px; width: 369px; transform: rotate(35.62deg); }
+      #conn-arm-bms { top: 558px; width: 300px; }
+      #conn-arm-complaints { top: 773px; width: 369px; transform: rotate(-35.62deg); }
+      #conn-hub {
+        position: absolute;
+        left: 1160px;
+        top: 480px;
+        width: 520px;
+        height: 160px;
+        border-radius: 80px;
+        border: 3px solid var(--cool);
+        background: linear-gradient(135deg, rgba(61, 139, 240, 0.28), rgba(99, 211, 232, 0.12));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 72px;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+      }
+      #conn-footer {
+        position: absolute;
+        left: 1160px;
+        top: 676px;
+        width: 520px;
+        text-align: center;
+        font-size: 34px;
+        font-weight: 700;
+        color: var(--cool);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="three_connections" data-start="0" data-duration="17" data-width="1920" data-height="1080">
+      <div id="conn-scene" class="clip" data-start="0" data-duration="17" data-track-index="1">
+        <div id="conn-bg"></div>
+        <div id="conn-headline" data-var-text="headline">Three connections the building already has</div>
+
+        <div class="conn-arm" id="conn-arm-cctv" data-layout-ignore><span class="conn-line" id="conn-line-cctv"></span></div>
+        <div class="conn-arm" id="conn-arm-bms" data-layout-ignore><span class="conn-line" id="conn-line-bms"></span></div>
+        <div class="conn-arm" id="conn-arm-complaints" data-layout-ignore><span class="conn-line" id="conn-line-complaints"></span></div>
+
+        <div class="conn-card" id="conn-cctv">
+          <div class="conn-icon"><i></i><b></b></div>
+          <div class="conn-title" data-var-text="cctv_title">CCTV cameras</div>
+          <div class="conn-body" data-var-text="cctv_body">count the people in each zone</div>
+        </div>
+        <div class="conn-card" id="conn-bms">
+          <div class="conn-icon"><i></i><i></i><i></i></div>
+          <div class="conn-title" data-var-text="bms_title">Building management system</div>
+          <div class="conn-body" data-var-text="bms_body">eases the cooling where nobody is</div>
+        </div>
+        <div class="conn-card" id="conn-complaints">
+          <div class="conn-icon"><i></i><b></b></div>
+          <div class="conn-title" data-var-text="complaints_title">Complaints</div>
+          <div class="conn-body" data-var-text="complaints_body">so a cold meeting room is heard</div>
+        </div>
+
+        <div id="conn-hub" data-var-text="hub">SpotCool</div>
+        <div id="conn-footer" data-var-text="footer">No new sensors</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      // A reveal ends at 0.01 %, not 0: the browser shortens "inset(0% 0% 0% 0%)" to "inset(0%)",
+      // and GSAP cannot tween between the two forms, so it would jump at the end.
+      const tl = gsap.timeline({ paused: true });
+      const card = (name, at) => {
+        tl.fromTo(`#conn-${name}`, { opacity: 0, x: -36, filter: "blur(8px)" }, { opacity: 1, x: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out" }, at);
+        tl.fromTo(`#conn-line-${name}`, { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: "inset(0% 0.01% 0% 0%)", duration: 0.6, ease: "power3.inOut" }, at + 0.25);
+      };
+      tl.fromTo("#conn-hub", { opacity: 0, y: 24, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, 0.4);
+      tl.fromTo("#conn-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power4.out" }, 1.2);
+      tl.fromTo("#conn-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 2.7);
+      card("cctv", 5.6);
+      card("bms", 9.0);
+      card("complaints", 12.4);
+      window.__timelines["three_connections"] = tl;
+    </script>
+  </body>
+</html>

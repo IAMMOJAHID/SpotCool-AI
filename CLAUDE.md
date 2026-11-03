@@ -2,6 +2,13 @@
 
 SpotCool AI replaces passive uniform AC cooling with autonomous 3D spatial spot cooling for the Meta Global AI Developer Hackathon.
 
+---
+
+@CLAUDE.md
+
+---
+
+
 ## Commands
 
 ```bash
@@ -31,6 +38,11 @@ pytest tests/test_state_bus.py -k "test_louver_angle"
 /explain <module>  # On-demand mental model explainer for any subsystem
 ```
 
+## Workstation & Branch Policy
+* **Working Branch:** `feature/spotcool-dev` (All ongoing development on this machine).
+* **PR Integration Target:** `dev` (Merges into `main` for release).
+* **Universal Agent Rules:** See `AGENTS.md` for shared invariants between Claude Code and Antigravity.
+
 ## Non-Obvious Context & Gotchas
 
 * **Source of Truth:** Research, whiteboards, and rubrics are in `temp/H/`. Read `temp/H/INDEX.md` and `temp/H/whiteboard_and_rubric_analysis.md` before making architectural decisions.
@@ -43,6 +55,7 @@ pytest tests/test_state_bus.py -k "test_louver_angle"
 ## EGM (Elephant-Goldfish Model)
 EGM artifact directory: docs/designs
 Use `/egm:egm-brainstorm`, `/egm:egm-draft`, and `/egm:egm-review` for spec-driven design reviews.
+Flow: EGM spec approved in `docs/designs/` → implement → `/code-review` + `/security-review` checks code against the spec → PR (template links the spec). Weekly: `/egm:egm-drift-report`.
 
 ## Code Review Standards (Anthropic Architecture)
 * **Charter:** See `REVIEW.md` for domain-specific "Definitions of Failure" and false-positive elimination rules.

@@ -1,0 +1,16 @@
+# In and out points for the filmed clips, applied by scripts/footage/normalize.py.
+#
+# Schema: one line per clip that needs trimming. Clips not listed are kept whole.
+#
+#   <zone>_<scene>.mp4: {in: <seconds>, out: <seconds>}
+#
+# - Key: the clip's file name from docs/footage/shot_list.md. Use .mp4 even when the raw
+#   file is an iPhone .mov. An unknown name is an error, so a typo can't silently skip a cut.
+# - in: first second to keep (default 0). out: second to stop at (default: the end).
+#   Both count from the start of the raw file, as plain numbers (3.5, not 0:03.5), with 0 <= in < out.
+# - One entry per line, in this flow style. normalize.py reads this file without a YAML
+#   library, and rejects anything else (block style, quotes, comments inside the braces).
+#
+# Example entries. After watching a clip, add its line below without the leading "# ":
+# sou_meeting.mp4: {in: 3.5, out: 38.0}
+# wes_door_open.mp4: {in: 1.0}
