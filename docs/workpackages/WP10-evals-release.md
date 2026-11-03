@@ -26,7 +26,7 @@ This brief replaces the day-1 draft, which predates WP11's stub agent.
 
 `packages/contracts/` is read-only.
 
-Don't touch the root `README.md`, `CLAUDE.md`, `AGENTS.md`, `GEMINI.md` or `REVIEW.md`. They are shared with Person A (decision 6).
+Don't touch the root `README.md`, `CLAUDE.md`, `AGENTS.md`, `REVIEW.md` or the Antigravity config. They are shared with Person A (decision 6).
 
 ## Decisions already made (binding)
 1. **The stub agent backs off from an operator.**

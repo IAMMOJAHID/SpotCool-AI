@@ -506,8 +506,7 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`. Send th
 
 ## 9. Superseded (don't use)
 
-- **The root docs** (`CLAUDE.md`, `AGENTS.md`, `.claude/rules/*`, README) describe the old single-AC louver twin. They're stale for B's world; `packages/world/AGENTS.md` is authoritative. They stay as they are: the world's README section is drafted in `docs/release/README-world-section.md` for the user to agree with A.
-- **`docs/designs/goldfish_review_report.md`** reviewed an earlier plan.
+- **The old root docs,** which described the single-AC louver twin, were rewritten on `dev` in AG6 (Nov 4). Their path rules and the old design and workflow folders were deleted; git history keeps them. `packages/world/AGENTS.md` stays authoritative for the world.
 - **Old BOPTEST notes:**
   - "`_activate` resets each step" (inputs latch);
   - "read setpoints as `_y`" (use `_u`);

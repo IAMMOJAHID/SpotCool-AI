@@ -1,9 +1,3 @@
-temp/*
-.venv
-.env
-videos/*
-testing_directory/*
-__pycache__
 # Temporary research and draft assets
 temp/
 

@@ -22,7 +22,7 @@ You are an automated security auditor checking the current diff and repository s
    - Confirm acoustic feedback agent discards raw audio buffers after Silero VAD / transcription.
 
 4. **Dependencies & Supply Chain:**
-   - Check `requirements.txt` / `package.json` for pinned versions.
+   - Check `uv.lock` and `apps/dashboard/package-lock.json` for pinned versions.
    - Flag any deprecated or high-vulnerability packages.
 
 ## Output Format

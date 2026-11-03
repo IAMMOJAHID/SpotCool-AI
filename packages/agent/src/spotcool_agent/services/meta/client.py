@@ -1,11 +1,11 @@
 """MetaClient: one budget of calls to the Meta AI API (``api.meta.ai/v1``).
 
-It wraps an ``AsyncOpenAI`` (Person A's MVP client, ``app/mvp_pipeline.py``), created on the
-first call, inside the running event loop. Every request goes through its asyncio limiter,
-counts against its call cap, and leaves a ``Call`` in its ledger: the model, the purpose, the
-latency and whether it worked (``call()``, which ``respond()`` and the transcriber use). The
-ledger never holds a request's content, so no pixels or audio. The client itself never
-retries: each service decides its own retries.
+It wraps an ``AsyncOpenAI`` (Person A's MVP client, ``app/mvp_pipeline.py`` on branch
+``third_level_improvement``), created on the first call, inside the running event loop. Every
+request goes through its asyncio limiter, counts against its call cap, and leaves a ``Call`` in
+its ledger: the model, the purpose, the latency and whether it worked (``call()``, which
+``respond()`` and the transcriber use). The ledger never holds a request's content, so no
+pixels or audio. The client itself never retries: each service decides its own retries.
 
 The agent keeps three, so that no budget can starve another: the building's SAM calls (5 at
 once, the concurrency the lead measured, ``--sam-call-cap``), the VRF loop's SAM calls (2,

@@ -11,7 +11,7 @@ Your job is to thoroughly review the current git diff against the base branch (`
 1. Inspect the current diff with `git diff origin/main...HEAD` (or `origin/dev...HEAD`).
 2. Read `REVIEW.md` and `CLAUDE.md` to ground your review in the project's standards and failure definitions.
 3. Read the full files modified (not just the diff chunks) to verify context.
-4. If the change implements a design in `docs/designs/` (see `SITEMAP.md`), read it and check the code against it (REVIEW.md §4b).
+4. If the change implements a work package brief (`docs/agent/workpackages/` or `docs/workpackages/`), read it and check the code against it (REVIEW.md §4b).
 5. Follow the output rules in REVIEW.md §4a: count first, at most 3 P2s, tag `Pre-existing` bugs.
 
 ## Step 2: Multi-Layer Evaluation

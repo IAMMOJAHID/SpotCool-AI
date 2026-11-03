@@ -43,8 +43,7 @@ jobs:
                - Perception: Failure is 'bounding box averaging' (must use SAM 3 mask median depth)
                - Event Loop: Failure is 'blocking 10 Hz loop' with slow inference
 
-            2. Examine the full diff and surrounding code files. If the PR description links a design in
-               docs/designs/, check the code against it; an undocumented divergence is a finding.
+            2. Examine the full diff and surrounding code files.
             3. Verify findings to eliminate false positives.
             4. Rank findings as P0 (Blocking Bug), P1 (Warning / Test Gap), or P2 (Polish). Tag bugs the PR did
                not introduce as "Pre-existing". At most 3 P2 findings.

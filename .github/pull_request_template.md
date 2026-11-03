@@ -4,7 +4,7 @@
 
 ## Design
 
-<!-- EGM design this implements, e.g. docs/designs/louver_slew.md. Write "None (small fix)" if no design was needed. -->
+<!-- The work package brief this implements, e.g. docs/agent/workpackages/AG4-meeting-room.md. Write "None (small fix)" if no brief was needed. -->
 
 ## Testing
 
