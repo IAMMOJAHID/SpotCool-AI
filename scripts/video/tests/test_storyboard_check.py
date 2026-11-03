@@ -59,6 +59,41 @@ def test_a_never_quote_figure_fails_even_with_a_source(tiny_board):
     assert any("no run of ours supports" in e for e in errors)
 
 
+def test_a_source_may_not_back_a_never_quote_figure(tiny_board):
+    stale = Citation("drop", "wp12-live-drop", "docs/release/numbers.md", ("21.14 %",), "old run")
+    errors = check(tiny_board(), citations={"bacnet": BACNET, "drop": stale})
+    assert any(e.startswith("source drop: 21.14 is superseded") for e in errors)
+
+
+def test_a_results_beat_must_cite_its_runs_source(tiny_board):
+    board = tiny_board(**{"take: outro_take,": "take: outro_take, run_id: some-run,"})
+    assert "outro: cites no source for its run some-run in video/sources.yaml" in check(board)
+    run = Citation("run", "some run", "docs/release/numbers.md", (), "our run", run_id="some-run")
+    board = tiny_board(
+        **{
+            "take: outro_take,": "take: outro_take, run_id: some-run,",
+            "sources: []": "sources: [run]",
+        }
+    )
+    assert check(board, citations={"bacnet": BACNET, "run": run}) == []
+
+
+def test_a_replay_must_play_inside_its_beat(tiny_board, monkeypatch):
+    monkeypatch.delenv("SPOTCOOL_WORLD_RUN_DIR", raising=False)  # the span defaults to the day
+    replay = "take: outro_take, replay: {run_id: some-run, speed: 1800},"
+    errors = check(tiny_board(**{"take: outro_take,": replay}))
+    assert any("the replay plays 24.0 s" in e and "raise its speed" in e for e in errors)
+
+
+def test_the_storyboards_replay_fits_with_time_to_load():
+    board = load_storyboard()
+    beat = board.take_beat("dashboard_replay")
+    playing = storyboard_check.replay_span_s(beat.source.replay.run_id) / beat.source.replay.speed
+    assert (
+        storyboard_check.REPLAY_LOAD_S + playing + storyboard_check.REPLAY_SPARE_S <= beat.duration
+    )
+
+
 def test_a_source_figure_must_be_in_its_doc(tiny_board):
     wrong = Citation("bacnet", "BMS", "docs/runbooks/yabe.md", ("8", "123456"), "BACnet")
     assert "source bacnet: 123456 is not in docs/runbooks/yabe.md" in check(

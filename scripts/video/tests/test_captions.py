@@ -5,10 +5,10 @@ from storyboard import load_narration, load_storyboard
 
 
 def test_wrap_balances_lines_and_keeps_a_number_with_its_unit():
-    lines = captions.wrap("Kastle's US badge data puts office attendance at 66.1 % on Tuesdays.")
-    assert lines == ["Kastle's US badge data puts office", "attendance at 66.1 % on Tuesdays."]
+    lines = captions.wrap("Yet buildings still cool on a fixed schedule.")
+    assert lines == ["Yet buildings still cool", "on a fixed schedule."]
     for width in range(14, 30):
-        for line in captions.wrap("against 5.9 % for presence alone, against 5.9 % again", width):
+        for line in captions.wrap("against 5.9 % for presence sensors, against 5.9 % again", width):
             assert not line.endswith("5.9") and not line.startswith("%")
 
 

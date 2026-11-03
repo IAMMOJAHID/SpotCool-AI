@@ -5,13 +5,13 @@ The voice-over for the demo video, one section per beat of `video/storyboard.yam
 How to record it (`video/README.md`, step 3):
 
 - Read at about 140 words a minute: plain and calm, like explaining it to a colleague.
-- Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at the longest pauses and starts each paragraph at its beat.
+- Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at the longest pauses and starts each paragraph at its beat; it names any paragraph it cannot place, to record again.
 - Say every number as written. Each one is in `docs/release/numbers.md` with its source, and the sentence that says it names the source.
 - Save the take as `video/raw/narration.wav`.
 
 ## hook
 
-Kastle's US badge data puts office attendance at 66.1 % on Tuesdays. Yet the cooling runs as if every desk were taken. In India, HVAC is about 55 % of a commercial building's energy, says the Bureau of Energy Efficiency. And PNNL found that counting people saves up to 17.8 %, against 5.9 % for presence alone.
+Kastle's badge data puts US office attendance at 56.1 % of its pre-pandemic level, 66.1 % on the peak day. Yet buildings still cool on a fixed schedule. HVAC is about 55 % of an Indian commercial building's energy, says the Bureau of Energy Efficiency. In PNNL's simulations of a large US office, counting occupants saved 17.8 % of whole-building energy, against 5.9 % for presence sensors.
 
 ## plugs_in
 

@@ -8,7 +8,7 @@ Run through this list before the upload. The items marked **(qa.py)** are checke
   - the beats tile the video and end by 2:58;
   - no narration needs more than 150 words a minute;
   - every number has a source its beat cites, recorded in `docs/release/numbers.md`;
-  - no never-quote figure appears (21.14 %, "up to 60 %").
+  - no never-quote figure appears, on screen, in the narration or on the results card (the list is `NEVER_QUOTE` in `scripts/video/storyboard.py`, from `docs/release/numbers.md`).
 - [ ] **(qa.py)** The format and the sound:
   - under 3:00, and the storyboard's length;
   - 1920x1080 at 30 fps, H.264 yuv420p with AAC;
@@ -42,7 +42,7 @@ Run through this list before the upload. The items marked **(qa.py)** are checke
 - [ ] **The numbers on screen are the narration's.** Nothing on the dashboard take is read out as SpotCool's own saving.
 - [ ] **The takes:**
   - The YABE take shows 23 at priority 8 over 28 at 10, and the dashboard's back-off message.
-  - The replay plays the whole day.
+  - The replay plays the whole day, 07:00 to 19:00 in 16 s, inside the beat: it starts just after the dashboard appears and ends before the cut.
   - The louvers slew; they don't jump.
 - [ ] **The sound:**
   - The voice is clear over the music, with no clipping and no clicks at paragraph starts.

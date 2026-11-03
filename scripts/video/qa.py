@@ -12,9 +12,12 @@ VIDEO defaults to ``video/renders/spotcool_draft.mp4``; its ``.srt`` and ``.buil
   and in step with the storyboard: every caption inside a narrated beat, saying its narration
   word for word;
 - every number has a source (``storyboard_check``), and none is a never-quote figure;
-- the results card is the saved run's, regenerated now through the world's report; its figures
-  are the run's in ``video/sources.yaml``; the render used it; a stub run carries the stub label
-  (needs ``$SPOTCOOL_WORLD_RUN_DIR``).
+- the results card is the saved run's, regenerated now through the world's report (from
+  ``--run-dir`` or ``$SPOTCOOL_WORLD_RUN_DIR``); its figures are the run's in
+  ``video/sources.yaml`` and none is a never-quote figure; the results beat cites that run's
+  source; the results narration says only the card's numbers, its saving among them, and says
+  "stub" exactly when the card is a stub run's; the render used the card; and its label is the
+  verdict's.
 
 Then PENDING lists what needs the user (the narration, missing takes, the music's credit) and
 MANUAL what a person checks (``video/QA.md``). It exits 1 on a FAIL; ``--final`` fails on
@@ -32,14 +35,26 @@ import captions
 import media
 import storyboard_check
 from render_motion import OUT_DIR
-from results_card import STUB_LABEL, CardRefused, build_card, load_card, run_dir_from_env
+from results_card import (
+    QUOTABLE_LABEL,
+    STUB_LABEL,
+    CardRefused,
+    ResultsCard,
+    build_card,
+    load_card,
+    run_dir_from_env,
+)
 from storyboard import (
     RENDERS,
     REPO,
+    Beat,
+    Citation,
     Storyboard,
     load_narration,
     load_sources,
     load_storyboard,
+    never_quoted,
+    numbers,
 )
 
 from spotcool_world.runner.report import load_run
@@ -158,8 +173,41 @@ def check_numbers(report: Report, board: Storyboard, narration: dict[str, str]) 
     )
 
 
-def check_card(report: Report, board: Storyboard) -> None:
-    """The results card against the saved run, the sources and the render."""
+def card_problems(
+    card: ResultsCard, beat: Beat, said: str, citations: dict[str, Citation]
+) -> list[str]:
+    """Where the results card and the results beat disagree, one sentence each.
+
+    Args:
+        card: The generated card.
+        beat: The beat that shows it.
+        said: The beat's narration.
+        citations: ``video/sources.yaml``.
+    """
+    problems = [f"card figure {f}: {why}" for f in card.figures for why in never_quoted(f)]
+    run_sources = {c.id for c in citations.values() if c.run_id == card.run_id}
+    if not run_sources & set(beat.sources):
+        problems.append(f"the {beat.id} beat cites no source for the card's run {card.run_id}")
+    shown = {n for figure in card.figures for n in numbers(figure)}
+    spoken = numbers(said)
+    stray = [n for n in spoken if n not in shown]
+    if stray:
+        problems.append(f"the {beat.id} narration says {', '.join(stray)}, which the card does not")
+    saving = numbers(card.figures[0])
+    if saving and saving[0] not in spoken:
+        problems.append(
+            f"the {beat.id} narration does not say the card's saving, {card.figures[0]}"
+        )
+    says_stub = "stub" in said.lower()
+    if card.stub and not says_stub:
+        problems.append(f"the card is a stub run's, but the {beat.id} narration never says so")
+    if not card.stub and says_stub:
+        problems.append(f"the card is a quotable run's, but the {beat.id} narration says stub")
+    return problems
+
+
+def check_card(report: Report, board: Storyboard, run_dir: Path | None = None) -> None:
+    """The results card against the saved run, the sources, the narration and the render."""
     beat = next((b for b in board.beats if b.source.composition == "results_card"), None)
     if beat is None:
         return
@@ -168,7 +216,7 @@ def check_card(report: Report, board: Storyboard) -> None:
         report.check(False, "results card: run scripts/video/results_card.py")
         return
     try:
-        fresh = build_card(load_run(run_dir_from_env(), card.run_id))
+        fresh = build_card(load_run(run_dir or run_dir_from_env(), card.run_id))
     except (CardRefused, OSError, ValueError) as exc:
         report.check(False, f"results card regenerates from run {card.run_id}: {exc}")
         return
@@ -177,10 +225,18 @@ def check_card(report: Report, board: Storyboard) -> None:
         card.run_id == beat.source.run_id,
         f"results card is the storyboard's run {beat.source.run_id}",
     )
-    run_source = next((c for c in load_sources().values() if c.run_id == card.run_id), None)
+    citations = load_sources()
+    run_source = next((c for c in citations.values() if c.run_id == card.run_id), None)
     report.check(
         run_source is not None and run_source.figures == card.figures,
         f"results card figures {', '.join(card.figures)} are the run's in video/sources.yaml",
+    )
+    said = load_narration().get(beat.narration_id or "", "")
+    problems = card_problems(card, beat, said, citations)
+    report.check(
+        not problems,
+        "the results card agrees with its beat's sources and narration, and quotes nothing "
+        "on the never-quote list" + "".join(f"; {p}" for p in problems),
     )
     used = OUT_DIR / "results_card.vars.json"
     rendered = json.loads(used.read_text("utf-8")) if used.is_file() else {}
@@ -188,11 +244,11 @@ def check_card(report: Report, board: Storyboard) -> None:
         all(rendered.get(key) == value for key, value in card.variables.items()),
         "the results card render used this card",
     )
-    if card.stub:
-        report.check(
-            card.label == STUB_LABEL and rendered.get("label") == STUB_LABEL,
-            f'the stub run carries "{STUB_LABEL}"',
-        )
+    label = STUB_LABEL if card.stub else QUOTABLE_LABEL
+    report.check(
+        card.label == label and rendered.get("label") == label,
+        f'the {"stub" if card.stub else "quotable"} run carries "{label}"',
+    )
 
 
 def pending_items(record: dict, credits: str) -> list[str]:
@@ -218,6 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("video", nargs="?", type=Path, default=VIDEO)
     parser.add_argument("--final", action="store_true", help="fail on pending items too")
+    parser.add_argument(
+        "--run-dir", type=Path, help="the saved runs (default: $SPOTCOOL_WORLD_RUN_DIR)"
+    )
     args = parser.parse_args(argv)
     built = args.video.with_suffix(".build.json")
     if not args.video.is_file() or not built.is_file():
@@ -236,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
         report.check(False, f"ffprobe and ffmpeg read the video: {exc}")
     check_captions(report, Path(record["srt"]), board, narration)
     check_numbers(report, board, narration)
-    check_card(report, board)
+    check_card(report, board, args.run_dir)
     report.pending = pending_items(record, (REPO / "CREDITS.md").read_text("utf-8"))
     for line in report.passed:
         print(f"PASS     {line}")

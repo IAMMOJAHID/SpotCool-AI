@@ -37,30 +37,31 @@ beats:
 
   - id: hook
     start: 4
-    end: 33
+    end: 39
     type: motion
     source: {composition: hook_stats}
     narration_id: hook
     on_screen_text:
-      headline: Half-empty offices, cooled as if full
+      headline: Fewer people come in. The cooling keeps its schedule.
       attendance_value: 56.1 %
-      attendance_label: average office attendance
-      tuesday_value: 66.1 %
-      tuesday_label: on Tuesdays
-      attendance_source: "Source: Kastle Systems, US badge data"
-      hvac_value: 55 %
-      hvac_label: of a commercial building's energy goes to HVAC in India
-      hvac_source: "Source: Bureau of Energy Efficiency"
-      counting_value: up to 17.8 %
-      counting_label: HVAC savings from counting occupants
+      attendance_label: US office attendance, against February 2020
+      peak_value: 66.1 %
+      peak_label: on the peak day
+      attendance_source: "Source: Kastle Systems, badge swipes"
+      hvac_value: About 55 %
+      hvac_label: of a typical commercial building's energy in India goes to HVAC
+      hvac_source: "Source: Bureau of Energy Efficiency, Building Code and Rating in India"
+      counting_value: 17.8 %
+      counting_label: of whole-building energy saved with sensors that count occupants
       presence_value: 5.9 %
-      presence_label: from detecting presence only
+      presence_label: with sensors that detect presence only
+      counting_scope: In simulations of a large US office, a national average
       counting_source: "Source: PNNL-22072"
     sources: [kastle, bee-hvac-share, pnnl-22072]
 
   - id: plugs_in
-    start: 33
-    end: 50
+    start: 39
+    end: 56
     type: motion
     source: {composition: three_connections}
     narration_id: plugs_in
@@ -77,8 +78,8 @@ beats:
     sources: []
 
   - id: world
-    start: 50
-    end: 66
+    start: 56
+    end: 72
     type: motion
     source: {composition: architecture}
     narration_id: world
@@ -96,8 +97,8 @@ beats:
     sources: [boptest]
 
   - id: bms_yabe
-    start: 66
-    end: 86
+    start: 72
+    end: 92
     type: screen
     source:
       take: yabe_override
@@ -119,28 +120,28 @@ beats:
     sources: [bacnet-priorities]
 
   - id: dashboard
-    start: 86
-    end: 107
+    start: 92
+    end: 113
     type: screen
     source:
       take: dashboard_replay
-      in_s: 3
-      replay: {run_id: eval-live-hybrid-20261103-122941, speed: 1800}
+      in_s: 2
+      replay: {run_id: eval-live-hybrid-20261103-122941, speed: 2700}
       dashboard_url: http://127.0.0.1:8090/?mode=video
       scenes:
         - {at: 0, scene: Dashboard}
       before:
         - "The footage is found and the dashboard is built (docs/runbooks/video-takes.md, Before any take)."
       cues:
-        - {at: 0, say: "Hands off: the replay plays the whole day"}
+        - {at: 0, say: "The dashboard loads now and the replay starts: 07:00 to 19:00 in 16 s. Hands off."}
     narration_id: dashboard
     on_screen_text:
       label: "The hybrid Tuesday, replayed from the saved run (stub agent, in simulation)"
     sources: [run-eval-live]
 
   - id: louvers
-    start: 107
-    end: 124
+    start: 113
+    end: 130
     type: phone
     source:
       take: phone_vrf
@@ -161,8 +162,8 @@ beats:
     sources: []
 
   - id: results
-    start: 124
-    end: 151
+    start: 130
+    end: 157
     type: motion
     source: {composition: results_card, run_id: eval-live-hybrid-20261103-122941}
     narration_id: results
@@ -171,8 +172,8 @@ beats:
     sources: [run-eval-live, boptest]
 
   - id: rollout
-    start: 151
-    end: 164
+    start: 157
+    end: 170
     type: motion
     source: {composition: rollout_privacy}
     narration_id: rollout
@@ -186,8 +187,8 @@ beats:
     sources: []
 
   - id: close
-    start: 164
-    end: 170
+    start: 170
+    end: 176
     type: title
     source: {composition: close}
     narration_id: close

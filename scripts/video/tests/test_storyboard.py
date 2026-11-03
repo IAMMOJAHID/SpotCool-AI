@@ -4,15 +4,57 @@ from storyboard import (
     load_sources,
     load_storyboard,
     narrated,
+    never_quoted,
     numbers,
     spoken_words,
 )
 
 
 def test_numbers_are_standalone_figures_not_identifiers():
-    assert numbers("Up to 17.8 % against 5.9 %") == ["17.8", "5.9"]
+    assert numbers("17.8 % against 5.9 %") == ["17.8", "5.9"]
     assert numbers("priority 8, and 10.") == ["8", "10"]
     assert numbers("Source: PNNL-22072, run eval-live-hybrid-20261103-122941, CO2") == []
+
+
+@pytest.mark.parametrize(
+    "text, found",
+    [
+        ("-21.14 %", ["-21.14"]),
+        ("−27 % at 25 degC", ["-27", "25"]),
+        ("+3.5 %", ["+3.5"]),
+        ("17-18 %", ["17", "18"]),
+        ("17–18 %", ["17", "18"]),
+        ("a 15-minute step in a 10-city average", ["15", "10"]),
+        ("07:00 to 19:00", ["07", "00", "19", "00"]),
+    ],
+)
+def test_numbers_keep_signs_and_both_ends_of_a_range(text, found):
+    assert numbers(text) == found
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "eval-live-hybrid-20261103-122941",
+        "WP1.2",
+        "ZN-1",
+        "h264",
+        "1920x1080",
+        "ANALOG_VALUE:201",
+        "multizone_office_simple_air",
+        "BSD-3-Clause",
+    ],
+)
+def test_digits_in_an_identifier_are_not_numbers(identifier):
+    assert numbers(f"see {identifier}.") == []
+
+
+def test_never_quoted_catches_a_signed_figure_and_up_to_60():
+    assert never_quoted("It saved -21.14 %.") == [
+        "-21.14 is superseded (the 2 Nov checkpoint and wp12-live-drop): never quote it"
+    ]
+    assert "no run of ours supports" in never_quoted("Up to 60 % saved")[0]
+    assert never_quoted("It saved 19.94 %, in 60 steps.") == []
 
 
 def test_spoken_words_spell_numbers_out():

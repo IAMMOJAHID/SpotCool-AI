@@ -8,25 +8,25 @@
 # cite: the line on the closing sources slide.
 
 kastle:
-  name: Kastle Systems, Back to Work Barometer
+  name: Kastle Systems, Back to Work Barometer (US badge swipes against February 2020)
   url: https://www.kastle.com/safety-wellness/getting-america-back-to-work/
   doc: docs/release/numbers.md
-  figures: ["56.1 %", "66.1 %"]
-  cite: "Office attendance: Kastle Systems, Back to Work Barometer (kastle.com)"
+  figures: ["56.1 %", "66.1 % on the peak day", "February 2020"]
+  cite: "US office attendance, badge swipes against February 2020 (10-city weekly average; peak day): Kastle Systems, Back to Work Barometer (kastle.com)"
 
 bee-hvac-share:
-  name: Bureau of Energy Efficiency (REHVA-ISHRAE seminar, S. Kumar)
+  name: Bureau of Energy Efficiency, "Building Code and Rating in India", slide "Typical Commercial Building Energy Use"
   url: https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf
   doc: docs/release/numbers.md
-  figures: ["55 %"]
-  cite: "HVAC's share of energy in Indian commercial buildings: Bureau of Energy Efficiency (rehva.eu)"
+  figures: ["About 55 %"]
+  cite: "HVAC's share of energy in a typical commercial building in India: Bureau of Energy Efficiency, \"Building Code and Rating in India\" (rehva.eu)"
 
 pnnl-22072:
-  name: PNNL-22072
+  name: PNNL-22072, executive summary and section 3.3
   url: https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf
   doc: docs/release/numbers.md
-  figures: ["17.8 %", "5.9 %"]
-  cite: "Counting occupants against presence only: PNNL-22072 (pnnl.gov)"
+  figures: ["17.8 % against 5.9 %"]
+  cite: "Whole-building energy saved in a simulated US large office, sensors that count occupants against presence sensors (national average): PNNL-22072 (pnnl.gov)"
 
 boptest:
   name: BOPTEST, multizone_office_simple_air (IBPSA)

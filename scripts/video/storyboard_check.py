@@ -17,7 +17,7 @@ Prints each beat's narration pace, then every problem; exits 1 if there is one. 
 """
 
 import json
-import re
+import os
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
@@ -33,21 +33,17 @@ from storyboard import (
     load_narration,
     load_sources,
     load_storyboard,
+    never_quoted,
     numbers,
     spoken_words,
 )
 
 MAX_WPM = 150.0
-NEVER_QUOTE = {
-    "21.14": "superseded (the 2 Nov checkpoint)",
-    "18.2": "WP11's first stub run",
-    "27.1": "a measurement error",
-    "32.8": "WP6's example",
-    "16.87": "an RC figure",
-    "15.45": "an RC figure",
-}
-"""Figures ``docs/release/numbers.md`` says never to quote (and "up to 60 %", checked apart)."""
-_UP_TO_60 = re.compile(r"\b60\s*%")
+REPLAY_LOAD_S = 3.0
+"""Time allowed after a replay take's beat starts for its dashboard to load and connect."""
+REPLAY_SPARE_S = 1.0
+DAY_S = 12 * 3600.0
+"""A replay's span when its run is not on this machine: the scenario day, 07:00 to 19:00."""
 
 
 def check(
@@ -136,6 +132,7 @@ def _numbers(
             for number in numbers(figure):
                 if number not in recorded:
                     errors.append(f"source {citation.id}: {number} is not in {citation.doc}")
+            errors += [f"source {citation.id}: {why}" for why in never_quoted(figure)]
     for beat in board.beats:
         unknown = [source for source in beat.sources if source not in citations]
         errors += [f"{beat.id}: source {source} is not in video/sources.yaml" for source in unknown]
@@ -155,12 +152,12 @@ def _numbers(
                     errors.append(
                         f"{beat.id}: {where} shows {number}, which no source it cites backs"
                     )
-                if number in NEVER_QUOTE:
-                    errors.append(
-                        f"{beat.id}: {where} quotes {number}, {NEVER_QUOTE[number]}: never quote it"
-                    )
-            if _UP_TO_60.search(text):
-                errors.append(f"{beat.id}: {where} says 60 %, which no run of ours supports")
+            errors += [f"{beat.id}: {where}: {why}" for why in never_quoted(text)]
+        run_id = beat.source.run_id
+        if run_id and not any(
+            citations[s].run_id == run_id for s in beat.sources if s in citations
+        ):
+            errors.append(f"{beat.id}: cites no source for its run {run_id} in video/sources.yaml")
     return errors
 
 
@@ -243,6 +240,15 @@ def obs_scenes(path: Path = OBS_COLLECTION) -> set[str]:
     return {source["name"] for source in data.get("sources", []) if source.get("id") == "scene"}
 
 
+def replay_span_s(run_id: str) -> float:
+    """The simulated seconds a run spans: its manifest's, if the run is on this machine."""
+    manifest = Path(os.environ.get("SPOTCOOL_WORLD_RUN_DIR", "")) / run_id / "manifest.json"
+    if os.environ.get("SPOTCOOL_WORLD_RUN_DIR") and manifest.is_file():
+        data = json.loads(manifest.read_text("utf-8"))
+        return float(data["end_time_s"]) - float(data["start_time_s"])
+    return DAY_S
+
+
 def _takes(board: Storyboard) -> list[str]:
     errors: list[str] = []
     scenes = obs_scenes()
@@ -262,6 +268,14 @@ def _takes(board: Storyboard) -> list[str]:
                 errors.append(f"{beat.id}: OBS scene {scene.scene} is not in {OBS_COLLECTION.name}")
         if source.replay and source.replay.speed <= 0:
             errors.append(f"{beat.id}: replay speed must be more than 0")
+        elif source.replay:
+            playing = replay_span_s(source.replay.run_id) / source.replay.speed
+            if REPLAY_LOAD_S + playing + REPLAY_SPARE_S > beat.duration:
+                errors.append(
+                    f"{beat.id}: the replay plays {playing:.1f} s, which with "
+                    f"{REPLAY_LOAD_S:g} s to load and {REPLAY_SPARE_S:g} s spare does not fit "
+                    f"its {beat.duration:g} s beat: raise its speed"
+                )
     return errors
 
 

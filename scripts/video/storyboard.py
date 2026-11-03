@@ -29,8 +29,23 @@ BEAT_TYPES = ("title", "motion", "screen", "phone")
 TAKE_SUFFIXES = (".mkv", ".mp4", ".mov")
 """The containers a take may be in, in the order they are looked for."""
 
-# A number standing on its own: not part of an identifier such as PNNL-22072 or CO2.
-_NUMBER = re.compile(r"(?<![\w.\-])\d+(?:\.\d+)?(?![\w\-])")
+# A run of characters numbers and identifiers are written with, and its parts between hyphens
+# (or en dashes) set between two word characters: "17-18", "ZN-1", "15-minute".
+_TOKEN = re.compile(r"[\w.:+\-\u2212\u2013]+")
+_PART_BREAK = re.compile(r"(?<=[\w.])[-\u2013](?=[\w.])")
+_LETTER = re.compile(r"[^\W\d]")  # a letter or an underscore
+# A number in a part, with its sign (-, + or the minus sign) unless that joins it to a digit.
+_NUMBER = re.compile(r"(?:(?<![\d.])[-+\u2212])?\d+(?:\.\d+)?")
+NEVER_QUOTE = {
+    "21.14": "superseded (the 2 Nov checkpoint and wp12-live-drop)",
+    "18.2": "WP11's first stub run",
+    "27.1": "a measurement error",
+    "32.8": "WP6's example",
+    "16.87": "an RC figure",
+    "15.45": "an RC figure",
+}
+"""Figures ``docs/release/numbers.md`` says never to quote, by number; "up to 60 %" apart."""
+UP_TO_60 = re.compile(r"\b60\s*%")
 _SPOKEN = re.compile(r"\d+(?:\.\d+)?|%|[^\W\d_][\w'’\-]*")
 
 
@@ -204,11 +219,31 @@ class Citation:
 
 
 def numbers(text: str) -> list[str]:
-    """The numbers in a text, as written: ``"56.1"`` from ``"56.1 %"``.
+    """The numbers in a text, as written: ``"56.1"`` from ``"56.1 %"``, ``"-21.14"`` with its
+    sign, both ends of a range (``"17-18 %"``), and ``"15"`` of ``"15-minute"``.
 
-    A digit run inside an identifier (``PNNL-22072``, ``CO2``, a run id) is not a number.
+    Digits after a letter in the same hyphenated word are part of an identifier, not a number:
+    ``PNNL-22072``, ``ZN-1``, ``WP1.2``, ``h264``, ``1920x1080``, ``ANALOG_VALUE:201``, a run id.
     """
-    return _NUMBER.findall(text)
+    found: list[str] = []
+    for token in _TOKEN.findall(text):
+        for part in _PART_BREAK.split(token):
+            if _LETTER.search(part):
+                break  # an identifier from here on
+            found += [n.replace("\u2212", "-") for n in _NUMBER.findall(part)]
+    return found
+
+
+def never_quoted(text: str) -> list[str]:
+    """Why each never-quote figure in a text may not be shown, one sentence each."""
+    found = [
+        f"{n} is {NEVER_QUOTE[n.lstrip('+-')]}: never quote it"
+        for n in numbers(text)
+        if n.lstrip("+-") in NEVER_QUOTE
+    ]
+    if UP_TO_60.search(text):
+        found.append("60 % is the root README's claim, which no run of ours supports")
+    return found
 
 
 def spoken_words(text: str) -> int:

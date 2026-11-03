@@ -14,20 +14,20 @@ The video is built from code, from the sources in this folder. The user supplies
 
 The scripts are in [`scripts/video/`](../scripts/video/), and each one's `--help` says what it does.
 
-## The storyboard: 2:50
+## The storyboard: 2:56
 
 | Time (s) | Beat | Type | Source | On screen |
 |---|---|---|---|---|
 | 0-4 | `title` | title | `title` composition | SpotCool, "Cooling that follows people" |
-| 4-33 | `hook` | motion | `hook_stats` | Half-empty offices cooled as if full: Kastle 56.1 % (66.1 % on Tuesdays), BEE 55 %, PNNL up to 17.8 % against 5.9 % |
-| 33-50 | `plugs_in` | motion | `three_connections` | CCTV, the BMS and complaints: no new sensors |
-| 50-66 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice |
-| 66-86 | `bms_yabe` | screen | take `yabe_override` | The BMS in YABE: an operator at priority 8 beats the agent at 10, which backs off |
-| 86-107 | `dashboard` | screen | take `dashboard_replay` | The hybrid Tuesday, a replay of the live eval run |
-| 107-124 | `louvers` | phone | take `phone_vrf` | Live: the VRF's louvers follow a person |
-| 124-151 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "Upper bound with perfect perception (stub agent, in simulation)" |
-| 151-164 | `rollout` | motion | `rollout_privacy` | Rollout and privacy |
-| 164-170 | `close` | title | `close` | SpotCool, the repo, the sources slide |
+| 4-39 | `hook` | motion | `hook_stats` | US office attendance 56.1 % against February 2020, 66.1 % on the peak day (Kastle); about 55 % of a typical Indian commercial building's energy goes to HVAC (BEE); 17.8 % against 5.9 % of whole-building energy saved by counting occupants against presence sensors, in simulations of a large US office (PNNL-22072) |
+| 39-56 | `plugs_in` | motion | `three_connections` | CCTV, the BMS and complaints: no new sensors |
+| 56-72 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice |
+| 72-92 | `bms_yabe` | screen | take `yabe_override` | The BMS in YABE: an operator at priority 8 beats the agent at 10, which backs off |
+| 92-113 | `dashboard` | screen | take `dashboard_replay` | The hybrid Tuesday, a replay of the live eval run: 07:00 to 19:00 in 16 s |
+| 113-130 | `louvers` | phone | take `phone_vrf` | Live: the VRF's louvers follow a person |
+| 130-157 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "Upper bound with perfect perception (stub agent, in simulation)" |
+| 157-170 | `rollout` | motion | `rollout_privacy` | Rollout and privacy |
+| 170-176 | `close` | title | `close` | SpotCool, the repo, the sources slide |
 
 ## Before you start
 
@@ -39,7 +39,7 @@ export SPOTCOOL_WORLD_RUN_DIR="C:/Users/hussa/dev/SpotCool-AI/runs"    # the sav
 export SPOTCOOL_WORLD_FOOTAGE_DIR="C:/Users/hussa/dev/footage"         # the filmed clips
 ```
 
-You also need ffmpeg 8 on PATH, Node.js 22 or newer (HyperFrames runs through `npx`, pinned to `hyperframes@0.8.6`), OBS Studio, and Windows PowerShell for the placeholder voice. The first HyperFrames run fetches its pinned CLI with npm, and the Inter and JetBrains Mono fonts from Google Fonts. Both are cached after that. It uses the Chrome headless shell already in Puppeteer's cache (`npx --yes hyperframes@0.8.6 doctor` shows which one). Telemetry and update checks are switched off.
+You also need ffmpeg 8 on PATH, Node.js 22 or newer (HyperFrames runs through `npx`, pinned to `hyperframes@0.8.6`), OBS Studio, and Windows PowerShell for the placeholder voice. The first HyperFrames run fetches its pinned CLI with npm, the Inter and JetBrains Mono fonts from Google Fonts, and GSAP from jsDelivr; all are cached after that, and byte-identical rebuilds assume the same cached fonts. It uses the Chrome headless shell already in Puppeteer's cache (`npx --yes hyperframes@0.8.6 doctor` shows which one). Telemetry and update checks are switched off.
 
 ## 1. Check the sources
 
@@ -79,9 +79,18 @@ Studio shows the placeholders, not the storyboard's text; the render always pass
 
 **When Person A's agent has a quotable run:**
 
-1. Name it in the results beat's `run_id` and in a `video/sources.yaml` entry.
+1. Name it in the results beat's `run_id`, add a `video/sources.yaml` entry with that `run_id`, its figures (in `docs/release/numbers.md`) and its `cite`, and list it in the beat's `sources`.
 2. Run `results_card.py` and `render_motion.py --only results_card`. The label becomes "SpotCool saved" only if the report's verdict is `Quotable`.
-3. Update the results paragraph of `narration.md`. `qa.py` fails until the card, the sources and the narration agree.
+3. Rewrite the results paragraph of `narration.md`.
+
+`storyboard_check.py` fails while the results beat cites no source for its run. `qa.py` fails until all of these hold:
+
+- the card regenerates from the run the beat names;
+- the card's figures equal that source's figures, and none is on the never-quote list (`NEVER_QUOTE` in `scripts/video/storyboard.py`);
+- the beat cites that source;
+- the results narration says only the card's numbers, its saving among them;
+- the narration says "stub" exactly when the card is a stub run's;
+- the render used the card, and its label is the verdict's.
 
 ## 3. Record the narration
 
@@ -97,7 +106,7 @@ To record your own:
 
 1. Open `video/narration.md` and read it top to bottom: the hook first, the close last.
 2. Read at about 140 words a minute, plainly.
-3. Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at its longest pauses, and starts each paragraph at its beat.
+3. Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at its longest pauses, and starts each paragraph at its beat. It refuses the cut if a break is not clearly longer than every pause inside a paragraph, or if a paragraph's pace comes out outside 100 to 190 words a minute, and names the paragraphs to record again.
 4. Use Audacity, or a phone voice recorder in a quiet room.
 5. Save it as `video/raw/narration.wav`. From a phone:
 
