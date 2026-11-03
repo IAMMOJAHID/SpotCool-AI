@@ -14,7 +14,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bacpypes3.ipv4.app import NormalApplication
+from bacpypes3.local.device import DeviceObject
+from bacpypes3.pdu import Address, IPv4Address
+from bacpypes3.primitivedata import Null
 
+from spotcool_contracts import Zone
 from spotcool_contracts.events import (
     BmsWriteData,
     EventEnvelope,
@@ -23,6 +28,7 @@ from spotcool_contracts.events import (
     VrfStateData,
 )
 from spotcool_world.bus import Subscription
+from spotcool_world.clocks import SimClock
 from spotcool_world.processors import EVENTS_TOPIC
 from spotcool_world.processors.kpi import RUNS
 from spotcool_world.processors.plant_processor import CONNECTION_RECOVERIES_METRIC
@@ -52,6 +58,49 @@ pytestmark = pytest.mark.bacnet
 
 DAY_S = 199 * 86_400.0
 MakeSettings = Callable[..., WorldSettings]
+
+OPERATOR_HOLD = """\
+name: operator_hold
+description: South's meeting ends at 07:45; an operator holds its setpoint from 07:15 to 08:15.
+day: 199
+start: "07:00"
+end: "09:00"
+zones:
+  cor:
+    - {at: "07:00", scene: empty, people: 0}
+  nor:
+    - {at: "07:00", scene: empty, people: 0}
+  sou:
+    - {at: "07:00", scene: meeting, people: 3}
+    - {at: "07:45", scene: empty, people: 0}
+  eas:
+    - {at: "07:00", scene: empty, people: 0}
+  wes:
+    - {at: "07:00", scene: empty, people: 0}
+events: []
+"""
+SOUTH_SP = "analog-value,203"  # ZN-SOU-CLG-SP
+BOOKED_EARLY = """\
+name: booked_early
+description: An empty afternoon; South's 14:00-15:00 booking shows on the calendar from 12:00.
+day: 199
+start: "12:00"
+end: "19:15"
+zones:
+  cor:
+    - {at: "12:00", scene: empty, people: 0}
+  nor:
+    - {at: "12:00", scene: empty, people: 0}
+  sou:
+    - {at: "12:00", scene: empty, people: 0}
+  eas:
+    - {at: "12:00", scene: empty, people: 0}
+  wes:
+    - {at: "12:00", scene: empty, people: 0}
+events:
+  - {type: booking, room: meeting-south, from: "14:00", to: "15:00", subject: Review,
+     booked_at: "12:00"}
+"""
 
 
 def manifest(world: World) -> RunManifest:
@@ -167,6 +216,102 @@ async def test_two_hours_with_the_stub_agent(make_settings: MakeSettings, two_ho
     assert sum(e.type is EventType.PERCEPTION for e in agent) == 8  # one per step
     assert all(e.data["stub"] is True for e in agent)
     assert STUB_AGENT_NOTE in report_top(world)
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_the_stub_backs_off_from_an_operator_and_resumes_after_the_release(
+    make_settings: MakeSettings, tmp_path: Path
+) -> None:
+    path = tmp_path / "operator_hold.yaml"
+    path.write_text(OPERATOR_HOLD, encoding="utf-8")
+    settings = make_settings(scenario=str(path), stub_agent=True, speed=1800.0)  # 0.5 s a step
+    world = World(settings, run_id="operator")
+    events = world.bus.subscribe(EVENTS_TOPIC, maxsize=100_000)
+    slots: list[Any] = []  # South's setpoint's priority array just before the release
+
+    async def operator() -> None:
+        """An operator's BACnet client, as YABE would be: holds South at 23 degC at priority 8."""
+        device = DeviceObject(
+            objectIdentifier=("device", 1998), objectName="operator", vendorIdentifier=999
+        )
+        app = NormalApplication(device, IPv4Address("127.0.0.1:0"))
+        bms = Address(world.bms_endpoint)
+        try:
+            async for envelope in events:
+                if envelope.type is not EventType.SCENARIO_STATE or envelope.sim_time_s is None:
+                    continue
+                clock = SimClock.clock_text(envelope.sim_time_s)
+                if clock == "07:15":
+                    await app.write_property(bms, SOUTH_SP, "present-value", 23.0, priority=8)
+                elif clock == "08:15":
+                    slots.extend(await app.read_property(bms, SOUTH_SP, "priority-array"))
+                    await app.write_property(bms, SOUTH_SP, "present-value", Null(()), priority=8)
+                    return
+        finally:
+            app.close()
+
+    await asyncio.wait_for(asyncio.gather(world.run(handle_sigint=False), operator()), 60)
+    events.close()
+
+    assert manifest(world).ended == "finished"
+    held = [(index + 1, slot.real) for index, slot in enumerate(slots) if slot.null is None]
+    assert held == [(8, 23.0)]  # the stub never wrote South's setpoint during the hold
+    events_ = recorded(world)
+    writes = [BmsWriteData.model_validate(e.data) for e in events_ if e.type is EventType.BMS_WRITE]
+    south = [(w.priority, w.value, w.accepted) for w in writes if w.object_name == "ZN-SOU-CLG-SP"]
+    assert south == [(8, 23.0, True), (8, None, True), (10, 28.0, True)]  # resumed after it
+    run = load_run(settings.run_dir, world.run_id)
+    setpoint = {
+        SimClock.clock_text(sample.t_s): next(
+            z.cooling_sp_c for z in sample.summary.zones if z.zone is Zone.SOU
+        )
+        for sample in run.samples["spotcool"]
+    }
+    assert (setpoint["08:00"], setpoint["08:15"]) == (23.0, 23.0)  # the operator's, applied
+    assert setpoint["09:00"] == 28.0  # the stub's, once the operator let go
+    said = [e for e in events_ if e.source is EventSource.AGENT and "backed off" in str(e.data)]
+    assert [(e.type, e.sim_time_s) for e in said] == [
+        (EventType.DECISION, DAY_S + 7.75 * 3600),  # South empties at 07:45: 28 wanted
+        (EventType.EXPLANATION, DAY_S + 7.75 * 3600),
+    ]  # said once, though it tried again at each step of the hold
+    assert said[1].data["text"] == (
+        "South: ZN-SOU-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from "
+        "writing 28.0; trying again each step"
+    )
+    assert_all_stopped(world)
+
+
+@pytest.mark.asyncio
+async def test_the_bms_takes_the_stubs_booking_and_19_00_commands_on_time(
+    make_settings: MakeSettings, tmp_path: Path
+) -> None:
+    path = tmp_path / "booked_early.yaml"
+    path.write_text(BOOKED_EARLY, encoding="utf-8")
+    settings = make_settings(scenario=str(path), stub_agent=True, speed=1800.0)  # 0.5 s a step
+    world = World(settings, run_id="booked-early")
+    await asyncio.wait_for(world.run(handle_sigint=False), 60)
+
+    assert manifest(world).ended == "finished"
+    taken = [  # each stub write as the BMS took it, stamped with the step it applies from
+        (SimClock.clock_text(e.sim_time_s or 0.0), BmsWriteData.model_validate(e.data))
+        for e in recorded(world)
+        if e.type is EventType.BMS_WRITE and e.data["priority"] == 10
+    ]
+    zones = [(at, w.object_name, w.value) for at, w in taken if w.object_name.startswith("ZN-")]
+    assert [write for write in zones if write[1].startswith("ZN-SOU")] == [
+        ("12:15", "ZN-SOU-OCC-SENSOR", "Unoccupied"),  # decided at 12:00's close
+        ("12:15", "ZN-SOU-CLG-SP", 28.0),
+        ("13:30", "ZN-SOU-OCC-SENSOR", "Occupied"),  # pre-cooling: 30 minutes before 14:00
+        ("13:30", "ZN-SOU-CLG-SP", None),
+        ("15:00", "ZN-SOU-OCC-SENSOR", "Unoccupied"),  # released at the booking's end
+        ("15:00", "ZN-SOU-CLG-SP", 28.0),
+        ("19:00", "ZN-SOU-OCC-SENSOR", None),  # everything released from 19:00
+        ("19:00", "ZN-SOU-CLG-SP", None),
+    ]
+    at_19 = [(name, value) for at, name, value in zones if at == "19:00"]
+    assert len(at_19) == 10 and all(value is None for _, value in at_19)
+    assert not [write for write in zones if write[0] > "19:00"]
     assert_all_stopped(world)
 
 

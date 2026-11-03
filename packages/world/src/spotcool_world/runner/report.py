@@ -56,7 +56,9 @@ RECOVERY_MARGIN_K = 0.5
 HONESTY_NOTE = (
     "BOPTEST's occupant heat follows its fixed schedule. Savings in zones that the cameras show "
     "empty may therefore be overstated by up to the occupants' heat. The RC plant and the "
-    "`all_hands_day` scenario bracket this."
+    "`all_hands_day` scenario bracket this. BOPTEST's own discomfort KPIs (`tdis_tot`, "
+    "`idis_tot`) follow its fixed schedule, which counts every zone as occupied all day, so they "
+    "include zones the scenario leaves empty."
 )
 """The report's honesty note, word for word."""
 STUB_AGENT_NOTE = "(stub agent: perfect perception from the scenario script, not Person A's agent)"

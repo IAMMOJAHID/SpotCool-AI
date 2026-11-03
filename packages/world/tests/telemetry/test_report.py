@@ -56,7 +56,9 @@ QUOTABLE = (
 BRIEF_NOTE = (
     "BOPTEST's occupant heat follows its fixed schedule. Savings in zones that the cameras show "
     "empty may therefore be overstated by up to the occupants' heat. The RC plant and the "
-    "`all_hands_day` scenario bracket this."
+    "`all_hands_day` scenario bracket this. BOPTEST's own discomfort KPIs (`tdis_tot`, "
+    "`idis_tot`) follow its fixed schedule, which counts every zone as occupied all day, so they "
+    "include zones the scenario leaves empty."
 )
 # People per tick (07:00, 07:15, 07:30, 07:45): South arrives at 07:15, Core is there from the
 # start (no arrival), leaves at 07:30 and comes back at 07:45.

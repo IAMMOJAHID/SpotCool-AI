@@ -1,19 +1,54 @@
 name: World CI
 
-# Lint, type-check and test the Python workspace packages (contracts and world).
+# The world's checks: lint, types and tests of the Python workspace (contracts, world) and the
+# footage scripts, the golden evals, the scenario library's lint, the dashboard, and a check
+# that nothing which must stay out of the repo is tracked. The last paths of each list trigger
+# the hygiene job wherever such a file is added.
 on:
   push:
     paths:
       - "packages/**"
+      - "scripts/**"
+      - "apps/dashboard/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/world-ci.yml"
+      - "**/.env"
+      - "**/.env.*"
+      - "**/runs/**"
+      - "**/data/datasets/**"
+      - "**.mp4"
+      - "**.MP4"
+      - "**.mov"
+      - "**.MOV"
+      - "**.avi"
+      - "**.webm"
+      - "**.mkv"
+      - "**.m4a"
+      - "**.wav"
+      - "**.zip"
   pull_request:
     paths:
       - "packages/**"
+      - "scripts/**"
+      - "apps/dashboard/**"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/world-ci.yml"
+      - "**/.env"
+      - "**/.env.*"
+      - "**/runs/**"
+      - "**/data/datasets/**"
+      - "**.mp4"
+      - "**.MP4"
+      - "**.mov"
+      - "**.MOV"
+      - "**.avi"
+      - "**.webm"
+      - "**.mkv"
+      - "**.m4a"
+      - "**.wav"
+      - "**.zip"
 
 permissions:
   contents: read
@@ -21,6 +56,9 @@ permissions:
 concurrency:
   group: world-ci-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.6.5" # the uv that wrote uv.lock; bump both together
 
 jobs:
   check:
@@ -31,12 +69,15 @@ jobs:
 
       - uses: astral-sh/setup-uv@v6
         with:
-          version: "0.6.5" # the uv that wrote uv.lock; bump both together
+          version: ${{ env.UV_VERSION }}
           python-version: "3.11"
           enable-cache: true
 
       - name: Install workspace with every extra (tests and pyright cover all providers)
         run: uv sync --all-packages --all-extras --frozen
+
+      - name: Install ffmpeg (the footage-script tests skip without it)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       - name: Ruff lint
         run: uv run ruff check packages
@@ -47,5 +88,93 @@ jobs:
       - name: Pyright
         run: uv run pyright packages
 
-      - name: Pytest
-        run: uv run pytest packages
+      - name: Pytest (packages and scripts; live and eval tests are deselected)
+        run: uv run pytest
+
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install workspace with every extra
+        run: uv sync --all-packages --all-extras --frozen
+
+      - name: Golden evals on the RC plant (the live one skips without BOPTEST)
+        run: uv run pytest -m eval -rsx
+
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install workspace (the linter needs only the core)
+        run: uv sync --all-packages --frozen
+
+      - name: Lint the scenario library
+        run: uv run spotcool-world lint
+
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1" # the e2e baselines are Edge on Windows: run locally
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6 # gen:types exports the contracts' JSON Schema through uv
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.11"
+          enable-cache: true
+
+      - name: Install the Python workspace
+        run: uv sync --all-packages --frozen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+
+      - run: npm ci
+      - run: npm run gen:types
+      - run: npm run build
+      - run: npm run lint
+      - run: npm test
+
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Nothing tracked that must stay out of the repo
+        # .env files (templates such as .env.example are fine), recorded runs, footage, audio and
+        # dataset archives (Law 6; .gitignore's media list), the dashboard's node_modules
+        run: |
+          tracked=$(git ls-files \
+            | grep -iE '(^|/)\.env($|\.)|(^|/)runs/|(^|/)data/datasets/|\.(mp4|mov|avi|webm|mkv|m4a|wav|zip)$|^apps/dashboard/node_modules/' \
+            | grep -viE '(^|/)\.env\.(example|sample|template)$' || true)
+          if [ -n "$tracked" ]; then
+            echo "These files must not be in the repo:"
+            echo "$tracked"
+            exit 1
+          fi
+          echo "clean: $(git ls-files | wc -l) tracked files checked"

@@ -18,7 +18,18 @@ What it does (``StubPolicy`` decides, the worker writes):
   heartbeat's too).
 - ``SPOTCOOL-HEARTBEAT`` (BV 901) is toggled every 30 s of wall time.
 
-Every write happens only on a change.
+It commands the zones at the close of each step (the step's ``tick`` event): the people from
+that step's state, the bookings and 19:00 judged at the next step's start. Every write takes
+effect from the next step in a paced run whose step leaves time for the stub's round trips; at
+speed 0 they lag by 2-4 steps. The world never waits for an agent, Person A's included. Every
+write happens only on a change. Before writing a zone point, value or release, at 19:00 and at
+``stop()`` included, the stub reads its priority array:
+
+- A slot more urgent than its own (1-9, an operator at 8) holds a value: it backs off, does not
+  write, says so once in a ``decision`` and an ``explanation``, and tries again at the next
+  step, so it resumes when the operator releases.
+- It never releases a slot it did not write: a release goes out only while slot 10 still holds
+  the stub's own value.
 
 So the dashboard's agent panel and video mode work in stub runs, it publishes on ``"events"``,
 with ``source: "agent"``: a ``perception`` event per scenario state (people per zone) and, per
@@ -26,6 +37,8 @@ command, a ``decision`` and an ``explanation``.
 """
 
 import asyncio
+import math
+from collections.abc import Sequence
 from typing import Any
 
 from bacpypes3.apdu import ErrorRejectAbortNack
@@ -43,9 +56,10 @@ from spotcool_contracts.events import (
     EventSource,
     EventType,
     ScenarioStateData,
+    TickData,
 )
 from spotcool_contracts.points import PointSpec
-from spotcool_contracts.priorities import AGENT_PRIORITY, HEARTBEAT_PERIOD_S
+from spotcool_contracts.priorities import AGENT_PRIORITY, HEARTBEAT_PERIOD_S, OPERATOR_PRIORITY
 from spotcool_world.bus import Bus, Subscription
 from spotcool_world.processors.event_emitter import EVENTS_TOPIC
 from spotcool_world.stub_agent.policy import StubPolicy
@@ -59,6 +73,15 @@ VENDOR_ID = 999
 """BACpypes3's own vendor identifier."""
 EVENTS_QUEUE_SIZE = 10_000
 """Events the stub may fall behind by before the oldest are dropped."""
+APDU_TIMEOUT_MS = 1000
+"""How long the stub waits for each answer: sized for loopback or a LAN, not BACpypes3's 3 s."""
+APDU_RETRIES = 1
+"""Resends of an unanswered request, so one costs about 2 s, not BACpypes3's 12."""
+
+Value = str | float | None
+"""A point's value in BMS units: a state text or a setpoint in degC; ``None`` is NULL."""
+Hold = tuple[int, str | float]
+"""A slot more urgent than the stub's that holds a value: its priority and the value."""
 
 
 class Perception(BaseModel):
@@ -88,7 +111,7 @@ class Decision(BaseModel):
     stub: bool = True
     zone: Zone
     point: str
-    value: str | float | None
+    value: Value
     priority: int
     reason: str
 
@@ -111,8 +134,8 @@ class StubAgentWorker(BaseWorker):
     ``run()`` subscribes to ``"events"`` before its first wait, so start it with the pipeline
     under one ``WorkerRunner``; it needs the runner's bus. It runs until ``stop()``: the world
     stops it from the pipeline worker's ``on_pipeline_finished``, while the BMS still serves. A
-    write the BMS refuses or never answers is logged, and tried again at the next change of
-    state.
+    write the BMS refuses or never answers, or a priority array it does not answer for, is
+    logged, and tried again at the next step.
 
     Args:
         device: The BMS's ``ip:port``. The stub binds its own UDP port, any free one, on the
@@ -139,6 +162,7 @@ class StubAgentWorker(BaseWorker):
         }
         self._heartbeat = points.by_name("SPOTCOOL-HEARTBEAT")
         self._held: dict[str, str | float] = {}  # point name -> the value written at priority 10
+        self._said: dict[str, tuple[Hold, Value]] = {}  # point name -> the back-off last announced
         self._latest: tuple[ScenarioStateData, float] | None = None  # the latest state, its time
         self._events: Subscription | None = None
         self._stopping = False
@@ -169,7 +193,7 @@ class StubAgentWorker(BaseWorker):
             async for envelope in events:
                 await self._handle(app, bus, envelope)
             await self.cancel_tasks()  # the heartbeat must not come back after the release
-            await self._release(app)
+            await self._release(app, bus)
             self._state = WorkerState.FINISHED
         except asyncio.CancelledError:
             self._state = WorkerState.CANCELLED
@@ -202,11 +226,18 @@ class StubAgentWorker(BaseWorker):
             objectIdentifier=("device", DEVICE_INSTANCE),
             objectName=DEVICE_NAME,
             vendorIdentifier=VENDOR_ID,
+            apduTimeout=APDU_TIMEOUT_MS,
+            numberOfApduRetries=APDU_RETRIES,
         )
         return NormalApplication(device, IPv4Address(f"{host}:0"))
 
     async def _handle(self, app: NormalApplication, bus: Bus, envelope: object) -> None:
-        """Take a world event: a scenario state or a room's bookings; then command the zones."""
+        """Take a world event: a scenario state, a room's bookings, or a step's close (``tick``).
+
+        The zones are commanded at the step's close: a step's ``tick`` event comes after the BMS
+        has taken the step's commands, so the commands apply from the next step, and the policy
+        judges the bookings and 19:00 at that step's start.
+        """
         if not isinstance(envelope, EventEnvelope) or envelope.source is not EventSource.WORLD:
             return
         t_s = envelope.sim_time_s
@@ -219,11 +250,10 @@ class StubAgentWorker(BaseWorker):
             await _publish(bus, EventType.PERCEPTION, people, t_s)
         elif envelope.type is EventType.CALENDAR:
             self._policy.calendar(CalendarData.model_validate(envelope.data))
-        else:
-            return
-        if self._latest is not None:
+        elif envelope.type is EventType.TICK and self._latest is not None:
             state, state_s = self._latest
-            for zone, command in self._policy.commands(state, state_s).items():
+            applies_s = state_s + TickData.model_validate(envelope.data).step_s
+            for zone, command in self._policy.commands(state, applies_s).items():
                 sensor, setpoint = self._points[zone]
                 writes = [
                     (point, value)
@@ -239,20 +269,71 @@ class StubAgentWorker(BaseWorker):
         bus: Bus,
         zone: Zone,
         reason: str,
-        writes: list[tuple[PointSpec, str | float | None]],
+        writes: Sequence[tuple[PointSpec, Value]],
         t_s: float,
     ) -> None:
-        """Publish a decision per write and one explanation, then make the writes."""
+        """Check each point's priority array, then publish and make the writes it allows.
+
+        A point a slot more urgent than 10 holds is backed off from (``_back_off``); a release
+        whose slot 10 no longer holds the stub's value is dropped, since another client wrote
+        it or the BMS released it. The rest get a decision each and the zone one explanation.
+        """
+        allowed: list[tuple[PointSpec, Value]] = []
         for point, value in writes:
+            slots = await self._slots(app, point)
+            if slots is None:
+                continue  # unread: tried again at the next step
+            hold = _hold(slots)
+            if hold is not None:
+                await self._back_off(bus, zone, point, value, hold, t_s)
+                continue
+            self._said.pop(point.name, None)
+            if value is None and not _same(slots[AGENT_PRIORITY - 1], self._held.get(point.name)):
+                self._held.pop(point.name, None)  # never release a slot the stub did not write
+                continue
+            allowed.append((point, value))
+        if not allowed:
+            return
+        for point, value in allowed:
             decision = Decision(
                 zone=zone, point=point.name, value=value, priority=AGENT_PRIORITY, reason=reason
             )
             await _publish(bus, EventType.DECISION, decision, t_s)
-        done = ", ".join(f"{p.name} {'released' if v is None else v}" for p, v in writes)
+        done = ", ".join(f"{p.name} {'released' if v is None else v}" for p, v in allowed)
         text = f"{ZONES[zone].display_name}: {reason} -> {done} at priority {AGENT_PRIORITY}"
         await _publish(bus, EventType.EXPLANATION, Explanation(text=text), t_s)
-        for point, value in writes:
+        for point, value in allowed:
             await self._write(app, point, value)
+
+    async def _back_off(
+        self, bus: Bus, zone: Zone, point: PointSpec, value: Value, hold: Hold, t_s: float
+    ) -> None:
+        """Leave a point a more urgent slot holds; say so once per hold and wanted value."""
+        if self._said.get(point.name) == (hold, value):
+            return
+        self._said[point.name] = (hold, value)
+        priority, held = hold
+        who = (
+            f"an operator at priority {priority}"
+            if priority == OPERATOR_PRIORITY
+            else f"priority {priority}"
+        )
+        decision = Decision(
+            zone=zone,
+            point=point.name,
+            value=value,
+            priority=AGENT_PRIORITY,
+            reason=f"backed off: held at {held} by {who}",
+        )
+        await _publish(bus, EventType.DECISION, decision, t_s)
+        wanted = "releasing it" if value is None else f"writing {value}"
+        retry = "" if self._stopping else "; trying again each step"
+        text = (
+            f"{ZONES[zone].display_name}: {point.name} is held at {held} by {who} -> backed off "
+            f"from {wanted}{retry}"
+        )
+        logger.info(f"{self.name}: {text}")
+        await _publish(bus, EventType.EXPLANATION, Explanation(text=text), t_s)
 
     async def _beat(self, app: NormalApplication) -> None:
         """Toggle the heartbeat every ``heartbeat_s`` wall seconds, On first (a background task)."""
@@ -263,18 +344,31 @@ class StubAgentWorker(BaseWorker):
             beat = not beat
             await asyncio.sleep(self._heartbeat_s)
 
-    async def _release(self, app: NormalApplication) -> None:
-        """Release every priority-10 slot the stub holds."""
+    async def _release(self, app: NormalApplication, bus: Bus) -> None:
+        """Release every priority-10 slot the stub holds, by the same rules as any write."""
         every = [point for pair in self._points.values() for point in pair]
         held = [point for point in (*every, self._heartbeat) if point.name in self._held]
         if held:
             logger.info(f"{self.name}: releasing {', '.join(point.name for point in held)}")
-        for point in held:
-            await self._write(app, point, None)
+        if self._latest is not None:  # zone points are written only after a state
+            for zone, pair in self._points.items():
+                releases = [(point, None) for point in pair if point.name in self._held]
+                if releases:
+                    reason = "the stub is stopping"
+                    await self._command(app, bus, zone, reason, releases, self._latest[1])
+        if self._heartbeat.name in self._held:
+            await self._write(app, self._heartbeat, None)
 
-    async def _write(
-        self, app: NormalApplication, point: PointSpec, value: str | float | None
-    ) -> None:
+    async def _slots(self, app: NormalApplication, point: PointSpec) -> list[Value] | None:
+        """A point's 16 priority slots in BMS units, or ``None`` if the BMS gave no answer."""
+        try:
+            array = await app.read_property(self._address, point.object_id, "priority-array")
+        except ErrorRejectAbortNack as exc:  # a BaseException in BACpypes3
+            logger.warning(f"{self.name}: reading {point.name}'s priority array failed: {exc}")
+            return None
+        return [_slot_value(point, slot) for slot in array]
+
+    async def _write(self, app: NormalApplication, point: PointSpec, value: Value) -> None:
         """Write a point at priority 10: a binary state or a setpoint; ``None`` releases it.
 
         A write the BMS refuses or never answers is logged, and the point counts as not written.
@@ -296,6 +390,31 @@ class StubAgentWorker(BaseWorker):
             self._held.pop(point.name, None)
         else:
             self._held[point.name] = value
+
+
+def _hold(slots: list[Value]) -> Hold | None:
+    """The most urgent slot above the stub's (1-9) that holds a value, if any."""
+    for index, value in enumerate(slots[: AGENT_PRIORITY - 1]):
+        if value is not None:
+            return index + 1, value
+    return None
+
+
+def _same(slot: Value, held: Value) -> bool:
+    """Whether a slot holds the value the stub wrote; a setpoint comes back as a 32-bit Real."""
+    if isinstance(slot, float) and isinstance(held, float):
+        return math.isclose(slot, held, abs_tol=1e-4)
+    return slot == held
+
+
+def _slot_value(point: PointSpec, slot: Any) -> Value:
+    """A BACnet ``PriorityValue`` in BMS units: a setpoint, a state text, or ``None`` for NULL."""
+    if slot.null is not None:
+        return None
+    if slot.real is not None:
+        return float(slot.real)
+    states, index = point.states or [], int(slot.enumerated)
+    return states[index] if 0 <= index < len(states) else str(index)
 
 
 def _binary(point: PointSpec, state: str) -> str:

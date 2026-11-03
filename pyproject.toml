@@ -54,11 +54,12 @@ include = ["packages"]
 exclude = ["**/node_modules", "**/.venv", "**/build"]
 
 [tool.pytest.ini_options]
-testpaths = ["packages"]
+testpaths = ["packages", "scripts"]
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "live: needs a running BOPTEST service (hosted, local Docker or Codespaces)",
     "bacnet: opens BACnet/IP UDP sockets on 127.0.0.1; runs by default, skips if a port is taken",
+    "eval: golden evals, whole-world runs judged from their saved records; run with -m eval",
 ]
 # importlib mode: test files with the same name in different packages must not collide.
-addopts = "-m 'not live' --import-mode=importlib"
+addopts = "-m 'not live and not eval' --import-mode=importlib"

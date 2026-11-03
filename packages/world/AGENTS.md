@@ -45,6 +45,9 @@ uv run pytest packages/world              # all world tests (plant tests need --
 uv run pytest packages/world/tests/test_parallel_pipeline.py -k branch_order
 uv run pytest packages -m bacnet          # only the loopback BACnet tests (they run by default too)
 SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live   # live BOPTEST
+uv run pytest                             # packages and scripts (testpaths); live and eval deselected
+uv run pytest -m eval                     # the golden evals on RC, about 2 minutes (evals/)
+SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest -m "eval and live"   # one on BOPTEST
 uv run ruff check packages
 uv run ruff format --check packages       # `uv run ruff format packages` to fix
 uv run pyright packages
@@ -76,7 +79,7 @@ cd packages/world && uv run towncrier build --draft   # preview the changelog
 | **Adapter** | Translators to vendor and standard formats | `adapters/units.py` | K/W/m3s/fraction done; Haystack, vendor maps later |
 | **Serializer** | Frames to and from wire formats | `serializers/jsonl.py` | run records (WP1) and manifests (WP6) done; dashboard events use the contract envelope |
 | **Settings** | pydantic-settings + `world.yaml` | `services/settings.py` | done |
-| **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | WP10 |
+| **Evals** (scripted scenarios with expectations, judged again from saved runs) | Golden runs of the scenario library with a stub agent | `evals/` | done (WP10) |
 | **Extras** | The core stays lean; every adapter is opt-in | `pyproject.toml` | declared: `boptest`, `bacnet`, `calendar`, `occupants`, `cameras`, `rc`, `dashboard`, `report`, `video` |
 
 ### One tick of the world (target pipeline)
@@ -841,7 +844,9 @@ truth.
   perfect perception from the scenario script, not Person A's agent)".
 - **A real BACnet/IP client.** `StubAgentWorker(device)`, given the BMS's `ip:port`, is a
   BACpypes3 device (`SpotCool-Stub-Agent`, instance 1900) on its own UDP port, any free one on
-  the BMS's address, writing over loopback or the LAN exactly as A's agent will.
+  the BMS's address, writing over loopback or the LAN exactly as A's agent will. Each request
+  waits 1 s for its answer and is resent once (`APDU_TIMEOUT_MS`, `APDU_RETRIES`), so one the
+  BMS never answers costs about 2 s, not BACpypes3's 12.
 - **Perfect perception, openly.** It reads the scenario's ground truth: the `scenario_state` and
   `calendar` events on `"events"`.
 - **Policy** (`stub_agent/policy.py`, pure), at priority 10 and written only on a change:
@@ -854,7 +859,32 @@ truth.
   - from 19:00 every slot is released; at `stop()` every slot it holds, the heartbeat's
     included;
   - `SPOTCOOL-HEARTBEAT` (BV 901) is toggled every 30 s of wall time, On first.
-  A write the BMS refuses or never answers is logged and tried again with the next state.
+  A write the BMS refuses or never answers is logged and tried again at the next step.
+- **Timing: at each step's close.** It commands the zones when the step's `tick` event arrives:
+  the people from that step's state, the bookings and 19:00 judged at the next step's start,
+  the first step the commands can take effect in (`StubPolicy.commands(state, t_s)`). So a
+  booking pre-cools from 30 minutes before it, is released at its end, and everything is
+  released from 19:00, as the BMS takes them. The tick event comes after `bms.input()` has
+  taken the step's commands, so every write takes effect from the next step in a paced run
+  whose step leaves time for the stub's round trips; at speed 0 they lag by 2-4 steps. The
+  world never waits for an agent: Person A's faces the same world. The evals check each
+  write's lag from the saved record. Don't move the commands to the `scenario_state`: that
+  event races the tick through the pipeline, so some writes would take effect a step sooner,
+  depending on BACnet latency.
+- **It backs off from an operator.** Before writing a zone point, a release at 19:00 or at
+  `stop()` included, it reads the point's priority array (one ReadProperty):
+  - a slot more urgent than 10 (1-9; an operator writes at 8) holds a value: it does not write,
+    publishes one `decision` and one `explanation` saying it backed off and who holds the point
+    (once per hold and wanted value, though it tries again at every step), and resumes when the
+    hold is released;
+  - it never releases a slot it did not write: a release goes out only while slot 10 still holds
+    the value the stub wrote. Another client's write at 10, or the BMS's own release (the
+    heartbeat watchdog), is left alone, and the stub forgets the point.
+
+  A slot 10 it backed off from releasing stays under the hold: after the operator lets go it is
+  in force until the stub's next step releases it, or, after `stop()`, until the heartbeat
+  watchdog releases every slot 10 within 120 s. The heartbeat itself is written without the
+  check: it is the stub's own liveness signal, not a command.
 - **Visibility.** It publishes on `"events"`, with `source: "agent"`, a `perception` event per
   scenario state, a `decision` per point written and an `explanation` per zone changed. WP7 can
   rely on their data:
@@ -863,11 +893,17 @@ truth.
     "priority": 10, "reason": "the zone is empty"}`; `value` is a state text, a setpoint in degC,
     or null for a release;
   - `explanation`: `{"stub": true, "text": "South: the zone is empty -> ZN-SOU-OCC-SENSOR
-    Unoccupied, ZN-SOU-CLG-SP 28.0 at priority 10"}`.
+    Unoccupied, ZN-SOU-CLG-SP 28.0 at priority 10"}`;
+  - a back-off: the `decision` carries the value it wanted, at 10, with `"reason": "backed off:
+    held at 23.0 by an operator at priority 8"`, and the `explanation` says `"South:
+    ZN-SOU-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from writing 28.0;
+    trying again each step"` (`releasing it` for a release; no retry at `stop()`).
 
   `stub: true` is how the dashboard labels a stub run.
 - **Lifecycle.** It subscribes when it starts, under the world's runner, and runs until the
-  world's `on_pipeline_finished` stops it; it releases its writes while the BMS still serves.
+  world's `on_pipeline_finished` stops it; it releases its writes while the BMS still serves,
+  by the same rules, with a `decision` per release (reason "the stub is stopping"). Those come
+  after the recorder has finished, so the recording does not hold them.
 
 ## Key directories
 
@@ -891,6 +927,7 @@ truth.
 | `src/spotcool_world/utils/` | `BaseObject` (names, tasks, events), `TaskManager`, `SeenIds` |
 | `src/spotcool_world/testing.py` | `run_test`, `CaptureProcessor` |
 | `examples/foundational/` | One runnable lesson per concept (`01_clock.py` ...) |
+| `evals/` | Golden evals (marker `eval`): whole-world runs of the library, judged from their records |
 | `tests/` | Unit tests; contract suites per service base arrive with the providers |
 | `changelog/` | towncrier fragments |
 
@@ -965,18 +1002,39 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
 - Wall-clock assertions need margins for Windows timers (see below).
 - Pipecat's `SleepFrame` isn't needed here. With lockstep push, a frame is fully handled when
   `push_frame` returns, so tests assert on order directly.
-- **Evals** (`evals/`, WP10) follow pipecat's behavioral evals:
-  - each eval is a scenario from the WP5 library plus expectations: the savings band, comfort
-    where people were, and the priority rules;
-  - a stub agent, a tiny BACnet client acting like A's agent, drives the run;
-  - every run saves its records (WP6's recorder), and judging runs again on the saved records,
-    so a BOPTEST run can be re-judged without re-running the building.
+- **Evals** (`evals/`, marker `eval`, deselected by default; CI's `evals` job runs them) follow
+  pipecat's behavioral evals: run once, save, judge the saved run.
+  - `conftest.py`: one session-scoped fixture per run. Each runs the whole `World` once with
+    the stub agent on loopback (free ports, a temp `run_dir`, no `SPOTCOOL_WORLD_*` variables,
+    the occupants posting to the world's own HTTP server), at speed 1800: a step every 0.5 s,
+    the RC day in about 25 s. It returns `load_run`'s reading of the record, nothing in memory.
+  - `test_golden.py` judges only through `runner/report.py` (`check_energy`, `quote_blockers`,
+    the manifest's final KPIs), plus two things read from the same record: the connection
+    recoveries, and each stub write's lag (`write_lags`: the steps between its decision and the
+    tick the BMS took it at). Every run must be valid: finished, no dropped events, the stub
+    recorded, both integrations within `CROSS_CHECK_PCT` of the plants' own, no fallbacks or
+    recoveries, exactly the RC and stub quote blockers, and every write taken one step after
+    its decision.
+  - Then, on RC: `hybrid_tuesday`'s saving and comfort in bands around the measured values;
+    the honesty check, `evals/scenarios/all_day_occupied.yaml` (every zone occupied 07:00-19:00,
+    linted by its fixture) with |saving| < 0.5 %; `all_hands_day`'s saving, from its empty
+    hours before 08:30 and after 18:00, within 1 pp of the measured 2.34 %; the order control <
+    `all_hands_day` < `hybrid_tuesday` < `empty_friday`; and two `hybrid_tuesday` runs within
+    0.5 pp.
+  - Each band's docstring gives the measured values and why the band is that wide. Measure
+    before you move one; a reproducibility spread is a finding, never a band to widen.
+  - `-m "eval and live"` runs `hybrid_tuesday` on `SPOTCOOL_LIVE_BOPTEST_URL` at speed 60, the
+    paced checkpoint's, with the same checks (the stub the only blocker); it skips without the
+    variable. With `SPOTCOOL_LIVE_RUN_DIR` set, the run is kept there as
+    `eval-live-hybrid-<date>-<time>`, and the test prints its path, saving, energies, lags and
+    report command.
 
 ## Definition of done
 
 - From the repo root, with `UV_PROJECT_ENVIRONMENT` set, all green:
   `uv run ruff check packages`, `uv run ruff format --check packages`,
-  `uv run pyright packages`, `uv run pytest packages`.
+  `uv run pyright packages`, `uv run pytest packages scripts`, and `uv run pytest -m eval` for a
+  change that can move a run's numbers (the stub, the plants, the BMS, telemetry, scenarios).
 - Every example in `examples/foundational/` runs in seconds.
 - Docs (this file, docstrings) and a changelog fragment
   (`changelog/+<slug>.<added|changed|fixed|removed|security|other>.md`) are updated.
