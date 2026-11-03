@@ -83,6 +83,21 @@ Each extra of `packages/world/pyproject.toml` pulls in the packages below, trans
 | python-dateutil | 4.0.0 | BSD-3-Clause | matplotlib |
 | tzdata | 2026.6 | Apache-2.0 | python-dateutil |
 
+### The agent (Python), at run time
+
+`packages/agent/pyproject.toml` (AG1) also uses the world's BACpypes3, FastAPI, uvicorn, websockets, httpx, NumPy, Pillow, pydantic-settings and loguru, above. It adds these, read the same way on 3 November 2026:
+
+| Package | Version | Licence | Needed by |
+|---|---|---|---|
+| openai | 3.42.1 | Apache-2.0 | the agent: SAM 3.1 on the Meta AI API's OpenAI-compatible `responses` endpoint |
+| httpx2 | 2.16.0 | BSD-3-Clause | openai |
+| httpcore2 | 2.16.0 | BSD-3-Clause | httpx2 |
+| truststore | 0.10.5 | MIT | httpx2 |
+| httpx2-jsfetch | 1.0 | **Unverified**: not installed (httpx2 needs it only in a browser, on emscripten) | httpx2 |
+| jiter | 0.18.0 | MIT | openai |
+| sniffio | 1.3.1 | MIT OR Apache-2.0 | openai |
+| python-multipart | 0.0.33 | Apache-2.0 | the agent: the `/voice` form |
+
 ### The world (Python), tooling only
 
 The root `pyproject.toml`'s `dev` group; none of it ships.
