@@ -1,0 +1,93 @@
+# Agent lane handoff: SpotCool's real agent (from Person A's MVP)
+
+**Last updated:** 2026-11-03, about 18:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
+
+**Audience:** the next Claude Code session (or person) continuing the agent lane.
+- The world's own status is `docs/status/HANDOFF.md`.
+- The approved plan is `C:\Users\hussa\.claude\plans\purrfect-wibbling-reef.md`.
+- The world's engineering guide is `packages/world/AGENTS.md`. The agent's will be `packages/agent/AGENTS.md`, from AG1.
+
+## State in one breath
+
+- **The trunk is `agent/main`,** cut from `world/main` `98ba04b`.
+  - All new work lands there, world-side fixes included, through `ag/<id>-<slug>` or `fix/<slug>` branches merged `--no-ff`. No PRs.
+  - `world/main` is frozen as the record of the world.
+- **Person A isn't working on the agent.** We build, review and run it end to end from A's MVP, `origin/third_level_improvement` `b653cbf`, which stays frozen.
+- **The goal is SpotCool's own quotable figure:** a real agent perceiving with SAM 3.1 on a paced BOPTEST run whose report says "Quotable". It's set honestly against the 19.94 % perfect-perception upper bound. After that comes the video's live louvers shot, which can be tried until Nov 4, 16:00 IST.
+- **Deadline:** Nov 4, 21:00 IST.
+
+## Resume here (a fresh session or after `/compact`)
+
+1. Read this file, then the plan. Don't re-plan.
+2. **Check what's running:**
+   - `git -C C:/Users/hussa/dev/SpotCool-AI worktree list`, plus `git status` in any `C:\Users\hussa\dev\wt\ag*` worktree;
+   - `gh codespace list`: shut down anything idle, but never delete `spotcool-boptest-*`.
+3. **Builder agents can't be messaged from a fresh session.** Read the WP worktree's commits and uncommitted work, then start a new `general-purpose` builder from the WP's brief in `docs/agent/workpackages/`, saying what already exists.
+4. **The gate per WP** is the world's (§ Workflow below). One agent at a time; a reviewer counts.
+5. **The key** is `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY`), outside the repo. Never print it, commit it, or copy it into the repo. The user rotates it after the end-to-end test.
+
+## Status board
+
+| WP | What | Status |
+|---|---|---|
+| AG0 | Pre-flight: trunk, key, probe, D1 start, AG1 brief | **Done** (see "Measured" below) |
+| D1 | Real CCTV footage for the cameras | **In progress (lead).** WiseNET's host (`data.4tu.nl`) is down from every network we tried, so this switched to **MEVA** (CC BY 4.0, public S3, `scripts/footage/meva_fetch.py`) |
+| AG1 | Agent core: cameras → SAM 3.1 → BACnet BMS; dashboard events; `/chat` and `/voice` acknowledgements; the report's agent activity and 2 blockers; the end-to-end eval | **Brief ready**, `docs/agent/workpackages/AG1-agent-core.md`. Builder next |
+| AG2 | Perception rehearsal on RC with SAM on real footage; choose the speed | Planned |
+| AG3 | The scored BOPTEST run → "Quotable" | Planned |
+| AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | Planned |
+| AG5 | Video and release: takes, narration after AG3, final cut | Planned |
+
+## Measured (AG0, Nov 3)
+
+- **SAM 3.1** (`api.meta.ai/v1`, `openai` 3.42.1, A's `responses.create` call), with the existing key:
+  - p50 1.9 s and p95 about 3.2 s, with 5 calls running at once; no failures in 15 calls;
+  - output: `<0f>0<|box;x1=..;y1=..;x2=..;y2=..;w=..;h=..;c=..|><|mask;...|>`;
+  - a real-person frame (MEVA cafe) gave confidence 0.84.
+- **SAM sees nobody in the world's synthetic silhouettes.** So live runs need real footage (D1), and CI uses the blob counter instead.
+- **muse-wonder-1.0:** about 2.2 s for a short reply.
+- **WiseNET:** `data.4tu.nl:443` refused or timed out from the laptop, from a GitHub Codespace and from Anthropic's fetcher. The Codespace was deleted.
+
+## Binding decisions (the plan's summary)
+
+1. **The policy is the stub's** (empty → Unoccupied plus 28 °C at priority 10; occupied → release; pre-cool 30 min; 19:00 release; back off from slots 1–9), fed by SAM counts instead of ground truth. Perception is then the only difference from the 19.94 % run.
+2. **The agent never imports the world** at runtime, and its tests may use it.
+3. **Loops, not a frame pipeline:** a building loop per step, a wall-time VRF loop (AG4, off during the scored run), and complaints.
+4. **Privacy:** frames and audio stay in memory only. The agent never opens `/ws/events`.
+5. **No CO₂ in decisions,** because BOPTEST's follows its own schedule.
+6. **Complaints act on the VRF only,** never on `CLG-SP`, because the comfort KPI's band is the baseline's setpoints.
+7. **The scored run:**
+   - speed 30 by default, or 60 if the rehearsal shows at least 98 % of writes on time;
+   - the agent starts first;
+   - the report must say "Quotable", with agent activity and occupancy agreement.
+8. **Not ported from A:** RabbitMQ, the 60 s windows, legacy mode, the overlay, render and turn-JSON writes, muse-image, and A's model-based "energy saved", which is never quotable.
+
+## Workflow (the gate, as for the world)
+
+1. The lead's kickoff brief with binding decisions.
+2. One builder agent.
+3. The lead's checks and scope.
+4. An independent reviewer, for actuation, privacy or quoting.
+5. One fix round (at most 3).
+6. Trunk sync and docs.
+7. Push, branch CI, `--no-ff` merge, a tree-identity check (`git diff --quiet <branch> HEAD`), trunk CI.
+8. This handoff and the memory notes.
+
+**Checks:**
+- `uv run ruff check packages scripts`;
+- `uv run ruff format --check packages scripts`;
+- `uv run pyright packages`;
+- `uv run pytest -W error::RuntimeWarning`;
+- `uv run pytest -m eval`;
+- `uv lock --check`.
+
+Always run them with `UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/<wp>`.
+
+## User actions
+
+- **Through the night:** keep the laptop on one Wi-Fi network; switch accounts and say "continue" when a limit hits.
+- **Nov 4:**
+  - stand in front of the phone for the louvers take (until 16:00);
+  - record the narration after AG3's verdict;
+  - upload the video and fill in the form.
+- **After the end-to-end test:** rotate the Meta and Baseten keys.
