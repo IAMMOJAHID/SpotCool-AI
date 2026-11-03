@@ -1,15 +1,15 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-03, about 13:15 IST, by the lead Claude Code session (session `441270a4-d753-4379-ba6d-7751619bd543`), written so that a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-03, about 17:15 IST, by the lead Claude Code session (session `441270a4-d753-4379-ba6d-7751619bd543`), written so that a `/compact` or a fresh session can resume safely.
 
 **State in one breath:**
-- **All engineering WPs are merged into `world/main`** and its CI is green (`c1ef1c7`, run `41595373093`; five jobs: check, evals, scenarios, dashboard, hygiene): WP0–WP8, WP1.2, WP6.1, WP10 and WP11.
+- **Every WP is merged into `world/main`,** WP9 (the video pipeline) last, and its CI is green (`86de315`, run `41628160225`; five jobs: check, evals, scenarios, dashboard, hygiene): WP0–WP11, WP1.2 and WP6.1.
 - **The world runs end to end** with every service:
   - BOPTEST or RC, the BMS and the VRF, cameras, calendar, occupants, recorder, report, and the judges' dashboard;
   - BOPTEST runs survive a dropped tunnel;
   - golden evals guard it in CI.
 - **The headline figure** is **19.94 % saved**, the policy's upper bound with perfect perception (stub agent, in simulation): §7 and `docs/release/numbers.md`. **Never quote 21.14 %, 18.2 %, 27.1 %, 32.8 % or "up to 60 %".**
-- **In progress:** WP9, the video. Its builder agent `ae720b5f7f358a6f3` started about 13:05 on `wp/wp9-video` (§8 step 7).
+- **Nothing is building.** The video pipeline is merged, and its draft cut (176 s) builds from placeholders. It waits for the user's footage, takes and narration (§8).
 - **Blocked on the user:**
   - **No footage is filmed yet:** `C:\Users\hussa\dev\footage` is empty;
   - **the leaked API keys** on Person A's branches must be rotated;
@@ -18,13 +18,12 @@
 ## Resume here (a fresh session or after `/compact`)
 1. Read this file, then `packages/world/AGENTS.md`. Don't re-plan: the order and the gate flow are in §0 and §8.
 2. **Check what's running:**
-   - `git -C C:/Users/hussa/dev/SpotCool-AI worktree list` and `git status` in `C:\Users\hussa\dev\wt\wp9-video`;
+   - `git -C C:/Users/hussa/dev/SpotCool-AI worktree list` and `git status` in the main checkout;
    - `gh codespace list`: it should say `Shutdown`. If it's running and nothing needs it, stop it.
-3. **The WP9 builder** (`ae720b5f7f358a6f3`): in the same session, it notifies when it finishes, or resume it after a 429 with `SendMessage`. In a **fresh session** its id can't be messaged:
-   - check the worktree for its commits and uncommitted work;
-   - start a new `general-purpose` build agent with the brief `docs/workpackages/WP9-video.md` **as it is on `wp/wp9-video`** (commit `5512cf2`; `world/main` still has the old Antigravity-era brief until WP9 merges), telling it what already exists;
-   - adapt the prompt template `WP3_build_prompt.md` or `WP10_build_prompt.md` from this session's scratchpad (memory note `day2-session-archive`);
-   - then continue the gate flow (§0): the lead's checks, an independent reviewer, the fix round, the merge.
+3. **The video** (commands in `video/README.md`):
+   - when the user's material arrives (clips, takes, narration, music), rebuild with `assemble.py`, run `qa.py` with `SPOTCOOL_WORLD_RUN_DIR` set, and watch the cut;
+   - a run with Person A's agent that the report calls `Quotable` changes the results card by itself: re-render `results_card`, then rebuild;
+   - agent ids from an earlier session can't be messaged. For new work, start an agent from a brief and a build-prompt template (memory note `day2-session-archive`), then follow the gate flow (§0).
 4. **The lead's re-checks:**
    - **the Python checks:** `export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/<wp>`, then `uv run ruff check packages scripts`, `uv run ruff format --check packages scripts`, `uv run pyright packages`, `uv run pytest -W error::RuntimeWarning`, `uv run pytest -m eval` and `uv lock --check`;
    - **the dashboard** (`apps/dashboard`): `npm ci`, `npm run gen:types`, `npm run build`, `npm run lint`, `npm test` and `npm run test:e2e`.
@@ -123,7 +122,7 @@ Pytest deselects `live` and `eval` tests by default; BACnet tests run on loopbac
 | WP7 dashboard | Merged `f184d79` | `269e026` kickoff, `b8662f8` build, `b316faa` review fixes, `0df42e0` docs | React app (operator and video modes); the world replays the run so far to each new viewer; camera CORS for the dashboard's own origin |
 | WP3 VRF gateway | Merged `0a6509f` | `d794de5` kickoff, `819454b` build, `5a9386a` review fixes, `fd133c6` docs | The meeting-room VRF (device 2001, UDP 47810), in wall time beside the pipeline; brand profiles; `server.py` shared with the BMS |
 | WP10 evals + release | Merged `ce23b61` | `c8e386c` kickoff, `61c449c`…`04ca7a5` build, `17e254e` review fixes, `b071cc3` docs | Stub back-off, golden evals, CI, runbooks, honesty and credits |
-| **WP9 video** | **Building** (agent `ae720b5f7f358a6f3`, since about 13:05 on Nov 3) | `5512cf2` kickoff, `547e267` | A storyboard, narration, HyperFrames motion, a generated results card, scripted OBS takes, captions, an ffmpeg assembly, QA; a draft cut from placeholders |
+| WP9 video | Merged `86de315` | `5512cf2` kickoff, `b2b82bf` `7f6b2d3` `f408d86` build, `200bc28` `f07c157` review fixes, `1da5d0b` docs | A storyboard checked against `numbers.md`, HyperFrames motion, a results card generated from the run's verdict, scripted OBS takes, captions, an ffmpeg assembly, QA; a 176 s draft cut from placeholders |
 
 **Every merged WP went through the whole flow:**
 - an independent review whose findings were all fixed with tests:
@@ -138,7 +137,7 @@ Pytest deselects `live` and `eval` tests by default; BACnet tests run on loopbac
   - WP10: 2 high, 3 medium, 3 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → ~~WP3~~ → ~~WP10~~ → **WP9**.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → ~~WP3~~ → ~~WP10~~ → ~~WP9~~ → **the user's material and the final cut**.
 
 **Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
@@ -150,7 +149,7 @@ Pytest deselects `live` and `eval` tests by default; BACnet tests run on loopbac
 |---|---|---|
 | Nov 2, 18:00 | `hybrid_tuesday` on RC end to end with the stub agent, plus the dashboard live | **Done** (WP11), and the dashboard too (WP7, Nov 3). |
 | Nov 2, 22:00 | The same on BOPTEST | **Done at 12:11** with the stub agent: `checkpoint-boptest-stub-s60-3` (§7) |
-| Nov 3 | Integrate with A's agent; 21:00 first automated take | **Not yet** as of 13:00: no footage filmed, and no run with A's agent. WP9 builds the draft cut from placeholders meanwhile. |
+| Nov 3 | Integrate with A's agent; 21:00 first automated take | **Not yet** as of 17:00: WP9 is merged and the draft cut builds, but no footage is filmed and there's no run with A's agent. |
 | Nov 4 | Final takes, QA, submit by 21:00 | |
 
 ## 3. BOPTEST: what works
@@ -272,7 +271,7 @@ Pytest deselects `live` and `eval` tests by default; BACnet tests run on loopbac
 | Web | FastAPI, uvicorn, httpx, OpenCV, React + Vite, Chart.js | MIT / BSD / Apache-2.0 |
 | Report charts | matplotlib (the `report` extra) | PSF-based |
 | Recording | OBS | GPL-2 |
-| Motion graphics | HyperFrames | Apache-2.0 (marked unverified in `CREDITS.md`; WP9 checks it) |
+| Motion graphics | HyperFrames `0.8.6` | Apache-2.0 (checked by WP9) |
 | Narration and captions | the user's own voice, with a Windows-speech placeholder until it's recorded; captions from `scripts/video/captions.py` | — |
 | Editing | none: `scripts/video/assemble.py` builds the cut with ffmpeg (WP9) | LGPL/GPL tool, not shipped |
 | CI and cloud | GitHub Actions; Codespaces (120 core-hours a month) | free |
@@ -401,7 +400,7 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - `CREDITS.md` read from the lock files;
      - a security pass.
    - **Shared root files stay as they are.** The world's README section is drafted in `docs/release/` for the user to agree with Person A. Release merges into `dev`/`main` and the tag are the user's call with A.
-7. **WP9 video: building.** Branch `wp/wp9-video`, worktree `C:\Users\hussa\dev\wt\wp9-video`, venv `wp9-video`. Builder agent `ae720b5f7f358a6f3`, since about 13:05 on Nov 3. Kickoff `5512cf2`; Claude Code builds it, overriding the old Antigravity note.
+7. **WP9 video: merged** (`86de315`). Branch `wp/wp9-video`, worktree `C:\Users\hussa\dev\wt\wp9-video`, venv `wp9-video`. Builder `ae720b5f7f358a6f3`, reviewer `a8809d6a146261338`. Claude Code built it, overriding the old Antigravity note.
    - **The brief's binding decisions:**
      - `video/storyboard.yaml` is the source of truth, checked by `storyboard_check.py` (under 2:58, no gaps or overlaps, at most 150 words a minute, every number sourced).
      - **Beats:**
@@ -420,11 +419,18 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - **Captions:** `captions.py`.
      - **Assembly:** `assemble.py`, with ffmpeg and loudnorm to −14 LUFS. A missing input becomes a labelled slate. There's no manual edit.
      - **QA:** `qa.py` plus `video/QA.md`.
-   - **When the builder reports:**
-     1. the lead re-runs the checks (`pytest scripts`, ruff) and plays the draft cut;
-     2. an independent reviewer looks at the honesty of the numbers and labels, the privacy, reproducibility and the scripts;
-     3. the fix round, then the merge;
-     4. then the user's material goes in: clips, takes, narration, music, then a re-assembly and QA.
+   - **The review caught a wrong hook.**
+     - Kastle's 56.1 % is badge swipes against February 2020, not a share of desks, and 66.1 % was one peak day.
+     - The lead then checked PNNL as well: its 17.8 % against 5.9 % is a national average of whole-building energy, mostly heating.
+     - `numbers.md` was corrected (`af2efc6`) and the hook rewritten to match. Never say "half-empty", "every desk", "on Tuesdays" or "up to 17.8 %".
+   - **Other fixes:**
+     - signed numbers and ranges are checked;
+     - the card is checked against the never-quote list, its run's source and the results narration;
+     - `voice.py` refuses ambiguous cuts;
+     - a take's cue clock starts when OBS reports the recording started;
+     - the replay plays 07:00 to 19:00 at speed 2700, in 16 s.
+   - **Not yet tried against a real OBS.** The first take is also its test, so rehearse with `--dry-run`.
+   - **Next:** the user's material goes in (clips, takes, narration, music), then a re-assembly and QA.
    - **Upload** (unlisted on YouTube) is the user's step. So is the submission form.
 8. **User actions, in priority order** (deadline **Nov 4, 21:00 IST**):
    1. **URGENT: rotate the leaked Baseten and Meta API keys** with Person A (update 15 below). The repo is public.
@@ -441,10 +447,13 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
       - CORS for the dashboard;
       - the agent's event fields;
       - the release merges into `dev` and `main`, and the tag.
-   5. **For the video:**
-      - record the narration from `video/narration.md`;
+   5. **For the video** (commands in `video/README.md`):
+      - set up OBS once: import `video/obs/scene_collection.json`, enable the WebSocket server, and set `OBS_WS_PASSWORD`;
+      - record the three takes with `scripts/video/take.py`: `yabe_override`, `dashboard_replay`, and `phone_vrf`, which is filmed live with Person A's agent (`docs/runbooks/video-takes.md`);
+      - record the narration from `video/narration.md` at about 140 words a minute (the hook changed on Nov 3);
       - pick one YouTube Audio Library or Pixabay track, and log it in `CREDITS.md`;
-      - film the phone and VRF take live (`docs/runbooks/video-takes.md`);
+      - confirm the closing slide's repo, `github.com/IAMMOJAHID/SpotCool-AI`;
+      - **the louvers beat needs A's agent.** The lead proposes cutting that beat if A's agent can't drive the louvers by Nov 4, 12:00 IST (the user to confirm);
       - upload the final cut unlisted;
       - fill in the submission form, confirming its rules first.
    6. **Network:**
@@ -491,6 +500,8 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`. Send th
     - on LG, releasing Swing freezes the louver.
 14. **The shared README claims "up to 60 %".** No run of ours supports it: the BOPTEST stub upper bound is 19.94 %. Agree a wording before submission, and agree `docs/release/README-world-section.md` for the world's part.
 15. **URGENT: rotate the Baseten and Meta API keys.** A commit in the history of A's branches contains them, and the repo is public. The details went to the user directly, and aren't repeated here because this file is public too. Rotating is the fix. Purging the history, a force-push on A's branches, is A's call, after rotating.
+16. **Book the louvers take with the integration run.** The video's louvers shot is filmed live: your agent aims the meeting room's VRF louvers at a person on the phone camera (`live`) while `scripts/video/take.py phone_vrf --agent http://<agent>:8002` records. Allow about 15 minutes after the paced BOPTEST run.
+17. **Published figures:** use `docs/release/numbers.md`'s wording. Kastle's 56.1 % isn't a share of desks, and PNNL's 17.8 % is whole-building energy, on average.
 
 ## 9. Superseded (don't use)
 

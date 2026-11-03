@@ -2,7 +2,7 @@
 
 **From** Person B (the world and the video), **for** Person A (the agent).
 
-**Last updated:** 2026-11-03, 13:30 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `world/main`.
+**Last updated:** 2026-11-03, 17:15 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `world/main`.
 
 This document replaces the earlier chat notes. Everything in them is folded in here, and the changes since are listed in §15.
 
@@ -344,6 +344,8 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 | BOPTEST runs survive a dropped connection between the world and BOPTEST | None. Keep your PC on one network during a run |
 | Our stub agent backs off from an operator at priority 8, and commands at each step's close | Your agent should also leave a point an operator holds |
 | Our result: 19.94 % with the stub, as an upper bound | §10. Quote nothing higher. "Up to 60 %" isn't supported by any run |
+| Published figures checked against their sources: Kastle's 56.1 % is badge swipes against February 2020, not a share of desks; PNNL's 17.8 % against 5.9 % is whole-building energy, on average | Use `docs/release/numbers.md`'s wording in anything you write |
+| The video pipeline is built (WP9); the draft cut waits for footage | The louvers shot needs your agent (§16 item 6) |
 
 ## 16. What B needs from you
 
@@ -352,3 +354,4 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 3. **Your dashboard events:** the `data` fields of `perception` (counts and masks per camera), `decision` and `explanation`, so WP7 can draw them.
 4. **More read points?** Anything else you need from the BMS or the VRF unit. That's a contract change, so ask early.
 5. **Integration slot:** as soon as you can on Nov 3–4 (IST), run your agent against the world on BOPTEST, paced at speed 60 (about 20 minutes). It's the only run that gives SpotCool's own figure; without it the video quotes only our stub's upper bound.
+6. **The louvers take, right after it:** about 15 minutes. Your agent aims the meeting room's VRF louvers at a person on the phone camera (`live`) while our `scripts/video/take.py phone_vrf --agent http://<agent>:8002` records the screen. It's the video's only live shot of your agent.
