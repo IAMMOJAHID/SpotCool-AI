@@ -40,6 +40,8 @@ WP0 core + contracts (lands first)
 WP8 footage: no code dependency, starts immediately (people + scripts)
 ```
 
+**Status (Nov 3, about 17:00 IST): every WP below is merged into `world/main`, WP9 last (`86de315`).** The merge commits are in `docs/status/HANDOFF.md`'s status board, and the next actions are in its §8. A brief records its WP as decided at kickoff, with lead amendments; the handoff, not the brief, says what is true now (WP4's "filmed on Nov 2", for example, didn't happen).
+
 | WP | Brief | Tool | Branch |
 |---|---|---|---|
 | WP0 | core framework + contracts (done) | Claude Code (lead) | `wp/wp0-core-contracts` |
@@ -51,7 +53,7 @@ WP8 footage: no code dependency, starts immediately (people + scripts)
 | WP6 | [telemetry, KPIs, recorder, dashboard feed](WP6-telemetry.md) | Claude Code | `wp/wp6-telemetry` |
 | WP7 | [dashboard app](WP7-dashboard.md) | Claude Code | `wp/wp7-dashboard` |
 | WP8 | [footage pipeline](WP8-footage.md) | Claude Code + people | `wp/wp8-footage` |
-| WP9 | [video production](WP9-video.md) | Claude Code, plus the user for filming, voice and upload | `wp/wp9-video` (merged; the user's material is next) |
+| WP9 | [video production](WP9-video.md) | Claude Code, plus the user for filming, voice and upload | `wp/wp9-video` |
 | WP10 | [evals, CI, docs, release](WP10-evals-release.md) | Claude Code | `wp/wp10-evals-release` |
 | WP11 | [world assembly and CLI](WP11-assembly.md) | Claude Code (lead) | `wp/wp11-assembly` |
 | WP6.1 | [step-mean power](WP6.1-step-mean-power.md) | Claude Code | `wp/wp61-step-mean-power` |

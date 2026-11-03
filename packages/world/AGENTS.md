@@ -48,8 +48,8 @@ SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest packages -m live  
 uv run pytest                             # packages and scripts (testpaths); live and eval deselected
 uv run pytest -m eval                     # the golden evals on RC, about 2 minutes (evals/)
 SPOTCOOL_LIVE_BOPTEST_URL=http://127.0.0.1:8000 uv run pytest -m "eval and live"   # one on BOPTEST
-uv run ruff check packages
-uv run ruff format --check packages       # `uv run ruff format packages` to fix
+uv run ruff check packages scripts        # what CI runs
+uv run ruff format --check packages scripts   # `uv run ruff format packages scripts` to fix
 uv run pyright packages
 
 uv run python packages/world/examples/foundational/03_pipeline.py
@@ -60,7 +60,12 @@ uv run spotcool-world probe --plant rc    # go/no-go check of a plant (boptest-l
 uv run spotcool-world lint                # lint the scenario library (or: lint hybrid_tuesday --clips DIR)
 uv run python packages/world/examples/foundational/08_scenario_lint.py   # the compiled hybrid Tuesday
 cd packages/world && uv run towncrier build --draft   # preview the changelog
+
+uv run python scripts/video/storyboard_check.py   # the video's storyboard: length, pace, every number sourced
+SPOTCOOL_WORLD_RUN_DIR=C:/Users/hussa/dev/SpotCool-AI/runs uv run python scripts/video/qa.py video/renders/spotcool_draft.mp4
 ```
+
+The video's full pipeline (renders, takes, narration, assembly, QA) is in `video/README.md`.
 
 ## Architecture
 
@@ -930,6 +935,16 @@ truth.
 | `evals/` | Golden evals (marker `eval`): whole-world runs of the library, judged from their records |
 | `tests/` | Unit tests; contract suites per service base arrive with the providers |
 | `changelog/` | towncrier fragments |
+
+Outside this package, at the repo root:
+
+| Path | Contents |
+|---|---|
+| `apps/dashboard/` | The judges' dashboard (React, WP7) |
+| `scripts/footage/` | The footage pipeline: normalize clips, extract audio, dataset indexes (WP8) |
+| `scripts/video/`, `video/` | The demo video built from code: storyboard, narration, sources, motion graphics, takes, assembly, QA (WP9; start at `video/README.md`) |
+| `docs/release/numbers.md` | Every figure the video may show, with its source |
+| `docs/status/HANDOFF.md` | Person B's status, decisions and next actions |
 
 ## Code style
 
