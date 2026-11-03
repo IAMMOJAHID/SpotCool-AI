@@ -1,12 +1,12 @@
 # Person B handoff: state of the world build
 
-**Last updated:** 2026-11-03, by the lead Claude Code session. The WP10 builder is running; every other worktree is committed and pushed; the Codespace is stopped.
+**Last updated:** 2026-11-03, by the lead Claude Code session. No agent is running; every worktree is committed and pushed; the Codespace is stopped.
 
 **State in one breath:**
 - **The world runs end to end.** `spotcool-world run --plant rc --speed 0 --stub-agent` plays the whole hybrid Tuesday in about 10 s, with every service live: BMS, plants, cameras, calendar, occupants, recorder and dashboard feed.
 - **Merged into `world/main`:** WP0, WP1, WP2, WP4, WP5, WP6, WP8 and WP11.
 - **WP6.1 (the energy-measurement fix) is merged**, and the **BOPTEST checkpoint passed** (§7): the first full BOPTEST day with the BMS and the stub agent.
-- **WP7 (dashboard) and WP1.2 (BOPTEST survives a dropped connection) are merged**; WP1.2's recovery is proven live. **WP3 (VRF gateway) is merged. WP10 (evals, CI, runbooks) is building;** only WP9 (the video) follows.
+- **WP7 (dashboard) and WP1.2 (BOPTEST survives a dropped connection) are merged**; WP1.2's recovery is proven live. **WP3 (VRF gateway) and WP10 (evals, CI, runbooks, credits) are merged.** Only WP9 (the video) is left, with the run with Person A's agent.
 - **Next:** §8 step 1.
 
 **Audience:** the next Claude Code session (or person) continuing Person B's work. Read this first; it replaces the session history. `packages/world/AGENTS.md` is the authoritative engineering guide; this file is the status and the plan.
@@ -75,7 +75,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 
 | WP | Status | Commits | What it is |
 |---|---|---|---|
-| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP3 `0a6509f` (trunk CI `41542790318`). | 919 package tests (plus 6 live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
+| **Trunk `world/main`** | Pushed, green CI | Last code merge: WP10 `ce23b61` (trunk CI `41593242466`, five jobs: check, evals, scenarios, dashboard, hygiene). | 973 package and script tests, 11 evals (plus live), 45 script tests; the dashboard's 80 Vitest and 23 Edge e2e tests run locally only |
 | WP0 core + contracts | Merged | `bac5163`…`e82e7c3`; REST-key and standby fixes `d1a52f7`, `5a4aa23`, `f2d849b` | Frames, processors, pipelines, workers, bus, runner, clocks, observers, settings, the `run_test` harness; contracts (point maps, events, cameras, calendar, occupants) |
 | WP8 footage | Merged | `28f2788`; `eas_few` added in `b6b64b4` | Shot list (**14 rows**: 13 zone clips plus the live phone), consent form, `normalize.py`, `extract_audio.py`, WiseNET and MEVA tools |
 | WP1 plants | Merged `c6f7204` | `4b1905f`, `f7e953a` | BOPTEST hosted/local, RC (60 s substeps), replay; `PlantProcessor`; the JSONL records |
@@ -88,7 +88,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 | WP1.2 BOPTEST dropped connection | Merged `1ed3fcb` | `08e5e2e` kickoff, `f8eac86` build, `fca94ea` review fixes, `380f6aa` docs | Recover a lost step from BOPTEST's stored results; `stop()` rides out outages; failed runs say failed; the BMS reports an address change |
 | WP7 dashboard | Merged `f184d79` | `269e026` kickoff, `b8662f8` build, `b316faa` review fixes, `0df42e0` docs | React app (operator and video modes); the world replays the run so far to each new viewer; camera CORS for the dashboard's own origin |
 | WP3 VRF gateway | Merged `0a6509f` | `d794de5` kickoff, `819454b` build, `5a9386a` review fixes, `fd133c6` docs | The meeting-room VRF on BACnet, in wall time; the brief is ready |
-| **WP10 evals + release** | **Building** (agent `a8df75212933982d9`) | `c8e386c` kickoff, `d1c0056` trunk sync | Stub back-off, golden evals, CI, runbooks, honesty and credits |
+| WP10 evals + release | Merged `ce23b61` | `c8e386c` kickoff, `61c449c`…`04ca7a5` build, `17e254e` review fixes, `b071cc3` docs | Stub back-off, golden evals, CI, runbooks, honesty and credits |
 | WP9 video | Queued | — | HyperFrames, OBS and replay takes, captions, edit |
 
 **Every merged WP went through the whole flow:**
@@ -99,7 +99,7 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
   - WP11: 2 high, 1 medium, 5 low;
 - green branch and trunk CI on Linux.
 
-**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → ~~WP3~~ → **WP10** (building) → WP9.
+**Order (sequential):** ~~WP8~~ → ~~WP1~~ → ~~WP2~~ → ~~WP5~~ → ~~WP4~~ → ~~WP6~~ → ~~WP11~~ → ~~WP6.1~~ → ~~the BOPTEST checkpoint~~ → ~~WP7~~ → ~~WP1.2~~ → ~~WP3~~ → ~~WP10~~ → **WP9**.
 
 **Why WP1.2 comes before WP3:** every run with Person A's agent crosses the Codespace tunnel, and on Nov 2 two of three checkpoint runs died when the laptop changed networks.
 
@@ -233,13 +233,19 @@ Pytest deselects `live` tests by default; BACnet tests run on loopback.
 Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of about 7 %), ASHRAE 90.1 §6.5.3.8 (the airflow clause is verified).
 
 **Our own simulation numbers:**
-- **BOPTEST, `hybrid_tuesday`, stub agent, paced (speed 60), Nov 2 12:11** (`runs/checkpoint-boptest-stub-s60-3` in the main checkout; the verdict is blocked only by the stub agent):
-  - SpotCool 227.0 kWh against the baseline's 287.8 kWh: **21.14 % saved**, by BOPTEST's own `ener_tot` and by the world's integration alike (difference 0.000 %, no fallbacks). **Quote it only as the policy's upper bound with perfect perception**, labelled so.
-  - Comfort where people were: 1.37 against 0.33 K·h.
-  - BOPTEST's own `tdis_tot` is 10.30 against 0.15 K·h per zone, and `idis_tot` 30.5 against 0 ppm·h per zone. BOPTEST's schedule counts every zone as occupied all day, so these include zones the scenario leaves empty. Explain them; never show them bare (WP7 amendment, WP10 honesty note).
-  - `cost_tot` and `emis_tot` fall by about 21 %. Peak demand (`pele_tot`) is unchanged.
-  - BACnet: 68 stub writes accepted, 0 rejected.
-  - Runs `checkpoint-boptest-stub-s60` and `-2` died when the laptop switched Wi-Fi networks mid-run (WP1.2). They're kept as evidence; never quote them.
+- **BOPTEST, `hybrid_tuesday`, the final stub agent, speed 60, Nov 3 12:29: the live eval** (`runs/eval-live-hybrid-20261103-122941` in the main checkout; the verdict is blocked only by the stub agent):
+  - SpotCool 230.4 kWh against the baseline's 287.8 kWh: **19.94 % saved**, by BOPTEST's own `ener_tot` and by the world's integration alike (difference 0.000 %, no fallbacks). Every one of the 30 stub writes was taken a step after its decision. **Quote it only as the policy's upper bound with perfect perception**, labelled so.
+  - Comfort where people were: 2.13 against 0.33 K·h.
+  - BOPTEST's own `tdis_tot` is 9.85 against 0.15 K·h per zone, and `idis_tot` 33.3 against 0 ppm·h per zone. BOPTEST's schedule counts every zone as occupied all day, so these include zones the scenario leaves empty. Explain them; never show them bare.
+  - `cost_tot` and `emis_tot` fall by about 20 %. Peak demand (`pele_tot`) is unchanged.
+  - The quotable list, with every source, is `docs/release/numbers.md`.
+- **Superseded BOPTEST figure: 21.14 %** (the Nov 2 checkpoint `checkpoint-boptest-stub-s60-3` and `wp12-live-drop`). It came from the earlier stub, whose writes raced the step. Never quote it.
+- **RC golden evals** (CI, speed 1800, final stub), judged by the evals:
+  - control day, every zone occupied: 0.0000 %;
+  - `all_hands_day`: 2.34 %;
+  - `hybrid_tuesday`: 15.45 %, with comfort 4.29 K·h;
+  - `empty_friday`: 37.44 %;
+  - reproducible to 0.0000 pp.
 - **BOPTEST, all zones empty all day** (upper bounds; say "in simulation"): setpoint-only −29 %, with standby airflow shut-off −81 %.
 - **RC, `hybrid_tuesday`, stub agent, after the WP6.1 fix:**
   - SpotCool 118.06 kWh against the baseline's 142.02 kWh: **16.87 % saved**. The cross-check difference is 0.000 %; the plant's own `ener_tot` gives the same.
@@ -310,7 +316,14 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
      - start the world a few minutes early, so the room settles from 30 °C;
      - stop with Ctrl+C, since the recorder writes only on ticks.
 6. **WP10 evals and release.** Branch `wp/wp10-evals-release`, worktree `C:\Users\hussa\dev\wt\wp10-evals-release`, venv `wp10-evals-release`.
-   - **Building:** agent `a8df75212933982d9`, synced at `d1c0056`. After a 429, resume it with `SendMessage`. Then the rest of the gate flow.
+   - **Done: merged** `ce23b61` (branch CI `41592899498`, trunk CI `41593242466`, five jobs each).
+   - **Review** (agent `a494d1ebdaf5f2563`): approve after fixes. **Fix round** `17e254e` (builder `a8df75212933982d9`):
+     - the take runbooks set `SPOTCOOL_WORLD_FOOTAGE_DIR` and check the clips;
+     - the evals check every stub write's lag;
+     - the live eval is paced at 60 and keeps its run;
+     - the booking and 19:00 rules apply to the commanded step;
+     - hygiene exempts `.env.example` and covers raw video.
+   - **Live eval** run by the lead on Nov 3 (19.94 %, above). The band was re-centred in `fix/live-eval-band`.
    - **The kickoff's binding decisions** (`c8e386c`):
      - the stub backs off from a priority 1–9 hold, and says so;
      - golden evals on RC at speed 1800, judged from the saved run through `report.py`:
@@ -379,7 +392,8 @@ Everything is in `docs/integration/PERSON_A_HANDOFF.md` on `world/main`, except 
     - write a point only when it changes;
     - `IDU-VANE-H` exists on every brand but refuses values on Daikin and LG;
     - on LG, releasing Swing freezes the louver.
-14. **The shared README claims "up to 60 %".** No run of ours supports it: the BOPTEST stub upper bound is 21.14 %. Agree a wording before submission.
+14. **The shared README claims "up to 60 %".** No run of ours supports it: the BOPTEST stub upper bound is 19.94 %. Agree a wording before submission, and agree `docs/release/README-world-section.md` for the world's part.
+15. **URGENT: rotate the Baseten and Meta API keys.** Commit `bc55a36` ("basic_mvp", Nov 1) put them in a committed `.env` and in `mvp_pipeline.py`. It's in the history of `spotcool_agent`, `agent_improvement` and `agent_imp_mh`, and the repo is public. Rotating is the fix; purging the history (a force-push on A's branches) is A's call, after rotating.
 
 ## 9. Superseded (don't use)
 
