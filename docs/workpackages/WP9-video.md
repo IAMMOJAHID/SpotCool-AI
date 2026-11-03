@@ -1,52 +1,99 @@
-# WP9: Video production
+# WP9: The demo video
 
-**Tool:** Antigravity (HyperFrames, browser checks) with people for narration and phone shots. **Branch:** `wp/wp9-video`. **Depends on:** WP7 (dashboard), WP6/WP11 (a recorded golden run), WP8 (footage).
-**Directories:** `video/` (sources in git; `video/raw/` and `video/renders/` are git-ignored), `scripts/video/`.
-**Installed:** OBS Studio (with obs-websocket 5 on port 4455), ffmpeg 8, Node 24.
+**Tool:** Claude Code. This follows the user's rule; the earlier brief named Antigravity. **Branch:** `wp/wp9-video`, cut from `world/main` at `c1ef1c7`.
+**Depends on:**
+- every merged WP;
+- the live eval run `eval-live-hybrid-20261103-122941`;
+- `docs/release/numbers.md`;
+- the take runbooks in `docs/runbooks/`.
 
-## Deliverable
-One video **under 3:00**: 1080p30 H.264, captions burned in plus a separate `.srt`, uploaded **unlisted to YouTube**. YouTube is also where the YouTube Audio Library music licence applies. It covers the plan's §7 storyboard.
+## Goal
+One video **under 3:00** (target 2:50), at 1080p30 in H.264 with AAC audio, captions burned in, and a separate `.srt`.
 
-## Pieces
-1. **`video/storyboard.yaml`:** the single source of truth for timing. It lists beats with `start`, `end`, `type` (`motion` | `screen` | `phone` | `title`), `scene` (an OBS scene, HyperFrames composition or footage file), `narration_id` and `on_screen_text`.
-   - Target 2:50.
-   - Every number on screen cites a source id from `video/sources.yaml`.
-2. **`video/narration.md`:**
-   - final narration at about 140 words per minute (380–400 words for 2:50), with one paragraph per beat id;
-   - plain, calm delivery (the whiteboard note says "natural, calm");
-   - record with Audacity, or Kokoro-82M TTS (Apache-2.0) as the fallback.
-3. **`video/motion/`:** a HyperFrames project (HTML, CSS and GSAP rendered to MP4; use the installed `hyperframes` skills). Compositions:
-   - `hook_stats`: 56% attendance, 55% of energy is HVAC, 17.8% vs 5.9%;
-   - `three_connections`: cameras, BMS, complaints;
-   - `architecture`: world vs. agent, BACnet and HTTP lines;
-   - `rollout_privacy`: edge box, shadow mode, supervised control, counts only;
-   - `results_card`: filled from the run's `manifest.json` KPIs by a small script, never typed by hand.
+It's built reproducibly from sources in git, and the user supplies only what code can't:
+- the filmed clips;
+- the phone and VRF take;
+- the narration voice;
+- one music track;
+- the upload.
 
-   Each composition renders to `video/renders/` deterministically.
-4. **`video/obs/`:**
-   - **`scene_collection.json`** (import into OBS) with scenes: `Dashboard` (browser source at 1920×1080 of `http://127.0.0.1:8090/?mode=video`), `Dashboard+Camera`, `YABE` (window capture) and `PhoneCam`.
-   - **`scripts/video/take.py`:** an obs-websocket v5 client. Use a small MIT-licensed client, or write the protocol directly with `websockets`; check the licence first. It:
-     1. connects (password from env `OBS_WS_PASSWORD`);
-     2. switches to the first beat's scene and starts recording;
-     3. starts `spotcool-world replay <run_id> --speed <x>`;
-     4. switches scenes at each beat's `start` from `storyboard.yaml`;
-     5. stops recording.
+Until those exist, a complete **draft cut** builds from placeholders, and every rebuild is one command.
 
-     This makes every take identical and re-recordable.
-5. **Captions:** `scripts/video/captions.py` builds the SRT straight from `narration.md` and the storyboard timings. Optionally, faster-whisper (MIT) can check alignment against the recorded narration.
-6. **Music:** one Pixabay track or one YouTube Audio Library track at −20 dB under the narration, logged in `CREDITS.md`.
-7. **Edit:** a Shotcut project (`video/edit/spotcool.mlt`), or Kdenlive, that assembles the renders, takes, phone clips, narration, music and captions. Export settings go in `video/README.md`.
-8. **QA checklist** (`video/QA.md`):
-   - length under 3:00;
-   - every on-screen number has a source on the sources slide;
-   - the limitation is stated (BOPTEST occupant heat follows its schedule);
-   - `CREDITS.md` complete;
-   - captions proofread;
-   - narration about −14 LUFS;
-   - nothing private on screen (no keys, emails or notifications; use a clean browser profile).
+## Your lane (only these paths)
+- `video/`: sources in git. `video/raw/`, `video/takes/` and `video/renders/` are git-ignored.
+- `scripts/video/` and its tests.
+- The root `.gitignore`: the `video/` ignores only.
+- `CREDITS.md`: the video tools' rows.
+- `docs/runbooks/video-takes.md`: point it at the new scripts.
+
+`packages/` and `apps/` are frozen. If the video needs a world or dashboard change, stop and report it.
+
+## Decisions already made (binding)
+1. **The storyboard is the single source of truth.** `video/storyboard.yaml` holds beats, each with:
+   - `id`, `start` and `end`;
+   - `type`: `title`, `motion`, `screen` or `phone`;
+   - `source`: a composition, a take or a clip;
+   - `narration_id` and `on_screen_text`;
+   - `sources`: ids in `video/sources.yaml`.
+
+   `scripts/video/storyboard_check.py` fails when:
+   - the total runs past 2:58;
+   - beats overlap or leave gaps;
+   - a beat's narration would need more than 150 words a minute;
+   - an on-screen number has no source id.
+2. **The beats** follow plan §7:
+   1. **the hook:** half-empty offices cooled as if full, with the published figures;
+   2. **how SpotCool plugs in:** CCTV, the BMS and complaints;
+   3. **the BACnet BMS in YABE:** an operator override at priority 8, and the agent backing off (WP10);
+   4. **the hybrid Tuesday on the dashboard:** a replay of the live eval run;
+   5. **the louvers following a person,** on the phone camera and the VRF, filmed live;
+   6. **the results:** BOPTEST, SpotCool against the baseline;
+   7. **rollout and privacy;**
+   8. **the close.**
+3. **Every number comes from `docs/release/numbers.md`,** with its source id.
+   - **The results card is generated:** `scripts/video/results_card.py <run_id>` reads the saved run through `runner/report.py` (`load_run`, `check_energy`, `quote_blockers`). Nobody types its numbers.
+   - **Its label comes from the verdict:**
+     - a stub-agent run says "Upper bound with perfect perception (stub agent, in simulation)";
+     - only a run whose verdict is "Quotable" may say "SpotCool saved".
+   - The default run is `eval-live-hybrid-20261103-122941`, at 19.94 %. **Never 21.14 %.**
+4. **The narration** is `video/narration.md`.
+   - About 140 words a minute, one paragraph per beat, plain and calm.
+   - It states the limitation once: BOPTEST's occupant heat follows its schedule, and the result is an upper bound from a stub agent with perfect perception.
+   - The user records it to `video/raw/narration.wav`, in Audacity or on a phone.
+   - Until then, `scripts/video/tts_placeholder.py` renders a placeholder with Windows' built-in speech (`System.Speech` via PowerShell; nothing to install), so the timing and the cut can be built now.
+5. **The motion graphics** live in `video/motion/`, built with HyperFrames. Use the installed `hyperframes` skills.
+   - Compositions: `title`, `hook_stats`, `three_connections`, `architecture`, `rollout_privacy`, `results_card` (decision 3) and `close`.
+   - They render deterministically to `video/renders/`.
+   - Verify HyperFrames' licence from its package metadata. If it isn't usable, fall back to HTML and CSS captured with Playwright (the installed Edge) and ffmpeg, and say so.
+6. **Screen takes are scripted.**
+   - **`video/obs/scene_collection.json`:** the scenes `Dashboard` (a browser source at 1920×1080 of `http://127.0.0.1:8090/?mode=video`), `Dashboard+Camera`, `YABE` (window capture) and `PhoneCam`.
+   - **`scripts/video/take.py`:** an obs-websocket v5 client written on `websockets`, which is already installed, so no new dependency. The password comes from `OBS_WS_PASSWORD`. It:
+     - switches scenes at the storyboard's times;
+     - starts and stops recording;
+     - for the dashboard beat, starts `spotcool-world replay <run_id> --wait-viewer 60 --speed <x>`.
+   - Unit-test it against a fake obs-websocket server.
+7. **Captions:** `scripts/video/captions.py` builds the SRT from `narration.md` and the storyboard's timings, at most 42 characters a line and 2 lines a caption. The final cut burns them in, and the `.srt` is kept.
+8. **The assembly is code, not a manual edit.** `scripts/video/assemble.py` builds the final MP4 with ffmpeg from the storyboard:
+   - the renders, the takes and the phone clips;
+   - the narration, with the music at −20 dB under the voice;
+   - the burned-in captions;
+   - loudness normalised to −14 LUFS (`loudnorm`);
+   - 1080p30 H.264 with AAC.
+
+   A missing input becomes a labelled slate ("TAKE MISSING: <beat>"), so a draft cut builds today. No Shotcut.
+9. **QA:** `video/QA.md` is the checklist, and `scripts/video/qa.py` checks what code can:
+   - the duration is under 3:00;
+   - 1920×1080 at 30 fps;
+   - the loudness is −14 ± 1 LUFS;
+   - the SRT is valid and in step with the storyboard;
+   - every number has a source;
+   - the stub label is present whenever the results run is a stub run.
+10. **Privacy:** no keys, emails, notifications or real names on screen. Takes use a clean browser profile. Consent forms never enter the repo. Only the consented clips appear.
+11. **Music:** the user picks one YouTube Audio Library or Pixabay track. `assemble.py` takes its path, and `CREDITS.md` gets the row the user gives. A draft without music is fine.
 
 ## Done when
-- The final MP4 and SRT are in `video/renders/`.
-- The unlisted YouTube link is in the README.
-- `QA.md` is fully ticked.
-- A fresh take can be produced from `take.py` plus the edit project in under 30 minutes.
+- **Green:** `uv run ruff check packages scripts`, `uv run ruff format --check packages scripts` and `uv run pytest scripts -W error::RuntimeWarning`, with the new scripts tested.
+- `uv run python scripts/video/storyboard_check.py` passes.
+- **The motion renders exist,** and a draft cut, `video/renders/spotcool_draft.mp4`, builds from the placeholders. It passes `qa.py`, except for the items that need the user's material, which `qa.py` lists.
+- **`video/README.md`** gives the commands end to end: render the motion, record the takes, record the narration, assemble, run the QA.
+- **The runbook is updated.**
