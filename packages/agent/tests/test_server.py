@@ -8,7 +8,7 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from spotcool_agent.loops.complaints import ComplaintLoop, reply
+from spotcool_agent.loops.complaints import NOT_ON, UNHEARD, ComplaintLoop
 from spotcool_agent.transports.server import (
     MAX_VOICE_BYTES,
     AgentServer,
@@ -137,14 +137,15 @@ async def test_the_dashboard_page_may_post_with_its_headers_and_others_may_not()
 
 
 @pytest.mark.asyncio
-async def test_each_complaint_gets_a_template_chat_reply() -> None:
+async def test_each_complaint_gets_one_chat_reply_even_without_models_or_the_vrf() -> None:
     queue: asyncio.Queue[Complaint] = asyncio.Queue()
     published: list[tuple[EventType, str, float | None]] = []
 
     def publish(kind: EventType, data: BaseModel, t_s: float | None) -> None:
-        published.append((kind, data.model_dump()["text"], t_s))
+        if kind is EventType.CHAT:
+            published.append((kind, data.model_dump()["text"], t_s))
 
-    loop = ComplaintLoop(queue, publish)
+    loop = ComplaintLoop(queue, publish)  # no transcriber, no model, no VRF loop
     running = asyncio.create_task(loop.run())
     async with client(queue) as http:
         await http.post("/chat", json=COMPLAINT | {"sim_time_s": 17_270_100.0})
@@ -156,14 +157,9 @@ async def test_each_complaint_gets_a_template_chat_reply() -> None:
     running.cancel()
     await asyncio.gather(running, return_exceptions=True)
     assert published == [
-        (
-            EventType.CHAT,
-            "Thanks, I got your message: \"It's freezing in this meeting room.\". I'm looking into it.",
-            17_270_100.0,
-        ),
-        (EventType.CHAT, "Thanks, I got your voice message (1.5 s). I'm looking into it.", None),
+        (EventType.CHAT, f"Thanks, I've {NOT_ON}.", 17_270_100.0),
+        (EventType.CHAT, UNHEARD, None),
     ]
-    assert reply(Complaint("voice", None, b"", 2.0)).startswith("Thanks, I got your voice")
 
 
 @pytest.mark.asyncio

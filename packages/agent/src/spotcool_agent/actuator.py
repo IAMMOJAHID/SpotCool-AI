@@ -18,6 +18,10 @@
   release, then releases every zone point the agent holds, by the rules above, then the
   heartbeat. The building loop calls it on a normal stop, on Ctrl+C and on a crash. ``reset()``
   starts a new run afresh: it releases the zone points the same way, then forgets them.
+
+``apply()`` writes the policy's commands; ``command()`` writes any of the actuator's points by
+the same rules. The VRF loop has an actuator of its own over the VRF gateway's points
+(``points=``), which it never ``start()``-s: the heartbeat is the BMS's alone.
 """
 
 import asyncio
@@ -66,23 +70,34 @@ class Actuator:
         bacnet: The BMS client.
         publish: Where the decisions and explanations go.
         heartbeat_s: Wall seconds between two heartbeat toggles.
+        points: The points ``command`` writes and ``stop()`` releases, by zone; by default each
+            zone's sensor and setpoint on the BMS. Another device's (the VRF gateway's) actuator
+            passes its own and is never ``start()``-ed: the heartbeat is the BMS's alone.
     """
 
     def __init__(
-        self, bacnet: BacnetSeam, publish: Publish, *, heartbeat_s: float = HEARTBEAT_PERIOD_S
+        self,
+        bacnet: BacnetSeam,
+        publish: Publish,
+        *,
+        heartbeat_s: float = HEARTBEAT_PERIOD_S,
+        points: Mapping[Zone, Sequence[PointSpec]] | None = None,
     ) -> None:
         self._bacnet = bacnet
         self._publish = publish
         self._heartbeat_s = heartbeat_s
-        points = load_point_map("office_bms")
-        self._points = {
+        office = load_point_map("office_bms")
+        self._commanded = {
             zone: (
-                points.by_name(f"ZN-{zone.value.upper()}-OCC-SENSOR"),
-                points.by_name(f"ZN-{zone.value.upper()}-CLG-SP"),
+                office.by_name(f"ZN-{zone.value.upper()}-OCC-SENSOR"),
+                office.by_name(f"ZN-{zone.value.upper()}-CLG-SP"),
             )
             for zone in Zone
         }
-        self._heartbeat = points.by_name("SPOTCOOL-HEARTBEAT")
+        self._points: Mapping[Zone, Sequence[PointSpec]] = (
+            self._commanded if points is None else points
+        )
+        self._heartbeat = office.by_name("SPOTCOOL-HEARTBEAT")
         self._held: dict[str, str | float] = {}  # point name -> the value written at priority 10
         self._said: dict[str, tuple[Hold, Value]] = {}  # point name -> the back-off announced
         self._attempted: dict[str, Value] = {}  # point name -> a value whose write was cut off
@@ -109,15 +124,32 @@ class Actuator:
         """
         self._last_t_s = t_s
         for zone, command in commands.items():
-            sensor, setpoint = self._points[zone]
-            writes = [
-                (point, value)
-                for point, value in ((sensor, command.sensor), (setpoint, command.setpoint_c))
-                if self._held.get(point.name) != value
-            ]
-            writes.sort(key=lambda write: write[1] is not None)  # releases first
-            if writes:
-                await self._command(zone, command.reason, writes, t_s)
+            sensor, setpoint = self._commanded[zone]
+            wanted = ((sensor, command.sensor), (setpoint, command.setpoint_c))
+            await self.command(zone, command.reason, wanted, t_s)
+
+    async def command(
+        self,
+        zone: Zone,
+        reason: str,
+        values: Sequence[tuple[PointSpec, Value]],
+        t_s: float | None,
+        *,
+        explained: bool = True,
+    ) -> None:
+        """Write the values that changed, releases first, by the rules of the module docstring.
+
+        Args:
+            zone: The zone the points serve.
+            reason: Why, for the decisions and the explanation.
+            values: Each point and the value it should hold; ``None`` releases it.
+            t_s: The stamp of the events (``None`` for a wall-time loop's).
+            explained: Whether to publish the command's ``explanation`` (a back-off always is).
+        """
+        writes = [(point, value) for point, value in values if self._held.get(point.name) != value]
+        writes.sort(key=lambda write: write[1] is not None)  # releases first
+        if writes:
+            await self._command(zone, reason, writes, t_s, explained=explained)
 
     async def stop(self) -> None:
         """Stop the heartbeat, then release every slot the agent holds. Safe to call twice."""
@@ -169,6 +201,8 @@ class Actuator:
         reason: str,
         writes: Sequence[tuple[PointSpec, Value]],
         t_s: float | None,
+        *,
+        explained: bool = True,
     ) -> None:
         """Check each point's priority array, then publish and make the writes it allows."""
         allowed: list[tuple[PointSpec, Value]] = []
@@ -197,8 +231,9 @@ class Actuator:
                 zone=zone, point=point.name, value=value, priority=AGENT_PRIORITY, reason=reason
             )
             self._publish(EventType.DECISION, decision, t_s)
-        text = explain.commanded(zone, reason, [(p.name, v) for p, v in allowed])
-        self._publish(EventType.EXPLANATION, Explanation(text=text), t_s)
+        if explained:
+            text = explain.commanded(zone, reason, [(p.name, v) for p, v in allowed])
+            self._publish(EventType.EXPLANATION, Explanation(text=text), t_s)
         for point, value in allowed:
             if not await self._write(point, value):
                 continue  # refused or unanswered: tried again at the next step

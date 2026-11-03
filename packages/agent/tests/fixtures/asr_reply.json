@@ -1,0 +1,14 @@
+{
+ "sessionId": "voyager/transcribe/5D55861C4A8B483189C9DB35C0EF9879",
+ "transcript": "It is too cold in the meeting room, can you turn the air conditioning down please? please?",
+ "audioDurationMs": 5360,
+ "turns": [
+  {
+   "turnId": 0,
+   "startMs": 380,
+   "endMs": 4860,
+   "transcript": "It is too cold in the meeting room, can you turn the air conditioning down please? please?",
+   "speaker": "A"
+  }
+ ]
+}

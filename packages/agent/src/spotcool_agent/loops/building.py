@@ -115,6 +115,8 @@ class BuildingLoop:
         self._step_errors: set[str] = set()  # kinds of step failure logged so far
         self.steps = 0
         """Steps handled."""
+        self.counts: dict[Zone, int] = {}
+        """The people counted in each zone at the last step (a zone without a count is out)."""
 
     async def run(self) -> None:
         """Handle every step as ``SIM-CLOCK`` changes, until cancelled."""
@@ -162,6 +164,7 @@ class BuildingLoop:
             calendar.cancel()  # done already, unless perceiving failed
             await asyncio.gather(calendar, return_exceptions=True)
         counts = {zone: len(d.boxes) for zone, d in found.items()}
+        self.counts = counts
         cameras = self._cameras or {}
         masks = {cameras[zone].id: d.polygons() for zone, d in found.items() if zone in cameras}
         self._publish(EventType.PERCEPTION, Perception(people=counts, masks=masks), step.start_s)

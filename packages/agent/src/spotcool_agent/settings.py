@@ -11,10 +11,11 @@ import socket
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from spotcool_contracts.priorities import HEARTBEAT_PERIOD_S
+from spotcool_contracts.vrf import VrfVendor
 
 
 class AgentSettings(BaseSettings):
@@ -42,6 +43,30 @@ class AgentSettings(BaseSettings):
         heartbeat_s: Wall seconds between two heartbeat toggles.
         scripted_counts: People per camera id for ``scripted``.
         log_level: loguru's level for the run log on stderr.
+        stt: The voice transcriber: ``meta`` (``muse-voice-transcribe-1.0``) or ``fake``; by
+            default ``meta`` with ``--vision meta``, else ``fake``.
+        llm: The language model for intents and replies: ``meta`` (``muse-wonder-1.0``),
+            ``fake`` or ``off`` (keywords and templates only); by default ``meta`` with
+            ``--vision meta``, else ``off``.
+        stt_model: The transcription model.
+        llm_model: The language model.
+        llm_call_cap: Calls the transcriber and the language model may make in all, a budget
+            of their own (2 at once), apart from the building's.
+        vrf: Run the meeting room's spot cooling and let complaints act on its VRF unit.
+        vrf_port: The VRF gateway's BACnet/IP UDP port, on ``world_host``.
+        vrf_bacnet_port: The UDP port of the agent's own client of the VRF gateway, a socket
+            apart from the BMS's; 0 takes any free one.
+        vrf_call_cap: SAM calls the VRF loop may make in all, a budget of its own (2 at once);
+            then it stops aiming and releases the vanes, never the building.
+        vrf_camera: The camera that watches the meeting room.
+        vrf_brand: The unit's brand, when the gateway's ``Model_Name`` names none we know.
+        vrf_camera_height_m: That camera's mount height.
+        vrf_camera_tilt_deg: Its tilt below horizontal.
+        vrf_camera_hfov_deg: Its horizontal field of view.
+        vrf_mirror: The camera faces the unit: its right is the unit's left.
+        vrf_hold_s: Wall seconds with nobody seen before the vanes are released.
+        draft_hold_s: Wall seconds a draft complaint pauses the aiming.
+        complaint_hold_s: Wall seconds a complaint's setpoint and fan override lasts.
     """
 
     model_config = SettingsConfigDict(env_prefix="SPOTCOOL_AGENT_", extra="ignore")
@@ -69,6 +94,34 @@ class AgentSettings(BaseSettings):
     heartbeat_s: float = Field(default=HEARTBEAT_PERIOD_S, gt=0, le=60)
     scripted_counts: dict[str, int] = Field(default_factory=dict)
     log_level: Literal["TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR"] = "INFO"
+    stt: Literal["meta", "fake"] | None = None
+    llm: Literal["meta", "fake", "off"] | None = None
+    stt_model: str = "muse-voice-transcribe-1.0"
+    llm_model: str = "muse-wonder-1.0"
+    llm_call_cap: int = Field(default=200, ge=0)
+    vrf: bool = False
+    vrf_port: int = Field(default=47810, ge=1, le=65535)
+    vrf_bacnet_port: int = Field(default=47821, ge=0, le=65535)
+    vrf_call_cap: int = Field(default=3000, ge=0)
+    vrf_camera: str = "cam-meeting-live"
+    vrf_brand: VrfVendor | None = None
+    vrf_camera_height_m: float = Field(default=2.8, gt=0)
+    vrf_camera_tilt_deg: float = Field(default=30.0, gt=0, lt=90)
+    vrf_camera_hfov_deg: float = Field(default=90.0, gt=0, lt=180)
+    vrf_mirror: bool = False
+    vrf_hold_s: float = Field(default=10.0, gt=0)
+    draft_hold_s: float = Field(default=600.0, ge=0)
+    complaint_hold_s: float = Field(default=900.0, ge=0)
+
+    @model_validator(mode="after")
+    def _offline_follows_vision(self) -> "AgentSettings":
+        """Unset ``stt`` and ``llm`` follow ``vision``: Meta with Meta, offline otherwise."""
+        online = self.vision == "meta"
+        if self.stt is None:
+            self.stt = "meta" if online else "fake"
+        if self.llm is None:
+            self.llm = "meta" if online else "off"
+        return self
 
     @field_validator("world_host", "bacnet_address")
     @classmethod

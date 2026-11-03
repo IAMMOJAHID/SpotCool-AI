@@ -9,7 +9,7 @@ SpotCool's real agent, built from Person A's MVP (`origin/third_level_improvemen
 | AG1 | [agent core](AG1-agent-core.md) | P0 | `ag/ag1-agent-core` |
 | AG2 | perception rehearsal (lead; an AG2b brief only if fixes are needed) | P0 | none |
 | AG3 | the scored BOPTEST run (lead) | P0 | `docs/ag3-scored-run` |
-| AG4 | meeting room, voice and chat (brief written after AG1 merges) | P0 | `ag/ag4-meeting-room` |
+| AG4 | [meeting room, voice and chat](AG4-meeting-room.md) | P0 | `ag/ag4-meeting-room` |
 | AG5 | video and release (lead plus user) | P0 | `docs/ag5-release` |
 
 P1, only if P0 is on schedule:
