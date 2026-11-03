@@ -108,15 +108,15 @@ beats:
         - {at: 10, scene: Dashboard}
         - {at: 16, scene: YABE}
       before:
-        - "Follow docs/runbooks/yabe.md, The operator override for the video, steps 1 and 2: the world on loopback (BMS on 47809) with the stub agent, and Present Value 23 written at priority 8 on ANALOG_VALUE:201 before 08:30 sim time."
-        - "Wait until the dashboard's agent panel shows the back-off (from 08:30 sim time), then start this take."
+        - "Follow docs/runbooks/yabe.md, The operator override for the video, steps 1-3: SpotCool's agent, then the world on loopback (BMS on 47809), and Present Value 23 written at priority 8 on ANALOG_VALUE:201 between 08:30 and 17:45 sim time."
+        - "Wait until the dashboard's agent panel shows the back-off (the 18:15 step), then start this take."
       cues:
-        - {at: 0, say: "YABE: show ZN-COR-CLG-SP's Priority Array, 23 at 8 over 28 at 10"}
+        - {at: 0, say: "YABE: show ZN-COR-CLG-SP's Priority Array, 23 at 8 and slot 10 empty"}
         - {at: 10, say: "(Dashboard) the agent panel shows the back-off"}
-        - {at: 16, say: "YABE: at priority 8, clear Present Value and press Enter to release"}
+        - {at: 16, say: "YABE: at priority 8, clear Present Value and press Enter to release; the agent writes 28 at the next step"}
     narration_id: bms_yabe
     on_screen_text:
-      label: "The BMS in YABE: an operator override at priority 8 (stub agent)"
+      label: "The BMS in YABE: an operator override at priority 8 (SpotCool's agent)"
     sources: [bacnet-priorities]
 
   - id: dashboard
@@ -151,8 +151,8 @@ beats:
         - {at: 0, scene: PhoneCam}
         - {at: 7, scene: Dashboard+Camera}
       before:
-        - "Follow docs/runbooks/video-takes.md, The VRF segment: the phone camera, the world at speed 1 with the Mitsubishi profile, settled for 6 minutes, and Person A's agent connected."
-        - "Pass the agent's address with --agent, so the Dashboard browser source opens with &agent=."
+        - "Follow docs/runbooks/video-takes.md, The VRF segment: the phone camera, SpotCool's agent with --vrf, then the world at speed 1 with the Mitsubishi profile, settled for 6 minutes."
+        - "Pass --agent http://127.0.0.1:8002, so the Dashboard browser source opens with &agent=."
       cues:
         - {at: 0, say: "A enters at the left edge and walks right"}
         - {at: 7, say: "A sits on the far chair for 5 s, then walks back toward the camera"}

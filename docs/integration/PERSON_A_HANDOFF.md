@@ -2,7 +2,36 @@
 
 **From** Person B (the world and the video), **for** Person A (the agent).
 
-**Last updated:** 2026-11-03, 17:15 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `world/main`.
+**Last updated:** 2026-11-04, 03:15 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `agent/main` (the active trunk; `world/main` is frozen).
+
+## 0. Nov 4: your agent was built into the world, and it scored
+
+While you were away, Person B's lead session built your MVP (`third_level_improvement` at `b653cbf`, left untouched) into SpotCool's agent, `packages/agent` on `agent/main`. It was integrated end to end with this world. The live status is `docs/agent/HANDOFF.md`.
+
+**The result.** On a paced BOPTEST run of `hybrid_tuesday` (`runs/ag3-boptest-agent-s60`), the agent saved **19.94 % HVAC energy** against the baseline. The report says **Quotable**.
+- It perceived each zone with your SAM 3.1 call on CCTV clips (MEVA, CC BY 4.0), and got occupancy right on 240 of 240 zone-steps.
+- All 30 writes took effect one step after their decision, and the heartbeat never timed out.
+- Comfort where people were: 2.13 against 0.33 K·h.
+- On screen it reads "SpotCool saved (SAM 3.1 perception, in simulation)". The figures are in `docs/release/numbers.md`.
+
+**What of yours is in it,** and where:
+- **`domain/geometry.py`:** your SAM request shape and `parse_sam_output`.
+- **`domain/louvers.py`:** `locate`, `project_floor_point`, `louver_angles_to`, `louver_aim`, for the meeting room's VRF louvers.
+- **`services/meta/stt.py`:** your speech-to-text request, re-done async against the endpoint's real reply shape.
+- **Chat replies:** your `state_card` idea feeds the replies from muse-wonder.
+- **The model choices,** through the same Meta API.
+
+**What isn't in it, and why** (`docs/agent/HANDOFF.md`, "What was cut"):
+- **The supervisor and the plan search on the BMS:** model calls stay out of the 15 s actuation path, and moving occupied setpoints counts as discomfort in the comfort KPI.
+- **The overlay and render images, and the turn JSON:** never store frames.
+- **RabbitMQ and the clip windows,** and **legacy mode.**
+- **Your model's energy estimate:** never quoted.
+
+The building policy is the stub's (§11), fed by SAM's counts. The VRF comfort path with your PMV, and your supervisor for the VRF, are on the backlog.
+
+**How to run it:** `packages/agent/README.md`. In short: `uv run spotcool-agent run --vision meta --env-file <key file>` before the world, and add `--vrf --stt meta --llm meta` for the louvers and voice.
+
+**URGENT: rotate the Meta and Baseten keys.** The repo history holds the old ones, and the agent currently runs on that Meta key from a file outside the repo.
 
 This document replaces the earlier chat notes. Everything in them is folded in here, and the changes since are listed in §15.
 

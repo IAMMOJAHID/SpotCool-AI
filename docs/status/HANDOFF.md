@@ -433,7 +433,7 @@ Supporting: PNNL 2023 (why sensors are rare), BU 2024 (camera counting error of 
    - **Not yet tried against a real OBS.** The first take is also its test, so rehearse with `--dry-run`.
    - **Next:** the user's material goes in (clips, takes, narration, music), then a re-assembly and QA.
    - **Upload** (unlisted on YouTube) is the user's step. So is the submission form.
-8. **User actions, in priority order** (deadline **Nov 4, 21:00 IST**):
+8. **User actions, in priority order** (deadline **Nov 4, 21:00 IST**). **Superseded on Nov 4 by `docs/release/USER_GUIDE.md`,** the step-by-step guide that covers footage (MEVA, nothing to film), the takes with SpotCool's own agent, the narration, the final cut and the upload. The list below is the Nov 3 version:
    1. **URGENT: rotate the leaked Baseten and Meta API keys** with Person A (update 15 below). The repo is public.
    2. **Film the 14 shots** in `docs/footage/shot_list.md`, the critical path. Then:
       - `uv run python scripts/footage/normalize.py`;

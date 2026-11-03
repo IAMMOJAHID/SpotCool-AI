@@ -35,13 +35,17 @@ Run through this list before the upload. The items marked **(qa.py)** are checke
   - no real name;
   - no badge or logo;
   - no screen showing content.
-- [ ] **Consent.** Only people who signed the consent form appear (`docs/footage/consent.md`). The signed forms stay outside the repo.
+- [ ] **Consent.** On camera there are only:
+  - the MEVA dataset's people (CC BY 4.0, credited in `CREDITS.md` and on the sources slide);
+  - you on the phone take;
+  - anyone else who signed the consent form (`docs/footage/consent.md`). The signed forms stay outside the repo.
 - [ ] **Honesty:**
-  - The limitation is said once, plainly, in the results beat: the stub agent's perfect perception, and BOPTEST's occupant heat following its schedule.
-  - The card and the dashboard both carry the stub label.
+  - The results beat says the agent saw every zone through Meta's SAM, and says the limitation once: BOPTEST's occupant heat follows its own schedule.
+  - The card says "SpotCool saved (SAM 3.1 perception, in simulation)", and the dashboard take's label says "SpotCool's agent, in simulation".
+  - Nothing claims the agent counted people exactly: only occupied or empty is scored.
 - [ ] **The numbers on screen are the narration's.** Nothing on the dashboard take is read out as SpotCool's own saving.
 - [ ] **The takes:**
-  - The YABE take shows 23 at priority 8 over 28 at 10, and the dashboard's back-off message.
+  - The YABE take shows 23 at priority 8 with slot 10 empty, and the dashboard's "backed off from writing 28.0" message.
   - The replay plays the whole day, 07:00 to 19:00 in 16 s, inside the beat: it starts just after the dashboard appears and ends before the cut.
   - The louvers slew; they don't jump.
 - [ ] **The sound:**

@@ -67,19 +67,25 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
 ## The VRF segment: filmed live
 
 1. **The phone camera:** [phone-camera.md](phone-camera.md). Set `SPOTCOOL_WORLD_LIVE_CAMERA_URL`.
-2. **Start the world a few minutes before the take**, with the Mitsubishi profile. The room model starts at 30 degC ambient and settles toward the unit's setpoint with a 2-minute time constant, so after about 6 minutes it has settled. At speed 1 the world runs in real time until Ctrl+C:
+2. **Start SpotCool's agent first** (its own window), with the VRF loop and Meta's models ([packages/agent/README.md, The louvers demo](../../packages/agent/README.md)):
+
+   ```bash
+   uv run spotcool-agent run --vrf --vision meta --stt meta --llm meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env
+   ```
+
+   Then **start the world a few minutes before the take**, with the Mitsubishi profile. The room model starts at 30 degC ambient and settles toward the unit's setpoint with a 2-minute time constant, so after about 6 minutes it has settled. At speed 1 the world runs in real time until Ctrl+C:
 
    ```bash
    SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi uv run spotcool-world run --plant rc --speed 1
    ```
 
-   The world prints `VRF <this PC's address>:47810 (BACnet/IP)` for Person A's agent.
+   The world prints `VRF <this PC's address>:47810 (BACnet/IP)`. The agent finds it by itself (`Model_Name` gives the brand). Walk across the phone's view: `IDU-VANE-H` steps Pos1 to Pos5 (the agent's log and the dashboard show each `decision`).
 3. Record the take. With `$SPOTCOOL_WORLD_LIVE_CAMERA_URL` set, it points OBS's `Phone camera` source at the phone's `/video` stream. It opens the dashboard with `&agent=`, and switches between `PhoneCam` and `Dashboard+Camera` at the cues. Person A's agent aims the louvers, and the AC panel shows them slew at 15 deg/s:
 
    ```bash
-   uv run python scripts/video/take.py phone_vrf --agent http://<agent>:8002
+   uv run python scripts/video/take.py phone_vrf --agent http://127.0.0.1:8002
    ```
 
-4. After the take, press Ctrl+C in the world's window.
+4. After the take, press Ctrl+C in the agent's window (it releases the VRF and BMS slots), then in the world's.
 
 The louvers are filmed live, never replayed: a replay plays the VRF back once a step, so the louvers would jump instead of slewing.
