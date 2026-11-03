@@ -8,7 +8,7 @@ world's own report (``spotcool_world.runner.report``: ``load_run``, ``check_ener
 only read. The card is written to ``video/renders/results_card.json``, where
 ``render_motion.py`` takes it as the ``results_card`` composition's variables.
 
-The label follows the report's verdict. A run whose verdict is "Quotable" says "SpotCool saved".
+The label follows the report's verdict. A run whose verdict is "Quotable" says "SpotCool saved (SAM 3.1 perception, in simulation)".
 A run blocked only by the stub agent says "Upper bound with perfect perception (stub agent, in
 simulation)". Any other blocker (not BOPTEST, unpaced, unfinished, dropped events, a power
 fallback, an integration off its plant's own) refuses the card.
@@ -34,7 +34,7 @@ from spotcool_world.runner.report import (
 
 CARD_FILE = RENDERS / "results_card.json"
 STUB_LABEL = "Upper bound with perfect perception (stub agent, in simulation)"
-QUOTABLE_LABEL = "SpotCool saved"
+QUOTABLE_LABEL = "SpotCool saved (SAM 3.1 perception, in simulation)"
 CARD_KEYS = (
     "label",
     "saved",

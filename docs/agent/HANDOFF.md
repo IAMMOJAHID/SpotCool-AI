@@ -1,6 +1,6 @@
 # Agent lane handoff: SpotCool's real agent (from Person A's MVP)
 
-**Last updated:** 2026-11-03, about 23:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-04, about 01:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
 
 **Audience:** the next Claude Code session (or person) continuing the agent lane.
 - The world's own status is `docs/status/HANDOFF.md`.
@@ -31,10 +31,10 @@
 | WP | What | Status |
 |---|---|---|
 | AG0 | Pre-flight: trunk, key, probe, D1 start, AG1 brief | **Done** (see "Measured" below) |
-| D1 | Real CCTV footage for the cameras | **In progress (lead).** WiseNET's host (`data.4tu.nl`) is down from every network we tried, so this switched to **MEVA** (CC BY 4.0, public S3). Clips are in `C:/Users/hussa/dev/footage/raw/meva/`; SAM scans picked windows that are stable at 1 s (no frame without people in an occupied window) |
+| D1 | Real CCTV footage for the cameras | **Done.** WiseNET's host is down everywhere, so it's MEVA (CC BY 4.0): 11 segments in `C:/Users/hussa/dev/footage/datasets/meva/` (`index.yaml`, `provenance.txt`; built by the scratchpad's `d1_build.py`). Each zone has its own room, and every occupied segment shows people in every 1 s frame (SAM scans). `CREDITS.md` has a row per file |
 | AG1 | Agent core: cameras → SAM 3.1 → BACnet BMS; dashboard events; `/chat` and `/voice` acknowledgements; the report's agent activity and blockers; the end-to-end eval | **Done** on `ag/ag1-agent-core` (build `b9e42ac` `d4fed74` `706a0a4`, review fixes `d491c2c` `2de469e`). The eval on RC matches the stub: 15.4469 % against 15.4469 %, 30/30 writes one step late, 240/240 agreement. Builder `ab9df4e1b4b50ea81`, reviewer `a7e31493b0cfa9325` |
-| AG2 | Perception rehearsal on RC with SAM on real footage; choose the speed | Planned |
-| AG3 | The scored BOPTEST run → "Quotable" | Planned |
+| AG2 | Perception rehearsal on RC with SAM on real footage; choose the speed | **Done:** `runs/ag2-rc-meva-s60`. Agreement 239/239, all writes one step late, 15.45 % (= the stub's RC; RC is never quoted). **Speed 60 chosen** |
+| AG3 | The scored BOPTEST run → "Quotable" | **Done:** `runs/ag3-boptest-agent-s60` says **Quotable: 19.94 % saved**, with 40 agent writes, agreement 240/240, every write on time, comfort 2.13 against 0.33 K h. The control `runs/ag3-boptest-allhands-s60` saves 5.68 % (one miss: East 13:15). Both are in `docs/release/numbers.md`; the card label is "SpotCool saved (SAM 3.1 perception, in simulation)" |
 | AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | Brief drafted; the builder starts once AG1 is merged |
 | AG5 | Video and release: takes, narration after AG3, final cut | Planned |
 
