@@ -22,7 +22,8 @@
    - `gh codespace list`: it should say `Shutdown`. If it's running and nothing needs it, stop it.
 3. **The WP9 builder** (`ae720b5f7f358a6f3`): in the same session, it notifies when it finishes, or resume it after a 429 with `SendMessage`. In a **fresh session** its id can't be messaged:
    - check the worktree for its commits and uncommitted work;
-   - start a new `general-purpose` build agent with the brief `docs/workpackages/WP9-video.md`, telling it what already exists;
+   - start a new `general-purpose` build agent with the brief `docs/workpackages/WP9-video.md` **as it is on `wp/wp9-video`** (commit `5512cf2`; `world/main` still has the old Antigravity-era brief until WP9 merges), telling it what already exists;
+   - adapt the prompt template `WP3_build_prompt.md` or `WP10_build_prompt.md` from this session's scratchpad (memory note `day2-session-archive`);
    - then continue the gate flow (§0): the lead's checks, an independent reviewer, the fix round, the merge.
 4. **The lead's re-checks:**
    - **the Python checks:** `export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/<wp>`, then `uv run ruff check packages scripts`, `uv run ruff format --check packages scripts`, `uv run pyright packages`, `uv run pytest -W error::RuntimeWarning`, `uv run pytest -m eval` and `uv lock --check`;
