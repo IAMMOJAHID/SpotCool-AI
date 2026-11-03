@@ -6,11 +6,13 @@ Every figure the narration, the captions or a slide may show, with its source. A
 
 | Figure | What it says | Source |
 |---|---|---|
-| Up to 17.8 % against 5.9 % | HVAC savings from counting occupants, against detecting presence only | [PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf) |
+| 17.8 % against 5.9 % | Whole-building energy saved in a simulated US large office by occupancy-based control of the lights and VAV boxes: with sensors that count the occupants, against sensors that detect presence only. A national average weighted by construction volume, not a maximum, and not a share of HVAC energy; most of the saving is heating | [PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf), executive summary and section 3.3 |
 | -27 % | HVAC energy when the cooling setpoint goes from 22.2 to 25 degC | [CBE 2015](https://escholarship.org/uc/item/13s1q2xc) |
 | About 6 % per 1 degC | AC electricity saved per degree of setpoint | [BEE](https://www.cseindia.org/a-step-in-the-right-direction-says-cse-of-power-ministry-s-move-to-fix-starting-temperature-of-room-air-conditioners-at-24oc-and-not-lower-to-save-energy-8814) |
-| About 55 % | HVAC's share of energy in Indian commercial buildings | [BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf) |
-| 56.1 %, 66.1 % on Tuesdays | Office attendance | [Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/) |
+| About 55 % | HVAC's share of energy in a typical commercial building in India | [BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf), "Building Code and Rating in India", slide "Typical Commercial Building Energy Use" |
+| 56.1 %; 66.1 % on the peak day | US office attendance by badge swipes, against February 2020 (= 100 %, which Kastle calls normal peak occupancy, not capacity): the 10-city weekly average, and the peak day, Tuesday 20 October 2026. Not a share of desks. The page updates weekly (read 3 November 2026) | [Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/) |
+
+The PNNL, BEE 55 % and Kastle rows were checked against their sources on 3 November 2026. Check any other row against its source before it goes on screen.
 
 Supporting, for the narration's reasoning rather than on screen: PNNL 2023 (why occupancy sensors are rare), BU 2024 (camera counting errs by about 7 %), and ASHRAE 90.1-2019 section 6.5.3.8 (occupied-standby shuts zone airflow off; the clause is verified).
 
