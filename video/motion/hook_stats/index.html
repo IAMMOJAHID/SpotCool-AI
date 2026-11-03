@@ -1,0 +1,325 @@
+<!doctype html>
+<!--
+  The hook: a five-zone office as the hybrid Tuesday has it at 08:30 (people in three zones, two
+  zones empty), every zone cooled the same; beside it the published figures, one at a time, as
+  the narration names them. The picture maps no figure onto desks or seats: attendance is badge
+  swipes against February 2020, not a share of desks (docs/release/numbers.md). Every figure and
+  its source line comes from the storyboard's hook beat (on_screen_text).
+-->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id": "headline", "type": "string", "label": "Headline", "default": "Fewer people come in. The cooling keeps its schedule."},
+    {"id": "attendance_value", "type": "string", "label": "Attendance", "default": "-"},
+    {"id": "attendance_label", "type": "string", "label": "Attendance label", "default": "US office attendance"},
+    {"id": "peak_value", "type": "string", "label": "Peak-day attendance", "default": "-"},
+    {"id": "peak_label", "type": "string", "label": "Peak-day label", "default": "on the peak day"},
+    {"id": "attendance_source", "type": "string", "label": "Attendance source", "default": "Source"},
+    {"id": "hvac_value", "type": "string", "label": "HVAC share", "default": "-"},
+    {"id": "hvac_label", "type": "string", "label": "HVAC share label", "default": "of a commercial building’s energy goes to HVAC"},
+    {"id": "hvac_source", "type": "string", "label": "HVAC share source", "default": "Source"},
+    {"id": "counting_value", "type": "string", "label": "Counting saving", "default": "-"},
+    {"id": "counting_label", "type": "string", "label": "Counting label", "default": "of whole-building energy saved by counting occupants"},
+    {"id": "presence_value", "type": "string", "label": "Presence saving", "default": "-"},
+    {"id": "presence_label", "type": "string", "label": "Presence label", "default": "with presence sensors only"},
+    {"id": "counting_scope", "type": "string", "label": "Counting scope", "default": "In simulations"},
+    {"id": "counting_source", "type": "string", "label": "Counting source", "default": "Source"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SpotCool: hook</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111821;
+        --line: #2a3542;
+        --ink: #f2f1ec;
+        --muted: #a3acb6;
+        --dim: #7c8692;
+        --cool: #63d3e8;
+        --spot: #3d8bf0;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #hook-scene {
+        position: absolute;
+        inset: 0;
+      }
+      #hook-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+      /* The office: north, south, east and west round a core, as in BOPTEST's five-zone model. */
+      #hook-plan {
+        position: absolute;
+        left: 140px;
+        top: 200px;
+        width: 740px;
+        height: 640px;
+        display: grid;
+        grid-template-columns: 170px 1fr 170px;
+        grid-template-rows: 150px 1fr 150px;
+        grid-template-areas: "n n n" "w c e" "s s s";
+        gap: 10px;
+      }
+      .hook-zone {
+        position: relative;
+        border: 2px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+      .hook-wash {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(160deg, rgba(99, 211, 232, 0.55), rgba(61, 139, 240, 0.35));
+      }
+      .hook-name {
+        position: absolute;
+        left: 14px;
+        top: 10px;
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .hook-people {
+        position: relative;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 30px;
+        max-width: 240px;
+      }
+      #hook-n { grid-area: n; }
+      #hook-s { grid-area: s; }
+      #hook-w { grid-area: w; }
+      #hook-e { grid-area: e; }
+      #hook-c { grid-area: c; }
+      /* A person, seen from above: a head and shoulders. */
+      .hook-person {
+        position: relative;
+        display: block;
+        width: 34px;
+        height: 40px;
+      }
+      .hook-person::before {
+        content: "";
+        position: absolute;
+        left: 9px;
+        top: 0;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--ink);
+      }
+      .hook-person::after {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 19px;
+        width: 34px;
+        height: 21px;
+        border-radius: 17px 17px 6px 6px;
+        background: var(--ink);
+      }
+      .hook-ring {
+        position: absolute;
+        left: -11px;
+        top: -8px;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        border: 3px solid var(--cool);
+      }
+      /* The figures, one at a time in one slot. */
+      #hook-headline {
+        position: absolute;
+        left: 980px;
+        top: 200px;
+        width: 820px;
+        font-size: 56px;
+        font-weight: 700;
+        line-height: 1.12;
+        letter-spacing: -0.01em;
+      }
+      .hook-stat {
+        position: absolute;
+        left: 980px;
+        top: 390px;
+        width: 820px;
+        height: 460px;
+        display: flex;
+        flex-direction: column;
+      }
+      .hook-big {
+        font-size: 150px;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: -0.03em;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+      }
+      #hook-hvac .hook-big {
+        font-size: 124px;
+      }
+      .hook-big-label {
+        margin-top: 14px;
+        font-size: 40px;
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--cool);
+        text-wrap: balance;
+      }
+      .hook-pair {
+        margin-top: 28px;
+        display: flex;
+        align-items: baseline;
+        gap: 18px;
+      }
+      .hook-pair-value {
+        font-size: 56px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .hook-pair-label {
+        font-size: 32px;
+        color: var(--muted);
+      }
+      .hook-scope {
+        margin-top: 18px;
+        font-size: 28px;
+        color: var(--muted);
+      }
+      .hook-source {
+        margin-top: auto;
+        font-size: 26px;
+        color: var(--dim);
+        text-wrap: balance;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="hook_stats" data-start="0" data-duration="35" data-width="1920" data-height="1080">
+      <div id="hook-scene" class="clip" data-start="0" data-duration="35" data-track-index="1">
+        <div id="hook-bg"></div>
+        <div id="hook-plan">
+          <div class="hook-zone" id="hook-n">
+            <div class="hook-wash"></div>
+            <div class="hook-name">North</div>
+            <div class="hook-people">
+              <i class="hook-person"><b class="hook-ring"></b></i><i class="hook-person"><b class="hook-ring"></b></i>
+            </div>
+          </div>
+          <div class="hook-zone" id="hook-w">
+            <div class="hook-wash"></div>
+            <div class="hook-name">West</div>
+            <div class="hook-people">
+              <i class="hook-person"><b class="hook-ring"></b></i>
+            </div>
+          </div>
+          <div class="hook-zone" id="hook-c">
+            <div class="hook-wash"></div>
+            <div class="hook-name">Core</div>
+            <div class="hook-people">
+              <i class="hook-person"><b class="hook-ring"></b></i><i class="hook-person"><b class="hook-ring"></b></i><i class="hook-person"><b class="hook-ring"></b></i><i class="hook-person"><b class="hook-ring"></b></i>
+            </div>
+          </div>
+          <div class="hook-zone" id="hook-e">
+            <div class="hook-wash"></div>
+            <div class="hook-name">East</div>
+          </div>
+          <div class="hook-zone" id="hook-s">
+            <div class="hook-wash"></div>
+            <div class="hook-name">South</div>
+          </div>
+        </div>
+
+        <div id="hook-headline" data-var-text="headline">Fewer people come in. The cooling keeps its schedule.</div>
+
+        <div class="hook-stat" id="hook-attendance" data-layout-allow-overlap>
+          <div class="hook-big" data-var-text="attendance_value">-</div>
+          <div class="hook-big-label" data-var-text="attendance_label">US office attendance</div>
+          <div class="hook-pair">
+            <span class="hook-pair-value" data-var-text="peak_value">-</span>
+            <span class="hook-pair-label" data-var-text="peak_label">on the peak day</span>
+          </div>
+          <div class="hook-source" data-var-text="attendance_source">Source</div>
+        </div>
+
+        <div class="hook-stat" id="hook-hvac" data-layout-allow-overlap>
+          <div class="hook-big" data-var-text="hvac_value">-</div>
+          <div class="hook-big-label" data-var-text="hvac_label">of a commercial building’s energy goes to HVAC</div>
+          <div class="hook-source" data-var-text="hvac_source">Source</div>
+        </div>
+
+        <div class="hook-stat" id="hook-counting" data-layout-allow-overlap>
+          <div class="hook-big" data-var-text="counting_value">-</div>
+          <div class="hook-big-label" data-var-text="counting_label">of whole-building energy saved by counting occupants</div>
+          <div class="hook-pair">
+            <span class="hook-pair-value" data-var-text="presence_value">-</span>
+            <span class="hook-pair-label" data-var-text="presence_label">with presence sensors only</span>
+          </div>
+          <div class="hook-scope" data-var-text="counting_scope">In simulations</div>
+          <div class="hook-source" data-var-text="counting_source">Source</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const IN = { opacity: 1, filter: "blur(0px)", y: 0, duration: 0.5, ease: "power4.out" };
+      const OUT = { opacity: 0, filter: "blur(8px)", duration: 0.22, ease: "power3.in" };
+      const enter = (sel, at) => tl.fromTo(sel, { opacity: 0, filter: "blur(8px)", y: 18 }, IN, at);
+
+      // The office as it is at 08:30: people in three zones, every zone washed the same blue.
+      tl.fromTo("#hook-plan", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 0.1);
+      tl.fromTo(".hook-wash", { opacity: 0 }, { opacity: 0.2, duration: 0.8, ease: "power2.out" }, 0.4);
+      enter("#hook-headline", 0.3);
+
+      // Attendance against February 2020, and the peak day.
+      enter("#hook-attendance", 0.9);
+      // "Yet buildings still cool on a fixed schedule": the wash brightens on every zone, empty or not.
+      tl.fromTo(".hook-wash", { opacity: 0.2 }, { opacity: 0.42, duration: 0.7, ease: "power2.inOut" }, 11.0);
+      tl.to("#hook-attendance", OUT, 14.0);
+
+      // HVAC's share of a commercial building's energy in India.
+      enter("#hook-hvac", 14.3);
+      tl.to("#hook-hvac", OUT, 21.8);
+
+      // Counting the occupants, against presence only: each person is counted.
+      enter("#hook-counting", 22.1);
+      tl.fromTo(".hook-ring", { opacity: 0 }, { opacity: 1, duration: 0.35, ease: "power2.out", stagger: 0.08 }, 22.8);
+      window.__timelines["hook_stats"] = tl;
+    </script>
+  </body>
+</html>

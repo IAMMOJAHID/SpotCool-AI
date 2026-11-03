@@ -1,194 +1,190 @@
-# SpotCool-AI
+# SpotCool: cooling that follows people
 
-SpotCool processes video clips through a RabbitMQ worker. Each job contains a
-video path and a half-open clip range (`clip_start_seconds` inclusive,
-`clip_end_seconds` exclusive); video frames are decoded and sampled by the
-worker rather than copied into RabbitMQ messages. The worker saves a complete
-JSON record for every turn and publishes its path with the model response ID.
+SpotCool is an agent for an office building's existing CCTV and BACnet building management system (BMS). It sees which zones have people in them, using Meta's SAM 3.1. Empty zones ease off and their airflow shuts off, and the zones with people stay as the building set them. In the meeting room, the air conditioner's louvers aim at whoever is there, and complaints by text or voice adjust the unit.
 
-## Run with Docker Compose
+Built for the Meta Global AI Developer Hackathon, submitted 4 November 2026. Every figure on this page comes from [`docs/release/numbers.md`](docs/release/numbers.md), with its source.
 
-1. Copy `.env.example` to `.env`. Set `META_API_KEY` and change the example
-   RabbitMQ password.
-2. Set `VIDEO_HOST_DIRECTORY` to a host directory that contains the video
-   (for example `C:/videos` on Windows). This directory is mounted read-only
-   inside the worker at `VIDEO_WORKER_DIRECTORY` (default `/videos`).
-3. Start RabbitMQ and one worker:
-
-   ```powershell
-   docker compose up --build -d
-   ```
-
-4. Scale processing workers as needed:
-
-   ```powershell
-   docker compose up --build --scale worker=3 -d
-   ```
-
-5. Follow worker logs with `docker compose logs -f worker`.
-
-The worker's `app` directory is mounted into the container, so turn records
-written under `app/turn_details` persist on the host. RabbitMQ's management UI
-is at <http://localhost:15672>; its credentials are
-`RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` from `.env`.
-
-## Process a local video
-
-Put the video under `VIDEO_HOST_DIRECTORY` and submit its host path. The client
-maps it to the worker-mounted path, divides it into clips of
-`CLIP_DURATION_SECONDS`, and waits for each result before submitting the next
-clip. The `saved_file_path` returned by one turn is sent as
-`previous_turn_state_file_path` on the next turn. The worker reads prior
-manipulated variables and recent turn history from that JSON file.
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe rabbitmq_client.py "C:\videos\room.mp4"
-```
-
-Each job published to `spotcool.jobs` has this shape:
-
-```json
-{
-  "job_id": "unique-id-for-this-clip",
-  "video_path": "/videos/room.mp4",
-  "clip_start_seconds": 0,
-  "clip_end_seconds": 60,
-  "previous_turn_state_file_path": null,
-  "current_control_variables": {
-    "target_temperature_c": 30,
-    "target_humidity_pct": 35
-  }
-}
-```
-
-The successful RabbitMQ result contains the correlation `job_id`, model
-`response_id`, and path to the saved turn details. It intentionally does not
-include control variables or telemetry; both can be read from the JSON file.
-
-```json
-{
-  "job_id": "unique-id-for-this-clip",
-  "status": "completed",
-  "response_id": "...",
-  "saved_file_path": "/app/turn_details/turn_<id>.json"
-}
-```
-
-For unsuccessful processing, `status` is `failed` and `error` includes the
-exception type and message. A separate consumer can read `spotcool.results`
-using the same `job_id` / AMQP `correlation_id` to reconcile timed-out
-submissions.
-
-## Configuration
-
-All runtime settings are read from environment variables (the defaults below
-are also listed in `.env.example`):
-
-| Variable | Purpose |
-| --- | --- |
-| `META_API_KEY`, `META_API_BASE_URL` | API credentials and endpoint |
-| `SAM_MODEL`, `SCENE_MODEL`, `DECISION_MODEL` | Model identifiers |
-| `SAM_PERSON_CONCEPT`, `SAM_SECONDARY_CONCEPT`, `SCENE_ANALYSIS_PROMPT`, `CONTROL_SYSTEM_INSTRUCTIONS`, `DECISION_REASONING_EFFORT` | Analysis prompts and inference behavior |
-| `TARGET_CONTROL_VARIABLES` | JSON object describing desired environmental values |
-| `INITIAL_CONTROL_VARIABLES` | JSON object describing the building/room state submitted with each job |
-| `INITIAL_MANIPULATED_VARIABLES` | JSON object used before a first prior-turn file exists |
-| `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_VHOST`, `RABBITMQ_RECONNECT_INTERVAL_SECONDS` | AMQP connection settings |
-| `JOB_QUEUE_NAME`, `RESULT_QUEUE_NAME`, `WORKER_CONCURRENCY`, `LOG_LEVEL` | Worker and queue settings |
-| `JOB_TIMEOUT_SECONDS`, `CLIP_DURATION_SECONDS` | Client job timeout and video clip size |
-| `FRAME_SAMPLE_INTERVAL_SECONDS`, `MAX_FRAMES_PER_CLIP`, `JPEG_QUALITY` | Worker frame sampling/encoding |
-| `TURN_HISTORY_LENGTH`, `TURN_DETAILS_DIRECTORY` | Prior-turn context and JSON output location |
-| `VIDEO_PATH`, `VIDEO_HOST_DIRECTORY`, `VIDEO_WORKER_DIRECTORY` | Optional default input path and host/container video mapping |
-
-JSON environment variables must contain valid JSON objects. The target setpoints
-are worker configuration; the current building/room values are sent with every
-job and may be changed independently by the job producer.
-# SpotCool AI Blueprint
-
-> **Meta Global AI Developer Hackathon Project**  
-> Eliminating up to 60% of HVAC energy waste through real-time, human-centric 3D spot cooling.
+**Video:** `<YouTube link>`
 
 ---
 
-## System Overview
+## The problem
 
-Traditional air conditioning wastes up to 60% of its energy by cooling unoccupied space or ignoring individual thermal comfort differences. **SpotCool AI** replaces passive, uniform room cooling with an autonomous multi-agent edge system powered by Meta's AI ecosystem (SAM 3, Llama Vision, Llama Orchestration).
+- **Fewer people come in.** By Kastle's badge swipes, US office attendance's 10-city weekly average was **56.1 %** of its February 2020 level, and **66.1 %** on the peak day, Tuesday 20 October 2026. February 2020 is what Kastle calls normal peak occupancy, not capacity, so this isn't a share of desks. ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/); the page updates weekly, read 3 November 2026.)
+- **HVAC is the largest share.** In a typical commercial building in India, HVAC uses **about 55 %** of the energy. ([BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf), slide "Typical Commercial Building Energy Use".)
+- **Occupancy-based control saves energy, in simulation.** In PNNL's simulated US large office, occupancy-based control of the lights and VAV boxes saved **17.8 %** of whole-building energy with sensors that count occupants, against **5.9 %** with sensors that only detect presence. That's a national average weighted by construction volume, not a maximum, and not a share of HVAC energy; most of the saving is heating. ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf), executive summary and section 3.3.)
 
-Instead of maintaining a constant cooling load across entire cubic volumes, SpotCool AI tracks occupants in 3D space, determines clothing insulation and comfort signals, and dynamically actuates smart louvers and fan speeds directly toward occupied zones.
+SpotCool uses the cameras a building already has to see, zone by zone, whether anyone is there.
 
+## What SpotCool does
+
+- **The building.** Each BMS step, the agent snapshots every zone's CCTV camera and asks Meta's **SAM 3.1** to find the people. Then it drives the BMS over BACnet/IP:
+  - **an empty zone** gets its occupancy sensor set to Unoccupied and a 28 °C cooling setpoint, at BACnet priority 10, so the BMS's standby mode shuts its airflow off;
+  - **an occupied zone** has its occupancy sensor held at Occupied and its cooling setpoint released, so the building's own schedule applies;
+  - **a booked room** is pre-cooled from 30 minutes before its booking;
+  - **at 19:00** everything is released;
+  - **an operator** writing at priority 8 always wins: the agent reads each point's priority array first, and backs off from any slot 1 to 9.
+- **The meeting room.** The VRF unit's louvers follow a person seen on a live camera (a phone, in the demo). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled).
+- **Complaints.** An occupant types or says "it's too cold in here". Voice is transcribed by Meta's **`muse-voice-transcribe-1.0`**. Keywords, then **`muse-wonder-1.0`**, work out the intent (cold, hot, draft, stuffy). The agent adjusts the meeting room's unit (setpoint, fan or vane), and muse-wonder answers in plain words, with a template as the fallback. Complaints never touch the BMS zones.
+- **Outside the measured result.** The louvers and complaints are a live demo, not part of the 19.94 %, and the VRF unit's power enters no saving.
+- **Privacy.** Frames and audio are held in memory, and the agent writes no file. With the Meta providers, each snapshot, each voice recording and each complaint's text go to the Meta AI API; the offline providers send nothing. To the dashboard the agent publishes counts, people's boxes, decisions, explanations and chat replies. Logs hold a complaint's length and intent, never its words. A test with an audit hook checks that no file is opened for writing.
+
+## The result
+
+**SpotCool saved (SAM 3.1 perception, in simulation): 19.94 % less HVAC energy than the baseline.**
+
+| | SpotCool | Baseline |
+|---|---|---|
+| HVAC energy (BOPTEST's own `ener_tot`) | **230.4 kWh** | 287.8 kWh |
+| Discomfort where people were (lower is better) | 2.13 K·h | 0.33 K·h |
+
+- **The run.** BOPTEST's `multizone_office_simple_air`, the scenario `hybrid_tuesday` (07:00 to 19:00 on BOPTEST's peak cooling day, in 15-minute steps), paced at speed 60. SpotCool's agent perceived each zone with SAM 3.1 on CCTV clips and drove the world's BACnet BMS. Recorded 3 Nov 18:43 UTC, commit `1689f76`; the record is the run `ag3-boptest-agent-s60`, kept outside the repo (`runs/` is git-ignored).
+- **The baseline** is the same building on the same day with no agent. Without an occupancy sensor the BMS can't tell that a zone is empty, so every zone runs its normal occupied schedule. **`hybrid_tuesday` is a day we scripted:** half the staff work from home, the East team is remote all day, and the South meeting room is used from 14:00 to 15:00. So the figure is for one such day, not an average. It isn't comparable with PNNL's figures above, which are whole-building national averages; ours is HVAC energy only.
+- **The report's verdict is `Quotable`.** BOPTEST's own energy and the world's integration agree (0.000 %, no fallbacks, no events dropped). The agent made 40 accepted priority-10 zone writes from its own address, every write landed one step after its decision, and no heartbeat-timeout release happened.
+- **Perception.** Occupancy was right on **240 of 240** zone-steps.
+- **The cost, said plainly.** Comfort where people were got worse: 2.13 against 0.33 K·h.
+- **Cost about -20 %, emissions about -20 %; peak demand unchanged** (BOPTEST's `cost_tot`, `emis_tot` and `pele_tot`, same run).
+- **The control day.** On `all_hands_day`, with everyone in from 08:30 to 18:00, the same agent saved **5.68 %** (`ag3-boptest-allhands-s60`, also `Quotable`; comfort 2.99 against 0.56 K·h; occupancy right on 239 of 240 zone-steps, the one miss a single person SAM didn't see). The saving comes almost entirely from the empty hours before 08:30 and after 18:00. The agent saves little when the building is full.
+- **It matches the perfect-perception upper bound.** The stub agent, which reads the scenario's script instead of the cameras, also saves 19.94 % on the same day, plant and speed: the "upper bound with perfect perception (stub agent, in simulation)". They match because the policy is the same and SAM's occupancy was right on every step.
+
+**The caveats:**
+
+- This is a simulation, not a real building.
+- BOPTEST's occupant heat follows its own fixed schedule, not the cameras, so savings in zones the cameras show empty may be overstated by up to the occupants' heat. The control day brackets this.
+- The cameras played public **MEVA** dataset clips (CC BY 4.0), one per zone and scene.
+- Only occupied or empty is scored, not exact head counts.
+
+## How it's built
+
+### The world and the agent
+
+The repo has two halves that share only [`packages/contracts`](packages/contracts/README.md). **The world** stands in for a real building and serves the interfaces a real one has. **The agent** speaks only those interfaces, and never imports the world. Occupied-standby, the airflow shut-off and the heartbeat watchdog are the world's emulation of a BMS. A real building would need the same points (`packages/contracts`) and those two features, and then the agent's code wouldn't change. So far it has run only against the world.
+
+```text
+ THE WORLD (packages/world)                             THE AGENT (packages/agent)
+ +---------------------------------------------+       +---------------------------------------------+
+ | Plant, run twice in lockstep:               |       | Building loop, once per BMS step:           |
+ |   SpotCool run + baseline run               |       |   5 snapshots -> SAM 3.1 -> occupied/empty  |
+ |   (BOPTEST multizone office, or RC model)   |       |   -> policy -> writes at priority 10        |
+ |        ^ setpoints, dampers                 |       |                                             |
+ | BACnet BMS, device 1001, UDP 47808  <-------+-------+-- zone writes, heartbeat (client 1910)      |
+ | VRF gateway, device 2001, UDP 47810 <-------+-------+-- VRF loop, every 0.25 s (client 1911):     |
+ | CCTV cameras, live phone, HTTP 8081 --------+------>|   phone camera -> SAM 3.1 -> louver aim     |
+ | Room calendar, HTTP 8081 -------------------+------>|   (booked rooms are pre-cooled)             |
+ | Scripted occupants ----- /chat, /voice -----+------>| Complaint loop, HTTP 8002:                  |
+ | Recorder, KPIs, report                      |       |   muse-voice -> intent -> VRF -> muse-wonder|
+ | Dashboard, HTTP 8090 <------ /ws/agent -----+-------+-- perception, decisions, explanations       |
+ +---------------------------------------------+       | Meta services behind provider adapters:     |
+                                                       |   meta (api.meta.ai/v1) or fake (offline)   |
+                                                       +---------------------------------------------+
 ```
-[Webcam Feed] ──► Visual & Spatial Agent (SAM 3 + Depth + VLM) ──┐
-                                                                 ▼
-[Mic Stream]  ──► Acoustic Agent (Silero VAD + Intent Parsing) ─► [Canonical JSON State Bus]
-                                                                 │
-          ┌──────────────────────────────────────────────────────┘
-          ▼
-[Thermodynamic Policy Orchestrator (Meta Llama)] ──► "Acts as Human with Remote"
-          │
-          ├──► [AC Digital Twin (Appliance Emulator / Stepper Slew & Telemetry)]
-          └──► [Judge Telemetry Dashboard (Real-to-Sim Mirror & Wattage Comparison)]
+
+Both plant runs see the same weather, building and BMS; only the SpotCool run gets the agent's writes. The agent never reads the world's ground-truth feed (`/ws/events`); the report compares what it perceived with the script after the run.
+
+### The repo
+
+| Path | What it is |
+|---|---|
+| [`packages/contracts`](packages/contracts/README.md) | Everything both sides share: the BMS and VRF point maps, the priorities, the camera catalog, the calendar, complaints and the dashboard's event envelope |
+| [`packages/world`](packages/world/AGENTS.md) | The stand-in building: the plants (BOPTEST or RC), the BACnet BMS, the VRF gateway, cameras, calendar, occupants, recorder, report, and the stub agent |
+| [`packages/agent`](packages/agent/README.md) | SpotCool's agent: the building loop, the VRF loop and complaints, with Meta and offline providers |
+| [`apps/dashboard`](apps/dashboard/README.md) | The judges' dashboard (React and Vite), served by the world on port 8090 |
+| [`scripts/footage`](scripts/footage/) | Fetching and normalizing camera footage (MEVA, own clips) |
+| [`scripts/video`](scripts/video/) | Building the demo video from its storyboard: the takes, motion graphics, captions, assembly and QA |
+| [`video/`](video/README.md) | The video's storyboard, narration, sources, HyperFrames compositions and OBS scenes |
+| [`docs/`](docs/README.md) | The live status, the numbers we may quote, runbooks and work-package briefs |
+
+### Design
+
+Both packages follow [pipecat](https://github.com/pipecat-ai/pipecat)'s architecture: service base classes with one sub-package per provider (the agent's Meta or offline fakes; the world's BOPTEST, RC or replay), a transport per protocol, small pure processors, observers and a runner. In the world, frames flow through a pipeline of processors, one tick at a time, and workers run on a bus. Each package records one deliberate deviation. The world's processors have no input queues, because a lockstep co-simulation must finish each tick, both plants included, in the same order every run. The agent uses plain loops instead of a frame pipeline, because each BMS step is one bounded request and response with a hard deadline.
+
+### Honest by construction
+
+`spotcool-world report` says a run is `Quotable` only when it is a finished, paced BOPTEST run:
+
+- with no events lost and no power fallbacks;
+- with the world's integration within 0.1 % of BOPTEST's own energy;
+- where an agent acted (an accepted priority-10 zone write) and its heartbeat never lapsed;
+- where the agent perceived at least 95 % of the zone-steps and agreed with the scenario on at least 90 % of them.
+
+So it refuses a run where no agent acted (silent), whose agent saw nothing or too little (blind, partial), or whose heartbeat lapsed (cut off). A run driven by the stub agent is labelled an upper bound with perfect perception, never SpotCool's own. Every other reason it refuses is listed in the report.
+
+## Run it
+
+You need Python 3.11, [uv](https://docs.astral.sh/uv/) and Node.js. On Windows, keep the venv outside OneDrive (`export UV_PROJECT_ENVIRONMENT=<a folder outside it>`).
+
+```bash
+uv sync --all-packages --all-extras
+cd apps/dashboard && npm ci && npm run build && cd ../..   # the world serves dist/ on port 8090
 ```
 
-### Core Agents
+### Offline, no key
 
-1. **Visual & Spatial Agent (SAM 3 + Monocular Depth):**
-   * Segments human occupants from camera feeds.
-   * Computes median depth and back-projects 2D pixels into $(X, Y, Z)$ real-world coordinates:
-     $$X = \frac{(u - c_x) \cdot Z}{f_x}, \quad Y = \frac{(v - c_y) \cdot Z}{f_y}$$
-   * Calculates dynamic louver angles: $\theta_{\text{pan}} = \arctan2(X, Z)$, $\theta_{\text{tilt}} = \arctan2(Y, Z)$.
-   * Evaluates clothing insulation (`Clo` values) and flags open door/window energy leaks via Llama Vision.
+The RC plant, the world's synthetic camera frames, and the agent's colour-blob counter in place of SAM: no Meta call is made. **Start the agent first**, then the world, both on loopback:
 
-2. **Acoustic & Implicit Feedback Agent (VAD + Audio Classification):**
-   * Continuously monitors microphone input using Silero Voice Activity Detection.
-   * Transcribes implicit thermal remarks (e.g., *"It's freezing in here"*, *"Turn it up"*) to dynamic temperature offsets and fan overrides.
-   * Updates per-user in-context comfort memory.
+```bash
+# terminal 1: the agent
+uv run spotcool-agent run --world-host 127.0.0.1 --vision blob --settle-s 0.3
 
-3. **Thermodynamic Policy Orchestrator (Meta Llama):**
-   * Acts as the autonomous decision-maker ("the human with the smart remote").
-   * Integrates spatial coordinates, clothing insulation, and ambient temperature into ASHRAE Standard 55 / Fanger PMV thermal comfort models.
-   * Dispatches structured control payloads (`POST /ac-twin/command`) to actuate blade angles, fan speed tiers, and eco modes.
+# terminal 2: the world, the hybrid Tuesday on the RC plant at speed 300 (about 2.5 minutes)
+SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 uv run spotcool-world run --plant rc
+```
 
-4. **AC Digital Twin & Telemetry:**
-   * A stateful software emulator representing the physical split-AC unit.
-   * Simulates mechanical stepper motor slew rates (15°/sec), fan RPM spin-up curves, and compressor electrical load.
-   * Generates live energy telemetry comparing baseline uniform cooling against SpotCool AI in real time.
+Open <http://127.0.0.1:8090/> for the dashboard. The world prints the run's id, energy and verdict when the day ends; then stop the agent with Ctrl+C, which releases every point it holds. `uv run spotcool-world report <run_id>` writes the run's report and charts into `runs/<run_id>/`. An RC run is never quotable: RC is our own reduced model, for testing the world.
 
-### Tech Stack
+`--settle-s 0.3` fits the agent's snapshots into speed 300's 3-second steps. Leave `SPOTCOOL_WORLD_FOOTAGE_DIR` unset, so the cameras draw the synthetic frames the blob counter reads.
 
-* **Computer Vision:** Meta Segment Anything 3 (SAM 3), Depth Anything V2 / MiDaS, OpenCV
-* **Language & Vision Models:** Meta Llama 3.3 / Llama 4, Meta Llama Vision
-* **Audio & Speech:** Silero VAD, Whisper / Fast Audio Intent Parsing
-* **Backend:** Python, FastAPI, WebSockets, asyncio state loop
-* **Frontend / Digital Twin:** React, Three.js / SVG Interactive Twin, Web Audio API
-* **Cloud & Model Hosting:** Baseten, Fireworks AI, Modal
+### Live, with Meta's models
 
----
+```bash
+uv run spotcool-agent run --vision meta --env-file <a file outside the repo with META_API_KEY>
+SPOTCOOL_WORLD_FOOTAGE_DIR=<your footage folder> uv run spotcool-world run --plant rc --speed 60
+```
 
-## Subdirectories & System Boundaries
+- SAM sees nobody in the synthetic silhouettes, so a live run needs real footage. The footage folder holds the MEVA clips and their `datasets/meva/index.yaml`. They're not in the repo: [`CREDITS.md`](CREDITS.md) lists each clip with its source file and time range, and [`scripts/footage/meva_fetch.py`](scripts/footage/meva_fetch.py) fetches them.
+- With SAM, run at speed 60 or slower, so each step has time for five calls.
+- Add `--world-host 127.0.0.1` and the two loopback variables above to keep both on this machine.
+- **The meeting room:** add `--vrf` to the agent, and point the world at a phone camera with `SPOTCOOL_WORLD_LIVE_CAMERA_URL`. See [`packages/agent/README.md`](packages/agent/README.md), "The louvers demo".
+- `cp .env.example <outside the repo>/spotcool-agent.env` makes a key file. Never put the real key in the repo.
 
-- [docs](./docs/README.md): Central documentation directory containing workflow guides, architectural specifications, and approved EGM design records.
-  - [docs/workflow](./docs/workflow/README.md): Claude Code and AI assistant master workflows, prompts, and best-practice protocols.
-- [.claude](./.claude/rules/backend.md): Path-scoped agentic rules and environment configuration.
+### The scored run
 
----
+The 19.94 % run used BOPTEST in a GitHub Codespace, with the world on the laptop and the BOPTEST port forwarded: [`docs/runbooks/boptest-codespace.md`](docs/runbooks/boptest-codespace.md). With the forward running, the agent started first as above, and the footage folder set:
 
-## Global Invariants
+```bash
+uv run spotcool-world run --plant boptest-local --speed 60
+uv run spotcool-world report <run_id>
+```
 
-- **Canonical JSON State Bus:** All agents exchange state via strictly typed Pydantic contracts reflecting the 4 process variable classes (Set, Manipulated, Disturbance, Controlled).
-- **Appliance-Only Twin:** The digital twin models only the AC appliance ("AC Clone") receiving remote commands; the real room is observed via sensors.
-- **Actuation Slew Rate:** Actuator transitions are constrained to $15^\circ/\text{sec}$ stepper motor slew rate without instantaneous angle jumps.
-- **Thermodynamic Grounding:** Comfort scores and setpoint adjustments must be computed deterministically via Fanger's PMV model (ASHRAE 55) rather than unconstrained LLM estimates.
+### The tests
 
----
+```bash
+uv run pytest            # unit and integration tests (loopback only; no Meta call, no BOPTEST)
+uv run pytest -m eval    # the golden evals: whole days on RC, the real agent included, a few minutes
+```
 
-## Global Side Effects
+CI also runs `ruff`, `pyright`, the scenario linter and the dashboard's build, lint and tests (`.github/workflows/world-ci.yml`).
 
-- Dispatches remote actuation commands to the AC Digital Twin emulator (`POST /ac-twin/command`).
-- Broadcasts real-time kinematic (10 Hz) and thermodynamic (0.5 Hz) telemetry over WebSockets (`/ws/twin-state`).
-- Accesses local webcam video stream and microphone audio stream for real-time spatial and acoustic perception.
+## Meta models used
 
----
+All three are called through the Meta AI API at `api.meta.ai/v1`.
 
-## System Verification
+| Model | What SpotCool uses it for |
+|---|---|
+| `sam-3.1` | Perception: the people in each zone's CCTV snapshot (the building loop), and the person the meeting room's louvers follow (the VRF loop) |
+| `muse-wonder-1.0` | Chat: the intent of a complaint the keywords can't settle, and the plain-words reply |
+| `muse-voice-transcribe-1.0` | Voice complaints: the occupant's recording, transcribed in memory |
 
-- Run: `pytest tests/` (or `pytest tests/test_state_bus.py -k "test_louver_angle"`)
+## Team and credits
+
+- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, comfort physics. Its SAM perception and louver geometry were ported; its comfort physics wasn't. The MVP stays as it was on branch `third_level_improvement`.
+- **Person B** built the world, the dashboard and the video, and integrated A's MVP into `packages/agent`.
+- The repo is owned by [IAMMOJAHID](https://github.com/IAMMOJAHID).
+
+**Data and tools** (full ledger, with every package's licence: [`CREDITS.md`](CREDITS.md)):
+
+- **MEVA:** "Multiview Extended Video with Activities" (MEVA) dataset by Kitware Inc. and the Intelligence Advanced Research Projects Activity (IARPA), licensed under CC BY 4.0 ([registry](https://registry.opendata.aws/mevadata)). Our clips are trimmed and re-encoded.
+- **BOPTEST** ([IBPSA](https://github.com/ibpsa/project1-boptest)): the `multizone_office_simple_air` test case, BSD-3-Clause.
+- **HyperFrames:** the video's motion graphics, Apache-2.0.
+
+**Licence.** SpotCool's own packages (`spotcool-contracts`, `spotcool-world`, `spotcool-agent`) declare BSD-2-Clause in their `pyproject.toml`, and the dashboard declares MIT in its `package.json`. The repo has no top-level licence file. Third-party code and data keep their own licences, listed in [`CREDITS.md`](CREDITS.md).

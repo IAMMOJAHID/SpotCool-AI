@@ -1,0 +1,21 @@
+# A quiet day: one person works in Core from 09:00 to 15:00 and every other zone stays empty,
+# so spot cooling should save the most here.
+name: empty_friday
+description: Almost everyone works from home; one person is in Core from 09:00 to 15:00.
+day: 199                 # BOPTEST's peak_cool_day (2026-07-19 on the simulation calendar)
+start: "07:00"
+end: "19:00"
+zones:
+  cor:
+    - {at: "07:00", scene: empty, people: 0}
+    - {at: "09:00", scene: few, people: 1}
+    - {at: "15:00", scene: empty, people: 0}
+  nor:
+    - {at: "07:00", scene: empty, people: 0}
+  sou:
+    - {at: "07:00", scene: empty, people: 0}
+  eas:
+    - {at: "07:00", scene: empty, people: 0}
+  wes:
+    - {at: "07:00", scene: empty, people: 0}
+events: []

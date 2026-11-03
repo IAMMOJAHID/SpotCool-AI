@@ -1,0 +1,19 @@
+# The evals' honesty control: every zone occupied for the whole run, 07:00-19:00, so spot cooling
+# has nothing to switch off and must claim no saving. Not a library scenario: nothing films it.
+name: all_day_occupied
+description: Every zone is busy for the whole run, 07:00 to 19:00.
+day: 199                 # BOPTEST's peak_cool_day (2026-07-19 on the simulation calendar)
+start: "07:00"
+end: "19:00"
+zones:
+  cor:
+    - {at: "07:00", scene: many, people: 4}
+  nor:
+    - {at: "07:00", scene: few, people: 2}
+  sou:
+    - {at: "07:00", scene: meeting, people: 5}
+  eas:
+    - {at: "07:00", scene: few, people: 2}
+  wes:
+    - {at: "07:00", scene: few, people: 1}
+events: []

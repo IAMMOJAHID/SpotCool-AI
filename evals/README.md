@@ -2,7 +2,7 @@
 
 > Reference: [How the Claude Code team does code review — Continuous Improvement via Evals](https://claude.dev/blog/solving-code-review-at-anthropic/)
 
-This directory houses the regression benchmark suite for automated code review agents. Whenever review prompts, system instructions, or `.claude/rules/` are modified, they must be benchmarked against these evaluations.
+This directory houses the regression benchmark suite for automated code review agents. Whenever review prompts, system instructions, or `REVIEW.md` are modified, they must be benchmarked against these evaluations.
 
 ## Structure
 * **`code_review_evals.json`**: Benchmark test cases containing known traps, past incidents, and clean baseline PRs.

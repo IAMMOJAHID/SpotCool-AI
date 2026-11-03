@@ -1,0 +1,63 @@
+# Every source a beat of video/storyboard.yaml cites, by id.
+#
+# figures: the numbers the source backs. A number on screen or in the narration must be among the
+#   figures of a source its beat cites (scripts/video/storyboard_check.py).
+# doc: the file in this repo that records the figures; the check finds each figure's numbers in
+#   it. Published figures and our runs' figures live in docs/release/numbers.md, and nowhere
+#   else: a number not on that page is not shown.
+# cite: the line on the closing sources slide.
+
+kastle:
+  name: Kastle Systems, Back to Work Barometer (US badge swipes against February 2020)
+  url: https://www.kastle.com/safety-wellness/getting-america-back-to-work/
+  doc: docs/release/numbers.md
+  figures: ["56.1 %", "66.1 % on the peak day", "February 2020"]
+  cite: "US office attendance, badge swipes against February 2020 (10-city weekly average; peak day): Kastle Systems, Back to Work Barometer (kastle.com)"
+
+bee-hvac-share:
+  name: Bureau of Energy Efficiency, "Building Code and Rating in India", slide "Typical Commercial Building Energy Use"
+  url: https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf
+  doc: docs/release/numbers.md
+  figures: ["About 55 %"]
+  cite: "HVAC's share of energy in a typical commercial building in India: Bureau of Energy Efficiency, \"Building Code and Rating in India\" (rehva.eu)"
+
+pnnl-22072:
+  name: PNNL-22072, executive summary and section 3.3
+  url: https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf
+  doc: docs/release/numbers.md
+  figures: ["17.8 % against 5.9 %"]
+  cite: "Whole-building energy saved in a simulated US large office, sensors that count occupants against presence sensors (national average): PNNL-22072 (pnnl.gov)"
+
+boptest:
+  name: BOPTEST, multizone_office_simple_air (IBPSA)
+  url: https://github.com/ibpsa/project1-boptest
+  doc: docs/release/numbers.md
+  figures: []
+  cite: "Building model: BOPTEST multizone_office_simple_air, IBPSA (BSD-3-Clause)"
+
+run-eval-live:
+  name: BOPTEST run eval-live-hybrid-20261103-122941 (stub agent, hybrid_tuesday, speed 60)
+  run_id: eval-live-hybrid-20261103-122941
+  doc: docs/release/numbers.md
+  figures: ["19.94 %", "230.4", "287.8", "2.13", "0.33"]
+  cite: "Our result: run eval-live-hybrid-20261103-122941, stub agent with perfect perception, in simulation"
+
+bacnet-priorities:
+  name: The world's BMS command rules (BACnet priority array)
+  doc: docs/runbooks/yabe.md
+  figures: ["8", "10"]
+  cite: "BACnet priorities: the SpotCool world's BMS (docs/runbooks/yabe.md)"
+
+run-agent:
+  name: BOPTEST run ag3-boptest-agent-s60 (SpotCool's agent, SAM 3.1 perception, hybrid_tuesday, speed 60)
+  run_id: ag3-boptest-agent-s60
+  doc: docs/release/numbers.md
+  figures: ["19.94 %", "230.4", "287.8", "2.13", "0.33"]
+  cite: "Our result: run ag3-boptest-agent-s60, SpotCool's agent with SAM 3.1 perception, in simulation"
+
+meva:
+  name: MEVA, Multiview Extended Video with Activities (Kitware, IARPA)
+  url: https://mevadata.org
+  doc: CREDITS.md
+  figures: []
+  cite: "Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0"

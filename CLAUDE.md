@@ -1,66 +1,63 @@
-# CLAUDE.md — SpotCool AI Project Guide
+# CLAUDE.md: SpotCool
 
-SpotCool AI replaces passive uniform AC cooling with autonomous 3D spatial spot cooling for the Meta Global AI Developer Hackathon.
+@AGENTS.md
+
+## What SpotCool is
+
+An agent for an office building's existing CCTV and BACnet BMS, built for the Meta Global AI Developer Hackathon (due Nov 4, 2026, 21:00 IST). It sees which zones have people in them with Meta's SAM 3.1 and drives the BMS at priority 10: empty zones go to Unoccupied at a 28 °C cooling setpoint, occupied zones are released, booked rooms are pre-cooled. With `--vrf`, the meeting room's VRF louvers follow a person on a live camera, and text or voice complaints adjust that unit (`muse-voice-transcribe-1.0`, `muse-wonder-1.0`).
+
+- `packages/agent`: the agent. `packages/world`: the simulated building it runs against (BOPTEST or RC plant, BMS, VRF gateway, cameras, calendar, occupants, recorder, report, stub agent). `packages/contracts`: the only code both share.
+- `apps/dashboard`: the judges' dashboard. `scripts/video` and `video/`: the demo video, built from code.
+- The quotable result is 19.94 % HVAC energy saved, in simulation (`docs/release/numbers.md`).
+
+## Read first
+
+- `docs/agent/HANDOFF.md`: the live status, the decisions and why, what's left. Don't re-plan what it settles.
+- `packages/world/AGENTS.md` and `packages/agent/AGENTS.md`: the engineering guides (code style, architecture, tests, known limitations).
+- `docs/release/USER_GUIDE.md`: the user's step-by-step guide to the submission.
+
+## Branches
+
+- **`agent/main` is the trunk for work.** Each work item gets its own `ag/*`, `fix/*` or `docs/*` branch, merged back `--no-ff` after the checks and, for anything that actuates, stores or quotes, an independent review.
+- **`dev` is the integration and release branch;** `main` follows it for release. `world/main` is frozen as the record of the world.
+- **No PRs between our own branches:** the review workflows on PRs are paid. Merge locally, then push.
+- Commit or push only when asked. Never change the git config.
 
 ## Commands
 
+The venv lives outside OneDrive, one per worktree (a borrowed one makes pyright see two copies of the packages). Set it in every shell:
+
 ```bash
-# Setup Python environment
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/<worktree>"
+uv sync --all-packages --all-extras
 
-# Run Backend State Bus (FastAPI)
-uvicorn src.backend.main:app --reload --port 8000
+# the checks (CI runs the same: .github/workflows/world-ci.yml)
+uv run ruff check packages scripts
+uv run ruff format --check packages scripts
+uv run pyright packages
+uv run pytest -W error::RuntimeWarning
+uv run pytest -m eval                          # golden evals on RC, a few minutes
+uv lock --check
+uv run python scripts/video/storyboard_check.py
+cd apps/dashboard && npm ci && npm run build && npm run lint && npm test
 
-# Run Frontend / Digital Twin (React + Vite)
-npm run dev
-
-# Run Verification Suite
-pytest tests/
-ruff check src/
-mypy src/
-
-# Run single test
-pytest tests/test_state_bus.py -k "test_louver_angle"
-
-# Claude Code Review & Verification Commands
-# (Based on claude.dev/blog/solving-code-review-at-anthropic/)
-/code-review       # Pre-PR multi-agent review against base REVIEW.md
-/security-review   # Security, secrets, and trust boundary audit
-/explain <module>  # On-demand mental model explainer for any subsystem
+# running it (details in packages/agent/README.md and packages/world/AGENTS.md)
+uv run spotcool-agent run --vision blob --dry-run
+uv run spotcool-world run --plant rc
+uv run spotcool-world report <run_id>
 ```
 
-## Non-Obvious Context & Gotchas
+`/code-review`, `/security-review` and `/explain <module>` are in `.claude/commands/`. Cap automated fix rounds at 3; then stop and rethink.
 
-* **Source of Truth:** Research, whiteboards, and rubrics are in `temp/H/`. Read `temp/H/INDEX.md` and `temp/H/whiteboard_and_rubric_analysis.md` before making architectural decisions.
-* **Appliance-Only Twin:** Do **not** build a 3D model of the whole room. We simulate the **AC appliance itself ("AC Clone")** receiving remote commands. The real room is captured by webcam/mic.
-* **Actuation Slew (No Instant Jumps):** Louvers must slew at $15^\circ/\text{sec}$ ($\pm 0.75^\circ$ per 50ms tick). Fan RPM accelerates gradually. Never jump angles instantaneously.
-* **Depth Filtering:** When extracting occupant distance $Z$, compute the **median depth only within the SAM 3 human mask pixels**, never the whole bounding box (background walls skew distance).
-* **Two Loop Frequencies:** Decouple the fast kinematic loop (10 Hz: SAM 3 + Depth $\rightarrow$ louver angles) from the slow semantic loop (0.2 Hz: Llama Vision for clothing Clo, leaks, and voice intent).
-* **Thermodynamic Grounding:** Compute thermal comfort with Fanger's PMV equation in Python (ASHRAE 55), not by asking the LLM to guess temperatures.
+## Gotchas
 
-## EGM (Elephant-Goldfish Model)
-EGM artifact directory: docs/designs
-Use `/egm:egm-brainstorm`, `/egm:egm-draft`, and `/egm:egm-review` for spec-driven design reviews.
-
-## Code Review Standards (Anthropic Architecture)
-* **Charter:** See `REVIEW.md` for domain-specific "Definitions of Failure" and false-positive elimination rules.
-* **3-Round Cap:** Never loop through automated fix cycles more than 3 times; halt and rethink architecture.
-* **Base Branch Grounding:** Review rules are always read from the target base branch to ensure PRs cannot alter their own review standards.
-* **Risk Tiers:** See `.github/CODEOWNERS` for automated vs human approval requirements.
-
-## Architecture
-
-```
-[Webcam Feed] ──► Visual & Spatial Agent (SAM 3 + Depth + VLM) ──┐
-                                                                 ▼
-[Mic Stream]  ──► Acoustic Agent (Silero VAD + Intent Parsing) ─► [Canonical JSON State Bus]
-                                                                 │
-          ┌──────────────────────────────────────────────────────┘
-          ▼
-[Thermodynamic Policy Orchestrator (Meta Llama)] ──► "Acts as Human with Remote"
-          │
-          ├──► [AC Digital Twin (Appliance Emulator / Stepper Slew & Telemetry)]
-          └──► [Judge Telemetry Dashboard (Real-to-Sim Mirror & Wattage Comparison)]
-```
+- **One BACnet client and socket per device.** With BACpypes3 0.0.110, requests in flight to a device that doesn't answer leave a shared socket deaf for good. The agent's BMS client is 1910 on UDP 47820, its VRF client 1911 on 47821; one request at a time each.
+- **Start the agent before the world.** The world never waits for the agent.
+- **The Meta key lives outside the repo** (`C:\Users\hussa\dev\secrets\spotcool-agent.env`, passed with `--env-file`). Never open, print, copy or commit it, or any `.env` file. A folder under `packages/` would also break the uv workspace.
+- **Never store frames or audio.** They stay in memory; logs hold lengths, never words. An audit-hook test enforces it.
+- **The agent never reads `/ws/events`** or any ground-truth field; it connects to `/ws/agent` only.
+- **Numbers:** quote only what `docs/release/numbers.md` lists, with its wording, and nothing from its never-quote list. Only a run whose report says `Quotable` is SpotCool's own; a stub run is labelled an upper bound with perfect perception; RC figures are never quoted.
+- **SAM sees nobody in the world's synthetic silhouettes.** Live runs need real footage (`SPOTCOOL_WORLD_FOOTAGE_DIR`, the MEVA clips); CI and the evals use the blob counter (`--vision blob`).
+- **Speed:** with SAM, run the world at speed 60 or slower. At speed 300 the blob counter needs `--settle-s 0.3`.
+- **Keep the PC on one network for a run:** the BMS binds its IPv4 address, and a Codespace port forward dies with the network.
+- **Stop programs with Ctrl+C,** never by closing the window: that's how the agent releases its points and the world stops BOPTEST's tests.

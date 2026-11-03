@@ -1,0 +1,1 @@
+An upstream `CancelFrame` only asks the worker for a cancel: processors cancel their background tasks on the downstream one. A cancel requested from below a `ParallelPipeline` no longer hangs the world.

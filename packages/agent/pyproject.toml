@@ -1,0 +1,39 @@
+[project]
+name = "spotcool-agent"
+version = "0.1.0"
+description = "SpotCool's agent: counts people on the building's cameras with SAM 3.1 and drives the BMS over BACnet/IP."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "BSD-2-Clause" }
+dependencies = [
+    "spotcool-contracts",
+    "bacpypes3==0.0.110",  # the world's pin
+    "httpx>=0.27,<1",
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "python-multipart>=0.0.9,<1",
+    "websockets>=13,<18",  # the asyncio client
+    "openai>=3.42,<4",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.4,<3",
+    "loguru>=0.7,<1",
+    "numpy>=1.26,<3",
+    "pillow>=10,<14",
+]
+
+[project.scripts]
+spotcool-agent = "spotcool_agent.runner.cli:main"
+
+[dependency-groups]
+dev = ["spotcool-world[rc,bacnet,cameras,dashboard,calendar,occupants]"]
+
+[tool.uv.sources]
+spotcool-contracts = { workspace = true }
+spotcool-world = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spotcool_agent"]

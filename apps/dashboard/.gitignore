@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Generated from packages/contracts by `npm run gen:types`.
+src/contracts/
+playwright-report/
+test-results/
+*.tsbuildinfo

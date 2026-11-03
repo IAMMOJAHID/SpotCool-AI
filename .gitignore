@@ -1,9 +1,3 @@
-temp/*
-.venv
-.env
-videos/*
-testing_directory/*
-__pycache__
 # Temporary research and draft assets
 temp/
 
@@ -66,4 +60,25 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Media and datasets: footage, audio and dataset archives stay outside the repo (AGENTS.md Law 6)
+*.mp4
+*.webm
+*.mov
+*.avi
+*.mkv
+*.wav
+*.zip
+data/datasets/
+
+# World runs, video renders and generated contract schemas
+runs/
+video/raw/
+video/takes/
+video/renders/
+# HyperFrames' local state and default outputs inside each composition
+video/motion/*/.hyperframes/
+video/motion/*/renders/
+video/motion/*/snapshots/
+schemas/
 
