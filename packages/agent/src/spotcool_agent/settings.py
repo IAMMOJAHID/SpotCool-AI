@@ -7,6 +7,7 @@ Other keys in the env file are ignored.
 """
 
 import ipaddress
+import socket
 from pathlib import Path
 from typing import Literal
 
@@ -20,7 +21,8 @@ class AgentSettings(BaseSettings):
     """Everything the agent needs to know (see the module docstring).
 
     Parameters:
-        world_host: The world's address (BACnet, HTTP, dashboard), an IPv4 address.
+        world_host: The world's address (BACnet, HTTP, dashboard), an IPv4 address; by default
+            this machine's primary one, where the world's BMS binds by default.
         bms_port: The BMS's BACnet/IP UDP port.
         http_port: The world's camera and calendar server.
         dashboard_port: The world's dashboard server, which has ``/ws/agent``.
@@ -44,7 +46,7 @@ class AgentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="SPOTCOOL_AGENT_", extra="ignore")
 
-    world_host: str = "127.0.0.1"
+    world_host: str = Field(default_factory=lambda: primary_ipv4())
     bms_port: int = Field(default=47808, ge=1, le=65535)
     http_port: int = Field(default=8081, ge=1, le=65535)
     dashboard_port: int = Field(default=8090, ge=1, le=65535)
@@ -92,6 +94,19 @@ class AgentSettings(BaseSettings):
     def listen_port(self) -> int:
         """The port part of ``listen``."""
         return int(self.listen.rpartition(":")[2])
+
+
+def primary_ipv4() -> str:
+    """This machine's primary IPv4 address (its default route's), or 127.0.0.1 if it has none.
+
+    The world's BMS binds the same address by default (its ``server.primary_ipv4``, copied).
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        try:
+            probe.connect(("10.255.255.255", 1))  # a UDP connect sends nothing; it picks a route
+            return str(probe.getsockname()[0])
+        except OSError:
+            return "127.0.0.1"
 
 
 def load_settings(env_file: Path | None = None, **overrides: object) -> AgentSettings:

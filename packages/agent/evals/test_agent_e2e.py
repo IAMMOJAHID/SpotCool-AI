@@ -14,22 +14,19 @@ A step without any count (every zone unknown) releases everything and moves the 
 about 0.2 pp, which is why the coverage of the agreement is checked too.
 """
 
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from spotcool_contracts.events import EventSource, EventType, TickData
-from spotcool_contracts.priorities import AGENT_PRIORITY
 from spotcool_world.runner.report import (
     RecordedRun,
     agent_activity,
     check_energy,
     quote_blockers,
+    write_lags,
     write_report,
 )
-from spotcool_world.serializers import EVENTS_FILE, EventRecord, read_records
 
 pytestmark = pytest.mark.eval
 
@@ -48,34 +45,6 @@ def saved_pct(run: RecordedRun) -> float:
     pct = check_energy(run).saved_own
     assert pct is not None, "no saving: a run or a plant's energy is missing"
     return pct
-
-
-def write_lags(run: RecordedRun) -> Counter[int | None]:
-    """How many steps after its decision the BMS took each agent write (the world's golden
-    evals' ``write_lags``, copied): ``None`` counts a decision whose write it never took."""
-    folder = run.manifest.settings["run_dir"]
-    decided: dict[str, list[float]] = {}
-    taken: dict[str, list[int]] = {}
-    under_way = 0
-    for record in read_records(Path(folder) / run.manifest.run_id / EVENTS_FILE):
-        if not isinstance(record, EventRecord):
-            continue
-        event = record.envelope
-        if event.type is EventType.TICK and event.source is EventSource.WORLD:
-            under_way = TickData.model_validate(event.data).index + 1
-        elif event.type is EventType.DECISION and event.source is EventSource.AGENT:
-            if not event.data["reason"].startswith("backed off") and event.sim_time_s is not None:
-                decided.setdefault(event.data["point"], []).append(event.sim_time_s)
-        elif event.type is EventType.BMS_WRITE and event.data["priority"] == AGENT_PRIORITY:
-            taken.setdefault(event.data["object_name"], []).append(under_way)
-    start_s, step_s, last_s = run.manifest.start_time_s, run.manifest.step_s, run.states[-1][0]
-    lags: Counter[int | None] = Counter()
-    for point, times in decided.items():
-        steps = taken.get(point, [])
-        for index, t_s in enumerate(t for t in times if t < last_s):
-            made = round((t_s - start_s) / step_s)
-            lags[steps[index] - made if index < len(steps) else None] += 1
-    return lags
 
 
 def test_the_agents_day_is_valid_and_blocked_only_by_the_rc_plant(agent_day: AgentRun) -> None:

@@ -1,19 +1,23 @@
 """Actuator: turns the policy's commands into BACnet writes, safely (the stub agent's rules).
 
 - **Only on a change.** A point is written when the value it should hold differs from the one
-  the agent last wrote there; a release goes out only for a point the agent holds.
-- **Back off from more urgent slots.** Before writing a zone point, a release included, it reads
-  the point's priority array. If a slot 1-9 holds a value (an operator writes at 8), it does
-  not write, says so once per hold and wanted value (a ``decision`` and an ``explanation``), and
-  tries again at the next step.
+  the agent last wrote there; a release goes out only for a point the agent holds. In a zone,
+  releases go first: a zone filling up gets its setpoint back before its sensor says Occupied.
+- **Back off from more urgent slots.** Before writing a zone point it reads the point's
+  priority array. If a slot 1-9 holds a value (an operator writes at 8), it does not write a
+  value, says so once per hold and wanted value (a ``decision`` and an ``explanation``), and
+  tries again at the next step. A release is never held back: NULL at 10 cannot override a
+  more urgent slot, so the agent's own slot is released under an operator too (the stub backs
+  off from releases as well).
 - **Never release a slot that is not its own.** A release goes out only while slot 10 still
-  holds the value the agent wrote; otherwise (another client wrote 10, or the BMS's heartbeat
-  watchdog released it) the agent forgets the point.
+  holds a value the agent wrote, or one whose write was cut off in flight; otherwise (another
+  client wrote 10, or the BMS's heartbeat watchdog released it) the agent forgets the point.
 - **Heartbeat.** ``SPOTCOOL-HEARTBEAT`` (BV 901) is toggled every ``heartbeat_s`` wall seconds,
   On first, without the check: it is the agent's liveness signal, not a command.
 - **Release.** ``stop()`` cancels the heartbeat first, so it never comes back after the
   release, then releases every zone point the agent holds, by the rules above, then the
-  heartbeat. The building loop calls it on a normal stop, on Ctrl+C and on a crash.
+  heartbeat. The building loop calls it on a normal stop, on Ctrl+C and on a crash. ``reset()``
+  starts a new run afresh: it releases the zone points the same way, then forgets them.
 """
 
 import asyncio
@@ -34,6 +38,8 @@ from spotcool_contracts.priorities import AGENT_PRIORITY, HEARTBEAT_PERIOD_S
 
 STOPPING = "the agent is stopping"
 """The reason of the releases ``stop()`` makes."""
+NEW_RUN = "a new run started"
+"""The reason of the releases ``reset()`` makes."""
 
 Hold = tuple[int, str | float]
 """A slot more urgent than the agent's that holds a value: its priority and the value."""
@@ -79,6 +85,7 @@ class Actuator:
         self._heartbeat = points.by_name("SPOTCOOL-HEARTBEAT")
         self._held: dict[str, str | float] = {}  # point name -> the value written at priority 10
         self._said: dict[str, tuple[Hold, Value]] = {}  # point name -> the back-off announced
+        self._attempted: dict[str, Value] = {}  # point name -> a value whose write was cut off
         self._beating: asyncio.Task[None] | None = None
         self._stopping = False
         self._last_t_s: float | None = None
@@ -108,6 +115,7 @@ class Actuator:
                 for point, value in ((sensor, command.sensor), (setpoint, command.setpoint_c))
                 if self._held.get(point.name) != value
             ]
+            writes.sort(key=lambda write: write[1] is not None)  # releases first
             if writes:
                 await self._command(zone, command.reason, writes, t_s)
 
@@ -119,14 +127,41 @@ class Actuator:
             beating.cancel()
             await asyncio.gather(beating, return_exceptions=True)
         every = [point for pair in self._points.values() for point in pair]
-        if held := [point.name for point in (*every, self._heartbeat) if point.name in self._held]:
+        if held := [point.name for point in (*every, self._heartbeat) if self._holds(point)]:
             logger.info(f"agent: releasing {', '.join(held)}")
-        for zone, pair in self._points.items():
-            releases = [(point, None) for point in pair if point.name in self._held]
-            if releases:
-                await self._command(zone, STOPPING, releases, self._last_t_s)
-        if self._heartbeat.name in self._held and await self._bacnet.write(self._heartbeat, None):
+        await self._release_zones(STOPPING)
+        if self._holds(self._heartbeat) and await self._bacnet.write(self._heartbeat, None):
             self._held.pop(self._heartbeat.name, None)
+            self._attempted.pop(self._heartbeat.name, None)
+
+    async def reset(self) -> None:
+        """Start a new run afresh: release every zone point, then forget them all.
+
+        The heartbeat goes on. A point whose release the BMS refused or never answered is
+        forgotten too: the new run starts from what its policy decides.
+        """
+        await self._release_zones(NEW_RUN)
+        for pair in self._points.values():
+            for point in pair:
+                self._held.pop(point.name, None)
+                self._attempted.pop(point.name, None)
+                self._said.pop(point.name, None)
+
+    async def _release_zones(self, reason: str) -> None:
+        """Release every zone point the agent holds, zone by zone, by the release rules."""
+        for zone, pair in self._points.items():
+            releases = [(point, None) for point in pair if self._holds(point)]
+            if releases:
+                await self._command(zone, reason, releases, self._last_t_s)
+
+    def _holds(self, point: PointSpec) -> bool:
+        """Whether slot 10 may hold the agent's value: written, or cut off in flight."""
+        return point.name in self._held or self._attempted.get(point.name) is not None
+
+    def _ours(self, point: PointSpec, slot: Value) -> bool:
+        """Whether slot 10 holds a value the agent wrote (or was writing when cut off)."""
+        tried = self._attempted.get(point.name)
+        return _same(slot, self._held.get(point.name)) or (tried is not None and _same(slot, tried))
 
     async def _command(
         self,
@@ -141,14 +176,19 @@ class Actuator:
             slots = await self._bacnet.slots(point)
             if slots is None:
                 continue  # unread: tried again at the next step
+            if value is None:
+                self._said.pop(point.name, None)
+                if not self._ours(point, slots[AGENT_PRIORITY - 1]):
+                    self._held.pop(point.name, None)  # never release a slot not the agent's
+                    self._attempted.pop(point.name, None)
+                    continue
+                allowed.append((point, value))  # NULL at 10 never overrides a more urgent slot
+                continue
             hold = _hold(slots)
             if hold is not None:
                 self._back_off(zone, point, value, hold, t_s)
                 continue
             self._said.pop(point.name, None)
-            if value is None and not _same(slots[AGENT_PRIORITY - 1], self._held.get(point.name)):
-                self._held.pop(point.name, None)  # never release a slot the agent did not write
-                continue
             allowed.append((point, value))
         if not allowed:
             return
@@ -160,12 +200,23 @@ class Actuator:
         text = explain.commanded(zone, reason, [(p.name, v) for p, v in allowed])
         self._publish(EventType.EXPLANATION, Explanation(text=text), t_s)
         for point, value in allowed:
-            if not await self._bacnet.write(point, value):
+            if not await self._write(point, value):
                 continue  # refused or unanswered: tried again at the next step
             if value is None:
                 self._held.pop(point.name, None)
             else:
                 self._held[point.name] = value
+
+    async def _write(self, point: PointSpec, value: Value) -> bool:
+        """Write a point, remembering the value while the write is in flight.
+
+        A write cancelled in flight (Ctrl+C, a crash) may still have reached the BMS, so its
+        value stays in ``_attempted``, and the release at ``stop()`` recognises it.
+        """
+        self._attempted[point.name] = value
+        done = await self._bacnet.write(point, value)
+        self._attempted.pop(point.name, None)
+        return done
 
     def _back_off(
         self, zone: Zone, point: PointSpec, value: Value, hold: Hold, t_s: float | None
@@ -193,7 +244,7 @@ class Actuator:
         beat = True
         while True:
             value = on if beat else off
-            if await self._bacnet.write(self._heartbeat, value):
+            if await self._write(self._heartbeat, value):
                 self._held[self._heartbeat.name] = value
             beat = not beat
             await asyncio.sleep(self._heartbeat_s)

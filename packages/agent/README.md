@@ -25,9 +25,11 @@ uv run spotcool-agent run --vision blob                # synthetic frames, no Me
 uv run spotcool-agent run --vision meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env
 ```
 
-`--world-host` (127.0.0.1), `--bms-port` (47808), `--http-port` (8081), `--dashboard-port`
-(8090), `--listen` (127.0.0.1:8002), `--sam-call-cap` and `--settle-s` override the settings;
-every setting also reads `SPOTCOOL_AGENT_<NAME>`. Ctrl+C releases every slot the agent holds.
+`--world-host` (this machine's primary IPv4 address, where the world's BMS binds by default;
+`127.0.0.1` for a world on loopback), `--bms-port` (47808), `--http-port` (8081),
+`--dashboard-port` (8090), `--listen` (127.0.0.1:8002), `--sam-call-cap` and `--settle-s`
+override the settings; every setting also reads `SPOTCOOL_AGENT_<NAME>`. Ctrl+C releases every
+slot the agent holds.
 
 ## Probe
 

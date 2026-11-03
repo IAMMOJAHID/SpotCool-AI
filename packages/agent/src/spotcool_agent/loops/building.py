@@ -7,20 +7,26 @@ The world never waits for the agent, so each round fits in the step it starts in
    moved on meanwhile, the newer step is taken instead.
 3. Fetch the five zone snapshots at once, in memory.
 4. One ``detect(jpeg, concept)`` per zone, all at once, each with a timeout of
-   ``min(DETECT_TIMEOUT_S, deadline - now)``, where ``deadline`` is ``step_wall_s -
-   DEADLINE_MARGIN_S`` after the change was seen. A result after the deadline is discarded.
-   A zone without a count is unknown.
+   ``min(DETECT_TIMEOUT_S, deadline - now)``, where ``deadline`` is ``step_wall_s`` minus the
+   margin after the change was seen (``deadline_after``: the margin is ``DEADLINE_MARGIN_S``,
+   or ``MARGIN_SHARE`` of the step if that is more). A result after the deadline is discarded.
+   A zone without a count is unknown, whatever went wrong with it.
 5. The policy decides for the step that starts at S (bookings and 19:00 judged there), and the
    actuator writes what changed. The BMS takes the writes at its next tick, so they take
    effect from that step.
 6. The ``perception``, ``decision`` and ``explanation`` events are stamped with the step's
    start, as the stub stamps its own with the state it acted on, so the record pairs each
    decision with the write the BMS took one step later.
+
+One bad step never ends the day: a step that raises is logged (once per kind of failure) and
+the loop goes on; only a cancel stops it. A new run (``Step.run`` changed) starts afresh: the
+actuator releases and forgets its points, the policy forgets its state, and the call cap and
+the camera catalog start again.
 """
 
 import asyncio
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from loguru import logger
 
@@ -39,7 +45,9 @@ from spotcool_contracts.cameras import CameraInfo
 from spotcool_contracts.events import EventType
 
 DEADLINE_MARGIN_S = 2.5
-"""Wall seconds left in a step after the detections, for the policy and the writes."""
+"""Wall seconds left in a step after the detections, for the policy and the writes, at least."""
+MARGIN_SHARE = 0.4
+"""The share of a step left after the detections, when it is more than ``DEADLINE_MARGIN_S``."""
 DETECT_TIMEOUT_S = 8.0
 """The longest any one detection may take."""
 SNAPSHOT_TIMEOUT_S = 2.0
@@ -48,6 +56,16 @@ SETTLE_S = 1.0
 """Wall seconds from a ``SIM-CLOCK`` change to the snapshots, so the cameras show the step."""
 CONCEPT = "humans"
 """What the vision provider counts (A's ``SAM_PERSON_CONCEPT``)."""
+
+
+def deadline_after(seen_at: float, step_wall_s: float) -> float:
+    """When a step's detections must be done: its change, plus the step, less the margin.
+
+    Args:
+        seen_at: When the step's change was seen (``time.perf_counter``).
+        step_wall_s: Wall seconds per step.
+    """
+    return seen_at + step_wall_s - max(DEADLINE_MARGIN_S, MARGIN_SHARE * step_wall_s)
 
 
 class BuildingLoop:
@@ -63,6 +81,7 @@ class BuildingLoop:
         metrics: Where each stage's latency goes.
         settle_s: Wall seconds from a step's change to its snapshots.
         concept: What to count.
+        on_new_run: Called when a new run starts, such as the Meta client's ``new_run``.
     """
 
     def __init__(
@@ -77,6 +96,7 @@ class BuildingLoop:
         metrics: StageMetrics,
         settle_s: float = SETTLE_S,
         concept: str = CONCEPT,
+        on_new_run: Callable[[], None] | None = None,
     ) -> None:
         self._clock = clock
         self._world = world
@@ -90,6 +110,9 @@ class BuildingLoop:
         self._cameras: dict[Zone, CameraInfo] | None = None
         self._failing: dict[str, str] = {}  # camera or room -> its last failure, logged once
         self._cap_reached = False
+        self._on_new_run = on_new_run
+        self._run = 0
+        self._step_errors: set[str] = set()  # kinds of step failure logged so far
         self.steps = 0
         """Steps handled."""
 
@@ -97,19 +120,47 @@ class BuildingLoop:
         """Handle every step as ``SIM-CLOCK`` changes, until cancelled."""
         while True:
             step = await self._clock.next_step()
-            wait = step.seen_at + self._settle_s - time.perf_counter()
-            if wait > 0:
-                await asyncio.sleep(wait)
-            if self._clock.latest is not step:
-                continue  # SIM-CLOCK moved on during the settle: take the newer step
-            await self.step(step)
+            try:  # one bad step never ends the day; a cancel still does
+                if step.run != self._run:
+                    await self.new_run(step.run)
+                wait = step.seen_at + self._settle_s - time.perf_counter()
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                if self._clock.latest is not step:
+                    continue  # SIM-CLOCK moved on during the settle: take the newer step
+                await self.step(step)
+            except Exception as exc:
+                kind = type(exc).__name__
+                if kind not in self._step_errors:
+                    self._step_errors.add(kind)
+                    when = clock_text(step.start_s)
+                    logger.error(f"step {when} failed, the loop goes on: {kind}: {exc}")
+
+    async def new_run(self, run: int) -> None:
+        """Start a new run afresh (see the module docstring).
+
+        Args:
+            run: The new run's count, ``Step.run``.
+        """
+        logger.info(f"new run detected (run {run}): releasing, and starting afresh")
+        self._run = run
+        await self._actuator.reset()
+        self._policy.reset()
+        self._cap_reached = False
+        self._cameras = None
+        if self._on_new_run is not None:
+            self._on_new_run()
 
     async def step(self, step: Step) -> None:
         """Perceive, decide and act on one step (stages 3 to 6 of the module docstring)."""
-        deadline = step.seen_at + self._clock.step_wall_s - DEADLINE_MARGIN_S
+        deadline = deadline_after(step.seen_at, self._clock.step_wall_s)
         calendar = asyncio.create_task(self._calendar(), name="calendar")
-        found = await self._perceive(deadline)
-        await calendar
+        try:
+            found = await self._perceive(deadline)
+            await calendar
+        finally:
+            calendar.cancel()  # done already, unless perceiving failed
+            await asyncio.gather(calendar, return_exceptions=True)
         counts = {zone: len(d.boxes) for zone, d in found.items()}
         cameras = self._cameras or {}
         masks = {cameras[zone].id: d.polygons() for zone, d in found.items() if zone in cameras}
@@ -190,6 +241,9 @@ class BuildingLoop:
         except VisionError as exc:
             self._failed(camera.id, f"{self._vision.name}: {exc}")
             return None
+        except Exception as exc:  # a provider's bug: this zone is unknown, the step goes on
+            self._failed(camera.id, f"{self._vision.name}: {type(exc).__name__}: {exc}")
+            return None
         if time.perf_counter() > deadline:
             self._metrics.late += 1  # too late for this step's writes
             return None
@@ -201,11 +255,14 @@ class BuildingLoop:
         for room in ROOMS:
             try:
                 schedule = await self._world.schedule(room)
+                self._policy.calendar(room, schedule.scheduleItems)
             except WorldHttpError as exc:
                 self._failed(room, str(exc))
                 continue
+            except ValueError as exc:  # a booking whose date cannot be read
+                self._failed(room, f"unreadable bookings: {exc}")
+                continue
             self._recovered(room)
-            self._policy.calendar(room, schedule.scheduleItems)
 
     def _failed(self, what: str, message: str) -> None:
         if self._failing.get(what) != message:

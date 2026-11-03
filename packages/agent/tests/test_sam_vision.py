@@ -34,6 +34,10 @@ def rate_limited() -> openai.RateLimitError:
     )
 
 
+NO_TEXT = object()
+"""An answer without ``output_text``."""
+
+
 class FakeResponses:
     """``responses.create``: each call pops the next outcome (text, exception or delay)."""
 
@@ -49,6 +53,8 @@ class FakeResponses:
         if isinstance(outcome, float):
             await asyncio.sleep(outcome)
             outcome = ANSWER
+        if outcome is NO_TEXT:
+            return SimpleNamespace()
         return SimpleNamespace(output_text=outcome)
 
 
@@ -153,3 +159,30 @@ async def test_a_snapshot_that_is_not_an_image_is_refused_before_any_call() -> N
     with pytest.raises(VisionError, match="not an image"):
         await SamVision(client(responses)).detect(b"<html>", "humans", 5.0)
     assert responses.requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "<0f>0<|box;x1=10;y1=10;x2=50;y2=90;w=100;h=100;c=0.5.1|>",
+        "<0f>0<|box;x1=10;y1=10;x2=50;y2=90;w=100;h=100;c=e|>",
+        NO_TEXT,
+        42,
+    ],
+    ids=["two-dots", "bare-e", "no-output-text", "not-text"],
+)
+async def test_an_unreadable_answer_is_no_answer(answer: Any) -> None:
+    meta = client(FakeResponses(answer))
+    with pytest.raises(VisionError, match="unreadable answer"):
+        await SamVision(meta).detect(jpeg(), "humans", 5.0)
+    if answer is NO_TEXT:
+        assert [call.ok for call in meta.ledger] == [False]
+
+
+def test_a_new_run_starts_the_call_count_afresh() -> None:
+    meta = client(FakeResponses(), call_cap=1)
+    meta._calls = 1
+    assert meta.cap_reached
+    meta.new_run()
+    assert not meta.cap_reached

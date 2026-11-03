@@ -70,7 +70,7 @@ async def test_points_are_written_only_when_their_value_changes(
         (EventType.EXPLANATION, None, T_S),
     ]
     await actuator.apply({Zone.SOU: PEOPLE}, T_S + 1800)
-    assert bms.writes[2:] == [(SENSOR, "Occupied"), (SETPOINT, None)]
+    assert bms.writes[2:] == [(SETPOINT, None), (SENSOR, "Occupied")]  # the setpoint back first
     assert actuator.held == {SENSOR: "Occupied"}
 
 
@@ -149,3 +149,67 @@ async def test_stop_ends_the_heartbeat_then_releases_the_zones_then_the_heartbea
     assert reasons == {STOPPING}
     await actuator.stop()  # twice is safe
     assert len(bms.writes) == count
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("how", ["a zone release", "19:00", "stop"])
+async def test_its_own_slot_is_released_under_an_operators_hold(
+    how: str, actuator: Actuator, bms: FakeBms, events: list[Any]
+) -> None:
+    await actuator.apply({Zone.SOU: EMPTY}, T_S)
+    bms.array(SETPOINT)[7] = 23.0  # an operator at priority 8
+    if how == "stop":
+        await actuator.stop()
+    else:
+        release = PEOPLE if how == "a zone release" else Command(None, None, "19:00")
+        await actuator.apply({Zone.SOU: release}, T_S + 900)
+    assert (bms.array(SETPOINT)[7], bms.array(SETPOINT)[9]) == (23.0, None)
+    assert not [data for _, data, _ in events if "backed off" in str(data)]
+
+
+@pytest.mark.asyncio
+async def test_another_clients_value_at_10_is_never_released_even_under_a_hold(
+    actuator: Actuator, bms: FakeBms
+) -> None:
+    await actuator.apply({Zone.SOU: EMPTY}, T_S)
+    bms.array(SETPOINT)[7], bms.array(SETPOINT)[9] = 23.0, 26.0
+    await actuator.stop()
+    assert bms.array(SETPOINT)[9] == 26.0
+
+
+@pytest.mark.asyncio
+async def test_a_write_cut_off_in_flight_is_still_released_at_stop(bms: FakeBms) -> None:
+    landed = asyncio.Event()
+
+    class Hanging(FakeBms):
+        async def write(self, point: PointSpec, value: Value) -> bool:
+            if point.name == SETPOINT and value == 28.0:
+                self.array(point.name)[9] = value  # the BMS took it ...
+                landed.set()
+                await asyncio.sleep(10)  # ... but its answer never came back in time
+            return await super().write(point, value)
+
+    hanging = Hanging()
+    actuator = Actuator(hanging, lambda kind, data, t_s: None)
+    applying = asyncio.create_task(actuator.apply({Zone.SOU: EMPTY}, T_S))
+    await asyncio.wait_for(landed.wait(), 1)
+    applying.cancel()  # Ctrl+C mid-write
+    await asyncio.gather(applying, return_exceptions=True)
+    assert SETPOINT not in actuator.held
+    await actuator.stop()
+    assert hanging.array(SETPOINT)[9] is None
+    assert hanging.writes[-1] == (SETPOINT, None)
+
+
+@pytest.mark.asyncio
+async def test_reset_releases_and_forgets_every_zone_point_but_keeps_the_heartbeat(
+    actuator: Actuator, bms: FakeBms
+) -> None:
+    actuator.start()
+    await asyncio.sleep(0.01)
+    await actuator.apply({Zone.SOU: EMPTY}, T_S)
+    bms.array(SENSOR)[9] = None  # gone already: forgotten without a write
+    await actuator.reset()
+    assert bms.array(SETPOINT)[9] is None
+    assert set(actuator.held) == {HEARTBEAT}
+    await actuator.stop()

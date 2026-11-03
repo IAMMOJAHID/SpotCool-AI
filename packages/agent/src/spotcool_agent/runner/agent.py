@@ -108,6 +108,7 @@ class Agent:
             publish=self.publisher.publish,
             metrics=self.metrics,
             settle_s=settings.settle_s,
+            on_new_run=self._meta.new_run if self._meta is not None else None,
         )
         self.complaint_loop = ComplaintLoop(self.complaints, self.publisher.publish)
         self._stop = asyncio.Event()

@@ -1,8 +1,15 @@
 import asyncio
 
 import pytest
+from loguru import logger
 
-from spotcool_agent.transports.bacnet import DEFAULT_STEP_WALL_S, ClockReading, StepClock
+from spotcool_agent.transports.bacnet import (
+    DEFAULT_STEP_WALL_S,
+    SILENT_WARN_S,
+    ClockReading,
+    NoAnswer,
+    StepClock,
+)
 
 T0 = 199 * 86_400.0 + 7 * 3600  # 07:00
 STEP_S = 900.0
@@ -105,3 +112,49 @@ async def test_run_polls_the_reader() -> None:
         polling.cancel()
         await asyncio.gather(polling, return_exceptions=True)
     assert step.start_s == T0
+
+
+def test_a_clock_going_back_or_a_new_initial_state_is_a_new_run() -> None:
+    steps, wall = clock()
+    for k in range(1, 5):
+        wall.now += 3.0
+        steps.observe(ClockReading(T0 + k * STEP_S))
+    assert steps.latest is not None and steps.latest.run == 0
+    assert steps.step_wall_s == pytest.approx(3.0)
+    steps.observe(ClockReading(T0, initial=True))  # the world started its run again
+    wall.now += 0.1
+    steps.observe(ClockReading(T0 + STEP_S))
+    assert steps.latest is not None and steps.latest.run == 1
+    assert steps.latest.start_s == T0
+    assert steps.step_wall_s == DEFAULT_STEP_WALL_S  # measured afresh
+    wall.now += 3.0
+    steps.observe(ClockReading(T0 + 2 * STEP_S))
+    steps.observe(ClockReading(T0 + STEP_S))  # backwards, the initial state missed
+    assert steps.latest.run == 2
+
+
+@pytest.mark.asyncio
+async def test_a_silent_bms_is_warned_about_once_after_10_s() -> None:
+    wall = Wall()
+    answered = asyncio.Event()
+
+    async def read() -> ClockReading | None:
+        wall.now += 1.0
+        if wall.now < 100.0 + 2 * SILENT_WARN_S:
+            raise NoAnswer("127.0.0.1:47808: no-response")
+        answered.set()
+        return None
+
+    said: list[str] = []
+    sink = logger.add(lambda message: said.append(str(message)), level="INFO")
+    steps = StepClock(read, poll_s=0.0, clock=wall)
+    polling = asyncio.create_task(steps.run())
+    try:
+        await asyncio.wait_for(answered.wait(), 5)
+    finally:
+        polling.cancel()
+        await asyncio.gather(polling, return_exceptions=True)
+        logger.remove(sink)
+    warned = [line for line in said if "SIM-CLOCK unanswered for 10 s" in line]
+    assert len(warned) == 1 and "WARNING" in warned[0]
+    assert any("SIM-CLOCK answers again" in line for line in said)

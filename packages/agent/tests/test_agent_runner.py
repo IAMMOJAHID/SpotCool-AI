@@ -57,7 +57,9 @@ async def slot_10(agent: Agent) -> list[object]:
 
 @pytest.mark.bacnet
 @pytest.mark.asyncio
-async def test_a_cancel_like_ctrl_c_releases_every_slot_then_the_heartbeat() -> None:
+async def test_a_cancel_like_ctrl_c_releases_every_slot_then_the_heartbeat(
+    writes: list[str],
+) -> None:
     bms_port = free_port(socket.SOCK_DGRAM)
     bms = BacnetBmsTransport(address=HOST, port=bms_port)
     await bms.start()
@@ -72,11 +74,12 @@ async def test_a_cancel_like_ctrl_c_releases_every_slot_then_the_heartbeat() -> 
         assert await slot_10(agent) == [None, None, None]
     finally:
         await bms.stop()
+    assert writes == []  # no file written by the agent, its server included
 
 
 @pytest.mark.bacnet
 @pytest.mark.asyncio
-async def test_a_crash_releases_every_slot_and_is_raised() -> None:
+async def test_a_crash_releases_every_slot_and_is_raised(writes: list[str]) -> None:
     bms_port = free_port(socket.SOCK_DGRAM)
     bms = BacnetBmsTransport(address=HOST, port=bms_port)
     await bms.start()
@@ -97,3 +100,4 @@ async def test_a_crash_releases_every_slot_and_is_raised() -> None:
         assert await slot_10(agent) == [None, None, None]
     finally:
         await bms.stop()
+    assert writes == []  # no file written by the agent, its server included

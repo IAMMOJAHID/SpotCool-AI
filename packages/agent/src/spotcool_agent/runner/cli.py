@@ -71,10 +71,10 @@ def main(argv: list[str] | None = None) -> int:
         for error in exc.errors(include_url=False, include_input=False):
             print(f"  {'.'.join(map(str, error['loc']))}: {error['msg']}")
         return 1
-    _log_to_stderr(settings.log_level)
     if args.command == "run" and args.dry_run:
         print(settings.model_dump_json(indent=2))  # SecretStr dumps as "**********"
         return 0
+    handler = _log_to_stderr(settings.log_level)
     try:
         if args.command == "probe":
             return asyncio.run(_probe(settings))
@@ -84,6 +84,8 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"{args.command} failed: {type(exc).__name__}: {exc}")
         return 1
+    finally:
+        logger.remove(handler)  # waits for the log thread to write what it holds
     return 0
 
 
@@ -125,9 +127,13 @@ async def _probe(settings: AgentSettings) -> int:
         await world.aclose()
 
 
-def _log_to_stderr(level: str) -> None:
+def _log_to_stderr(level: str) -> int:
+    """Log to stderr from a thread of its own; return the handler's id.
+
+    A console paused by QuickEdit then holds up the log thread, never the event loop.
+    """
     logger.remove()
-    logger.add(sys.stderr, level=level, diagnose=False, backtrace=False)
+    return logger.add(sys.stderr, level=level, diagnose=False, backtrace=False, enqueue=True)
 
 
 if __name__ == "__main__":

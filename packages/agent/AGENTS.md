@@ -40,7 +40,11 @@ uv run spotcool-agent probe --vision meta --env-file C:/Users/hussa/dev/secrets/
 ```
 
 Start the agent first, then the world without its stub (`spotcool-world run --plant rc`).
-Ctrl+C releases every slot the agent holds, then stops.
+`--world-host` defaults to this machine's primary IPv4 address, where the world's BMS binds by
+default; pass `--world-host 127.0.0.1` for a world on loopback. If `SIM-CLOCK` goes unanswered
+for 10 s the agent warns once. Ctrl+C releases every slot the agent holds, then stops. The run
+log goes to stderr from a thread of its own (loguru's `enqueue`), so a console paused by
+QuickEdit never stalls the loop.
 
 ## Architecture
 
@@ -57,16 +61,19 @@ The world never waits for the agent, so each round fits in the step it starts in
 1. `StepClock` (`transports/bacnet.py`) sees `SIM-CLOCK` change to S: the step [S - step, S)
    has ended, its measurements are on the points and its scene on the cameras. A reading with
    the fault flag set or no answer is ignored. A run's initial state, which the BMS shows with
-   `HVAC-ENERGY` at exactly 0 before the first step, is no step's end.
+   `HVAC-ENERGY` at exactly 0 before the first step, is no step's end. `SIM-CLOCK` going
+   backwards, or an initial state after steps, is a new run: the actuator releases and forgets
+   its points, the policy forgets its state, and the call cap and camera catalog start again.
 2. It waits `settle_s` (1.0 s; the eval uses 0.3 at speed 300) from that moment, so each
    camera renders the step's scene. If `SIM-CLOCK` moved on meanwhile, the newer step is
    taken.
 3. It fetches the five snapshots at once, then makes one `detect(jpeg, "humans")` per zone at
    once, each with a timeout of `min(8 s, deadline - now)`, where the deadline is
-   `step_wall_s - 2.5 s` after the change was seen. `step_wall_s` is the median of the last
+   `step_wall_s - max(2.5 s, 0.4 * step_wall_s)` after the change was seen (at speed 60, 9 s
+   after it; at speed 300, 0.5 s). `step_wall_s` is the median of the last
    five measured intervals between changes, from three of them on (15 s before), so one late
    reading cannot set it. A result after the deadline is discarded; a zone without a count is
-   unknown.
+   unknown, whatever went wrong with it (a provider's bug included).
 4. The policy decides for the step that starts at S; the actuator writes what changed. The
    BMS takes the writes at its next tick, so they take effect from that step.
 5. The `perception`, `decision` and `explanation` events are stamped with the step's start
@@ -74,7 +81,9 @@ The world never waits for the agent, so each round fits in the step it starts in
    then pairs each decision with the write the BMS took one step later.
 
 At speed 300 a round takes about 0.35 s with the blob counter (0.3 s of it the settle); with
-SAM 3.1 (p50 1.9 s, p95 3.2 s for five calls at once) it needs speed 60 or slower.
+SAM 3.1 (p50 1.9 s, p95 3.2 s for five calls at once) it needs speed 60 or slower. One bad step
+never ends the day: a step that raises is logged once per kind of failure and the loop goes
+on; only a cancel stops it.
 
 ### The policy (`processors/policy.py`)
 
@@ -126,11 +135,17 @@ step with no count at all, or the model-call cap used up, releases everything.
 - **Ground truth.** The agent connects to `/ws/agent` only, never `/ws/events`, and reads no
   `scenario_state` or `camera_scene`. It perceives through the cameras like any building's
   agent; the report compares its perception with the truth after the run.
-- **Actuation.** Priority 10 only; write on a change only; read the priority array before every
-  zone write and back off from slots 1-9; never release a slot that is not the agent's; toggle
-  `SPOTCOOL-HEARTBEAT` every 30 s; release everything at 19:00, on a normal stop, on Ctrl+C and
-  on a crash (`Agent.run`'s `finally` stops the loops first, then releases, then stops the
-  heartbeat's slot last).
+- **Actuation.** Priority 10 only; write on a change only, releases first within a zone (a zone
+  filling up gets its setpoint back before its sensor says Occupied); read the priority array
+  before every zone write and back off from slots 1-9 for a value; never release a slot that
+  is not the agent's (slot 10 must hold its value, or one whose write was cut off in flight);
+  toggle `SPOTCOOL-HEARTBEAT` every 30 s; release everything at 19:00, on a normal stop, on
+  Ctrl+C and on a crash (`Agent.run`'s `finally` stops the loops first, then releases, then
+  releases the heartbeat's slot last).
+- **Deviation from the stub: releases do not back off.** A NULL at priority 10 can never override
+  a more urgent slot, so the agent releases its own slot 10 even while an operator holds slot
+  8: at 19:00, at stop and on a zone release. The stub backs off from those too, which leaves
+  its value in force under the operator's once the operator lets go.
 - **The sim epoch** (`SIM_EPOCH`, 2026-01-01) is the agent's own constant; a test checks it
   against the world's.
 

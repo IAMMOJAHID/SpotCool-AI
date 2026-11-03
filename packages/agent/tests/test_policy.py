@@ -161,3 +161,43 @@ def test_with_perfect_counts_it_decides_as_the_stub_on_every_step(name: str) -> 
             z: (c.sensor, c.setpoint_c) for z, c in wanted.items()
         }, t_s
         t_s += step_s
+
+
+@pytest.mark.parametrize(
+    "start",
+    ["2026-07-19T14:00:00", "2026-07-19T14:00:00Z", "2026-07-19T19:30:00+05:30"],
+    ids=["naive", "z", "offset"],
+)
+def test_a_booking_in_utc_or_with_an_offset_is_read_on_the_simulation_clock(start: str) -> None:
+    policy = AgentPolicy()
+    item = ScheduleItem(
+        status="busy",
+        subject="Quarterly review",
+        start=DateTimeTimeZone(dateTime=start),
+        end=DateTimeTimeZone(dateTime="2026-07-19T15:00:00Z"),
+    )
+    policy.calendar("meeting-south", [item])
+    assert south(policy, every(EMPTY), "13:30").sensor == OCCUPIED
+    assert south(policy, every(EMPTY), "13:15").sensor == UNOCCUPIED
+
+
+def test_an_unreadable_booking_leaves_the_bookings_as_they_were() -> None:
+    policy = booked()
+    item = ScheduleItem(
+        status="busy",
+        start=DateTimeTimeZone(dateTime="tomorrow"),
+        end=DateTimeTimeZone(dateTime="later"),
+    )
+    with pytest.raises(ValueError):
+        policy.calendar("meeting-south", [item])
+    assert south(policy, every(EMPTY), "13:30").sensor == OCCUPIED
+
+
+def test_reset_forgets_the_bookings_and_the_unknown_steps() -> None:
+    policy = booked()
+    policy.commands(every(EMPTY), {}, at("09:00"))
+    policy.commands(every(EMPTY, eas=UNSEEN), {}, at("09:15"))
+    policy.reset()
+    commands = policy.commands(every(EMPTY, eas=UNSEEN), {}, at("09:30"))
+    assert Zone.EAS not in commands  # no command to keep, and only one unknown step
+    assert south(policy, every(EMPTY), "13:30").sensor == UNOCCUPIED  # no booking now

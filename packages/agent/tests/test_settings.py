@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from spotcool_agent.runner.cli import main
-from spotcool_agent.settings import AgentSettings, load_settings
+from spotcool_agent.settings import AgentSettings, load_settings, primary_ipv4
 
 KEY = "sk-not-a-real-key-0123456789"
 
@@ -71,3 +71,11 @@ def test_the_dry_run_without_a_key_shows_none_and_bad_flags_fail(
 def test_version(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["version"]) == 0
     assert capsys.readouterr().out.startswith("spotcool-agent 0.1.0 (contracts ")
+
+
+def test_the_world_host_is_this_machines_primary_ipv4_by_default() -> None:
+    import ipaddress
+
+    host = AgentSettings().world_host
+    assert host == primary_ipv4()
+    ipaddress.IPv4Address(host)

@@ -57,9 +57,15 @@ DEFAULT_STEP_WALL_S = 15.0
 """Wall seconds per step until the clock has measured it (speed 60)."""
 WALL_SAMPLES = 5
 """Step intervals the wall-time estimate is the median of."""
+SILENT_WARN_S = 10.0
+"""Wall seconds without an answer to ``SIM-CLOCK`` before a warning (once, until it answers)."""
 MIN_WALL_SAMPLES = 3
 """Intervals the estimate needs: one can be short, when a reading came late (the agent started
 before the BMS, so its first reads waited for answers that never came)."""
+
+
+class NoAnswer(Exception):
+    """The BMS did not answer a request (no device there, or it refused it)."""
 
 
 class BacnetClient:
@@ -136,16 +142,19 @@ class BacnetClient:
     async def clock(self) -> "ClockReading | None":
         """``SIM-CLOCK``'s value and whether it is a run's initial state, or ``None``.
 
-        ``None`` covers a fault in its status flags (the BMS has no measurement yet), a value
-        that is not finite, and no answer. ``HVAC-ENERGY`` reads 0 exactly at a run's initial
-        state: it counts each step's energy from there.
+        ``None`` covers a fault in its status flags (the BMS has no measurement yet) and a value
+        that is not finite. ``HVAC-ENERGY`` reads 0 exactly at a run's initial state: it counts
+        each step's energy from there.
+
+        Raises:
+            NoAnswer: If the BMS did not answer.
         """
         try:  # one after the other: the first without an answer ends the reading
             flags = await self.read(self._clock, "status-flags")
             value = await self.read(self._clock)
             energy = await self.read(self._energy)
-        except ErrorRejectAbortNack:
-            return None
+        except ErrorRejectAbortNack as exc:
+            raise NoAnswer(f"{self.device}: {exc}") from None
         if flags[1] or not math.isfinite(float(value)):  # status flags: in-alarm, fault, ...
             return None
         return ClockReading(float(value), initial=float(energy) == 0.0)
@@ -223,19 +232,23 @@ class Step:
             agent's writes take effect in.
         start_s: The step's start: the stamp of what the agent perceives and decides on it.
         seen_at: When the change was seen (``time.perf_counter``).
+        run: Which run it belongs to: the count of new runs the clock has seen.
     """
 
     end_s: float
     start_s: float
     seen_at: float
+    run: int = 0
 
 
 class StepClock:
     """Turns ``SIM-CLOCK`` changes into ``Step``s (see the module docstring).
 
     ``run()`` polls until cancelled. A reading without a value (a fault, or no answer) is
-    ignored. A run's initial state is no step's end: the cameras show no step of it yet, so it
-    only starts the count. The step's simulation length (``step_s``) is the smallest gap between
+    ignored; ``SILENT_WARN_S`` without an answer is logged once, as a warning. A run's initial
+    state is no step's end: the cameras show no step of it yet, so it only starts the count.
+    ``SIM-CLOCK`` going backwards, or an initial state after steps were seen, is a new run: the
+    count of runs (``Step.run``) goes up and the measurements start afresh. The step's simulation length (``step_s``) is the smallest gap between
     two values seen; its wall length (``step_wall_s``) is the median of the last
     ``WALL_SAMPLES`` intervals between changes, from ``MIN_WALL_SAMPLES`` of them on, leaving
     out the one from a run's initial state (the first step is not paced).
@@ -248,7 +261,7 @@ class StepClock:
 
     def __init__(
         self,
-        read: Callable[[], Awaitable[ClockReading | None]],
+        read: Callable[[], Awaitable[ClockReading | None]],  # may raise NoAnswer
         *,
         poll_s: float = POLL_S,
         clock: Callable[[], float] = time.perf_counter,
@@ -262,6 +275,7 @@ class StepClock:
         self._last: tuple[ClockReading, float] | None = None  # the last value, when first seen
         self._measured_step_s: float | None = None
         self._walls: deque[float] = deque(maxlen=WALL_SAMPLES)
+        self._run = 0
 
     @property
     def latest(self) -> Step | None:
@@ -285,8 +299,26 @@ class StepClock:
 
     async def run(self) -> None:
         """Poll ``SIM-CLOCK`` every ``poll_s`` until cancelled."""
+        silent_since: float | None = None
+        warned = False
         while True:
-            self.observe(await self._read())
+            try:
+                reading = await self._read()
+            except NoAnswer as exc:
+                now = self._clock()
+                silent_since = now if silent_since is None else silent_since
+                if not warned and now - silent_since >= SILENT_WARN_S:
+                    logger.warning(
+                        f"SIM-CLOCK unanswered for {SILENT_WARN_S:g} s ({exc}): is the BMS up, "
+                        "and its address right (--world-host, --bms-port)?"
+                    )
+                    warned = True
+                reading = None
+            else:
+                if warned:
+                    logger.info("SIM-CLOCK answers again")
+                silent_since, warned = None, False
+            self.observe(reading)
             await asyncio.sleep(self._poll_s)
 
     def observe(self, reading: ClockReading | None) -> None:
@@ -303,14 +335,20 @@ class StepClock:
         if last is not None and last[0].sim_s == value:
             return
         self._last = (reading, now)
-        if last is not None and value > last[0].sim_s:
+        if last is not None and (value < last[0].sim_s or reading.initial and self._latest):
+            self._run += 1  # a new run: SIM-CLOCK went back, or a run's initial state is shown
+            self._measured_step_s = None
+            self._walls.clear()
+            logger.info(f"SIM-CLOCK: new run detected (run {self._run})")
+        elif last is not None and value > last[0].sim_s:
             gap = value - last[0].sim_s  # one step, or more if a value was missed
             self._measured_step_s = min(gap, self._measured_step_s or gap)
             if not last[0].initial:  # the run's first step is not paced
                 self._walls.append((now - last[1]) / max(1, round(gap / self.step_s)))
         if reading.initial:
             return
-        self._latest = Step(end_s=value, start_s=value - self.step_s, seen_at=now)
+        start = value - self.step_s
+        self._latest = Step(end_s=value, start_s=start, seen_at=now, run=self._run)
         self._changed.set()
 
     async def next_step(self) -> Step:

@@ -88,16 +88,19 @@ async def test_the_agent_commands_the_bms_backs_off_from_an_operator_and_release
         )
         await actuator.apply({Zone.SOU: PEOPLE}, T_S + 900)
         slots = await client.slots(SETPOINT) or []
-        assert (slots[7], slots[9]) == (23.0, 28.0)  # backed off: the release waits
+        assert (slots[7], slots[9]) == (23.0, None)  # its own slot released under the operator
         assert (await client.slots(SENSOR) or [])[9] == "Occupied"
+        await actuator.apply({Zone.SOU: EMPTY}, T_S + 1800)
+        slots = await client.slots(SETPOINT) or []
+        assert (slots[7], slots[9]) == (23.0, None)  # a value is not written under it
         reasons = [data["reason"] for kind, data in events if kind is EventType.DECISION]
         assert "backed off: held at 23.0 by an operator at priority 8" in reasons
 
         await operator.write_property(
             Address(f"{HOST}:{bms_port}"), SETPOINT.object_id, "present-value", Null(()), priority=8
         )
-        await actuator.apply({Zone.SOU: PEOPLE}, T_S + 1800)
-        assert (await client.slots(SETPOINT) or [])[9] is None  # released once the operator let go
+        await actuator.apply({Zone.SOU: EMPTY}, T_S + 2700)
+        assert (await client.slots(SETPOINT) or [])[9] == 28.0  # written once the operator let go
 
         await actuator.stop()
         for point in (SENSOR, SETPOINT, HEARTBEAT):

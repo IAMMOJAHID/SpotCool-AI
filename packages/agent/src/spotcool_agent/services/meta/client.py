@@ -81,6 +81,10 @@ class MetaClient:
         """Whether the run's call cap is used up."""
         return self._call_cap is not None and self._calls >= self._call_cap
 
+    def new_run(self) -> None:
+        """Start the call count, and so the cap, afresh for a new run; the ledger stays."""
+        self._calls = 0
+
     async def respond(
         self,
         *,
@@ -119,8 +123,9 @@ class MetaClient:
                     input=[{"type": "message", "role": "user", "content": content}],  # type: ignore[list-item]
                     timeout=timeout_s,
                 )
+                text = response.output_text  # an answer without it is a failed call
                 ok = True
-                return response.output_text or ""
+                return text or ""
             finally:
                 latency_s = round(time.perf_counter() - started, 3)
                 self.ledger.append(Call(model, purpose, latency_s, ok))

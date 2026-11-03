@@ -1,17 +1,57 @@
 """Agent test helpers: free loopback ports, and a world app served by the world's own worker."""
 
 import asyncio
+import os
 import socket
+import sys
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
+import spotcool_agent
+
 HOST = "127.0.0.1"
 Serve = Callable[[FastAPI], AbstractAsyncContextManager[int]]
+AGENT_SOURCE = Path(spotcool_agent.__file__).parent
+WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND
+_writes: list[str] | None = None  # while watched: every file the agent's code opened to write
+
+
+def _audit(event: str, args: tuple[Any, ...]) -> None:
+    if _writes is None or event != "open":
+        return
+    path, mode, flags = args
+    writing = (isinstance(mode, str) and any(c in mode for c in "wax+")) or (
+        isinstance(flags, int) and flags & WRITE_FLAGS
+    )
+    if not writing or str(path) == os.devnull:  # subprocess opens it; it stores nothing
+        return
+    frame = sys._getframe(1)
+    while frame is not None:
+        if frame.f_code.co_filename.startswith(str(AGENT_SOURCE)):
+            _writes.append(str(path))
+            return
+        frame = frame.f_back
+
+
+sys.addaudithook(_audit)  # hooks stay for the process; this one acts only while watched
+
+
+@pytest.fixture
+def writes() -> Iterator[list[str]]:
+    """Every file opened to write by code with an agent frame on its stack, during the test."""
+    global _writes
+    _writes = []
+    try:
+        yield _writes
+    finally:
+        _writes = None
 
 
 def free_port(kind: socket.SocketKind = socket.SOCK_STREAM) -> int:

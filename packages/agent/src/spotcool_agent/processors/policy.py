@@ -21,7 +21,7 @@ What the stub never meets, because its perception is perfect:
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from spotcool_agent.processors.occupancy import Occupancy
 from spotcool_contracts import ZONES, Zone
@@ -70,12 +70,21 @@ class AgentPolicy:
         self._last: dict[Zone, Command] = {}
         self._unknown: dict[Zone, int] = dict.fromkeys(Zone, 0)
 
+    def reset(self) -> None:
+        """Forget everything: the bookings, each zone's last command and its unknown steps."""
+        self._bookings.clear()
+        self._last.clear()
+        self._unknown = dict.fromkeys(Zone, 0)
+
     def calendar(self, room: str, items: Sequence[ScheduleItem]) -> None:
         """Take a room's bookings, replacing the ones known before.
 
         Args:
             room: The room, a key of ``spotcool_contracts.calendar.ROOMS``.
             items: Its bookings, as the room calendar serves them.
+
+        Raises:
+            ValueError: If a booking's date-time is not ISO 8601; the bookings stay as they were.
         """
         self._bookings[room] = [
             (_sim_s(item.start.dateTime), _sim_s(item.end.dateTime), item.subject or "a booking")
@@ -156,8 +165,14 @@ class AgentPolicy:
 
 
 def _sim_s(date_time: str) -> float:
-    """A calendar date-time (``SIM_EPOCH`` plus the simulation seconds) as simulation time."""
-    return (datetime.fromisoformat(date_time) - SIM_EPOCH).total_seconds()
+    """A calendar date-time (``SIM_EPOCH`` plus the simulation seconds) as simulation time.
+
+    A date-time with ``Z`` or an offset is taken in UTC, the simulation's clock.
+    """
+    parsed = datetime.fromisoformat(date_time)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+    return (parsed - SIM_EPOCH).total_seconds()
 
 
 def clock_text(t_s: float) -> str:

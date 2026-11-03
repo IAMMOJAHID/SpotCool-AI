@@ -3,12 +3,10 @@
 import asyncio
 import base64
 import io
-import os
 import re
 import subprocess
 import sys
 import wave
-from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -36,40 +34,7 @@ from spotcool_contracts import ZONES, Zone
 from spotcool_contracts.points import PointSpec
 
 AGENT_SOURCE = Path(spotcool_agent.__file__).parent
-WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_APPEND
 T0 = 199 * 86_400.0 + 9 * 3600
-_writes: list[str] | None = None  # while watched: every file the agent's code opened to write
-
-
-def _audit(event: str, args: tuple[Any, ...]) -> None:
-    if _writes is None or event != "open":
-        return
-    path, mode, flags = args
-    writing = (isinstance(mode, str) and any(c in mode for c in "wax+")) or (
-        isinstance(flags, int) and flags & WRITE_FLAGS
-    )
-    if not writing:
-        return
-    frame = sys._getframe(1)
-    while frame is not None:
-        if frame.f_code.co_filename.startswith(str(AGENT_SOURCE)):
-            _writes.append(str(path))
-            return
-        frame = frame.f_back
-
-
-sys.addaudithook(_audit)  # hooks stay for the process; this one acts only while watched
-
-
-@pytest.fixture
-def writes() -> Iterator[list[str]]:
-    """Every file opened to write, by code with an agent frame on its stack, while the test runs."""
-    global _writes
-    _writes = []
-    try:
-        yield _writes
-    finally:
-        _writes = None
 
 
 def test_no_agent_module_imports_the_world() -> None:

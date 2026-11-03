@@ -68,7 +68,10 @@ class SamVision(VisionService):
                 text = await self._ask(content, purpose, deadline)
         except TimeoutError:
             raise VisionError(f"no answer within {timeout_s:.1f} s") from None
-        frames = parse_sam_output(text)
+        try:
+            frames = parse_sam_output(text)
+        except (TypeError, ValueError) as exc:  # such as a confidence of "0.5.1"
+            raise VisionError(f"unreadable answer: {type(exc).__name__}") from None
         found = frames.get(0) or (frames[min(frames)] if frames else [])
         kept = tuple(
             d for d in found if d.confidence is None or d.confidence >= self._min_confidence
@@ -99,4 +102,6 @@ class SamVision(VisionService):
                 raise VisionError(f"{type(exc).__name__} (HTTP {exc.status_code})") from None
             except openai.OpenAIError as exc:  # connection failures, the client's own timeout
                 raise VisionError(type(exc).__name__) from None
+            except (AttributeError, TypeError, ValueError) as exc:  # an answer of another shape
+                raise VisionError(f"unreadable answer: {type(exc).__name__}") from None
         raise AssertionError("unreachable")
