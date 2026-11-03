@@ -2,7 +2,7 @@
 
 **From** Person B (the world and the video), **for** Person A (the agent).
 
-**Last updated:** 2026-11-01, 22:00 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `world/main`.
+**Last updated:** 2026-11-03, 13:30 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `world/main`.
 
 This document replaces the earlier chat notes. Everything in them is folded in here, and the changes since are listed in §15.
 
@@ -27,31 +27,30 @@ This document replaces the earlier chat notes. Everything in them is folded in h
   - Measured with every zone empty all day: −29 % HVAC energy for the setpoint alone, and **−81 %** with the airflow shut off (§10).
 - **Release everything at 19:00**, the end of the occupied day. BACnet commands persist after hours.
 - **Timing:** a reading describes the **15-minute step that just ended**. Your writes take effect from the next step.
-- **Contracts:** they live in `packages/contracts` (Python package `spotcool-contracts`, v0.1). The interface is unchanged. Pull `wp/wp0-core-contracts` (now `f2d849b`) or `world/main`.
+- **Contracts:** they live in `packages/contracts` (Python package `spotcool-contracts`, v0.1.1; additive since v0.1). Pull `world/main`, which has everything.
 
 ## 2. What the world is
 
 B builds everything your agent connects to, because there is no real building:
 
-| Part | What it stands in for | Status (Nov 2, 11:00 IST) |
+| Part | What it stands in for | Status (Nov 3, 13:30 IST) |
 |---|---|---|
 | **Physics** | A 5-zone office from BOPTEST (`multizone_office_simple_air`, 1,662.66 m², Chicago weather, peak cooling day), run **twice**: the SpotCool run (your writes) and the baseline run (the building on its own) | **Done** (WP1). A fast RC model replaces BOPTEST for tests and quick runs |
 | **BMS** | Device `SpotCool-Office-BMS` on BACnet/IP | **Built** (WP2), merged into `world/main` |
 | **VRF gateway** | One meeting-room indoor unit on BACnet/IP (fan, setpoint, louvers) | **Built** (WP3): Mitsubishi, Daikin or LG (`vrf_profile`), in real time |
-| **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | **Built** (WP4). The zone clips are filmed on Nov 2; until then the cameras show dataset or synthetic frames |
+| **Cameras** | A CCTV recorder's catalog and snapshot API: one camera per zone, plus a live phone camera | **Built** (WP4). The zone clips aren't filmed yet; until they are, the cameras show dataset or synthetic frames |
 | **Calendar** | Room bookings shaped like Microsoft Graph `getSchedule` | **Built** (WP5), served during every run |
 | **Occupants** | Scripted complaints sent to your `/chat` and `/voice` | **Built** (WP5), sent during every run |
-| **Telemetry and dashboard** | An event stream, the KPIs, and the judges' dashboard | Event stream, KPIs and `/ws/agent` **built** (WP6); the dashboard is planned (WP7) |
+| **Telemetry and dashboard** | An event stream, the KPIs, and the judges' dashboard | **Built:** the event stream, KPIs and `/ws/agent` (WP6), and the judges' dashboard at `http://<world>:8090/` (WP7) |
 | **Assembly** | `spotcool-world run --scenario hybrid_tuesday --plant rc\|boptest-local` | **Built** (WP11), with `replay` and `report`. A stub agent stands in for yours in our test runs, labelled `stub: true` |
 
 **Targets:**
 
 | When (IST) | Target |
 |---|---|
-| Nov 2, 18:00 | Full run on the RC plant with a stub agent |
-| Nov 2, 22:00 | The same on BOPTEST |
-| **Nov 3, morning** | **Integration with your agent** |
-| Nov 3, 21:00 | First automated video take |
+| Nov 2–3 | **Done:** full runs on the RC plant and on BOPTEST with our stub agent (§10) |
+| **Nov 3–4, as soon as you can** | **Integration with your agent:** one paced BOPTEST run of about 20 minutes gives SpotCool's own figure |
+| Nov 4 | The video takes, then the submission |
 | Nov 4, 21:00 | Submission deadline |
 
 ## 3. Where things live
@@ -159,11 +158,19 @@ The BMS follows ASHRAE 90.1-2019 §6.5.3.8 (also in Guideline 36). The standard 
 - **Steps:** the world advances in **15-minute simulated steps**. At the default speed (300), one step takes about **3 s of wall time**, so the occupied day 07:00–19:00 runs in about 2.5 minutes. The demo day is BOPTEST's peak cooling day (day 199), starting at 07:00.
 - **Readings describe the step that just ended.** A value stamped 10:15 is the state at 10:15, after the 10:00–10:15 step. `SIM-CLOCK` shows that stamp. Schedule edges therefore show one stamp late: the building's own setpoint still reads 24 °C at 19:00 and 30 °C only from 19:15.
 - **Your writes apply from the next step.** Write between steps. A write arriving during a step is applied at the next one.
-- **Points without data yet.** Until the plant's first reading arrives, which only happens while the simulator starts, points report `statusFlags` fault and `reliability` = communication-failure. **Don't act on a point with the fault flag set.** (This lands in WP2's final fixes.)
+- **Points without data yet.** Until the plant's first reading arrives, which only happens while the simulator starts, points report `statusFlags` fault and `reliability` = communication-failure. **Don't act on a point with the fault flag set.**
 
-### 5.5 Running the BMS on your machine today
+### 5.5 Running the world on your machine
 
-Once WP2 is on `world/main` (shortly), you can run the real device against the fast RC building:
+The whole world (BMS, VRF, cameras, calendar, complaints and the dashboard) runs against the fast RC building. Leave out `--stub-agent` when your agent drives:
+
+```bash
+git fetch origin && git switch world/main
+uv sync --all-packages --all-extras
+uv run spotcool-world run --plant rc --speed 60     # a 15-minute step every 15 s; the day takes 12 minutes
+```
+
+Or run the BMS device on its own:
 
 ```bash
 git fetch origin && git switch world/main      # or: git worktree add ../spotcool-world origin/world/main
@@ -174,7 +181,7 @@ uv run python packages/world/examples/foundational/06_bacnet_device.py --ticks 4
 
 - **Same-PC networking:**
   - The device binds this machine's primary IPv4 address on UDP 47808.
-  - If your agent runs on the **same PC**, give your BACnet client a different local UDP port (for example 47820), and **address the devices directly by IP and port**: device 1001 at `<ip>:47808`, later device 2001 at `<ip>:47810`. Discovery by broadcast Who-Is won't reach a client on another port.
+  - If your agent runs on the **same PC**, give your BACnet client a different local UDP port (for example 47820), and **address the devices directly by IP and port**: device 1001 at `<ip>:47808`, and the VRF, device 2001, at `<ip>:47810`. Discovery by broadcast Who-Is won't reach a client on another port.
   - On Windows, allow UDP 47808–47810 in Windows Firewall for Python.
 - **Tools:** Python clients BACpypes3 or BAC0, and YABE (a free Windows BACnet explorer) for browsing by hand.
 
@@ -255,7 +262,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 ## 10. The building and what we measured (BOPTEST)
 
 - **Baseline schedule:** cooling 24 °C from 06:00 to 19:00 and 30 °C otherwise; heating 20 °C and 12 °C. HVAC power peaks at about 18 kW (14:00) and is about 0 at night. The test day uses about 195 kWh of HVAC energy.
-- **Savings levers**, with every zone treated as empty all day. These are upper bounds; the realistic `hybrid_tuesday` number comes later from our run.
+- **Savings levers**, with every zone treated as empty all day. These are upper bounds.
 
 | What | HVAC energy for the day | Saving |
 |---|---|---|
@@ -266,13 +273,17 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 - **Why the setpoint alone is weak:** with only a raised setpoint, the VAV boxes drop to minimum airflow (the core alone at about 880 L/s), and the zones float only to 24.7–26.1 °C.
   - The **core zone** barely responds: a one-hour 28 °C override moved it 0.00 °C.
   - The perimeter zones (South and West in the afternoon) respond most.
+- **Our full-day result:** BOPTEST, `hybrid_tuesday`, with our stub agent, whose perception is perfect because it reads the script. **19.94 % HVAC energy saved** (230.4 against 287.8 kWh), with comfort where people were 2.13 against 0.33 K·h. It's an upper bound. Your agent's run gives SpotCool's own figure.
 - **Standby on its own** (no raised setpoint) is a smaller lever. On the RC plant it cut an empty South zone's airflow by about 30 %, and the zone stayed between 24.5 and 25.4 °C. We will measure the BOPTEST number in the full scenario. **Standby plus a raised setpoint** is the big one (−81 % above).
 
 ## 11. A suggested policy (yours to decide)
 
 - **Zone empty** (cameras count 0 for a while, during 06:00–19:00): write `OCC-SENSOR` = Unoccupied. Optionally also raise `CLG-SP` (26–28 °C) to widen the standby band.
 - **People present:** write NULL to both, so the building's own setpoint applies (24 °C). The comparison is only fair if SpotCool keeps the building's comfort where people are. The savings then come only from empty zones.
-- **Before a booking:** watch the calendar, and release the room's points ahead of the meeting so it recovers. We'll measure the recovery time in the `hybrid_tuesday` run and send it to you.
+- **Before a booking:** watch the calendar, and release the room's points about **30 minutes** ahead of the meeting so it recovers.
+  - Measured on BOPTEST with our stub, which pre-cools 30 minutes ahead: South was back at the setpoint within one 15-minute step of the 14:00 meeting.
+  - Zones set back to 28 °C took about 30 minutes to recover after the 08:30 arrivals.
+  - Without pre-cooling, South reached 31 °C during the meeting.
 - **Complaints:** "It's freezing in this meeting room" means the occupants are too cold, so relax cooling there. "The AC is blowing right on my face" means re-aim the VRF vanes. Explain what you did; Muse Spark is used for the explanations.
 - **West door open** (`WES-ENTRANCE-DOOR`, BI 601): cooling a zone with its door propped open wastes energy. Your policy may relax that zone while the door is open.
 - **19:00:** release every priority-10 write. Otherwise you cool an empty building after hours while the baseline floats to 30 °C, which costs SpotCool score.
@@ -280,7 +291,7 @@ Device **2001** `VRF-Gateway-MeetingRoom`, UDP **47810**. Same rules as the BMS:
 
 ## 12. The demo scenario: `hybrid_tuesday` (built, WP5)
 
-This is the story the video tells. **Don't hardcode it**: the point is that your agent perceives it. The people counts may change if fewer people are available for filming on Nov 2.
+This is the story the video tells. **Don't hardcode it**: the point is that your agent perceives it. The people counts may change if fewer people are available for filming.
 
 | Sim time | Core | North | South (meeting room) | East | West (entrance) |
 |---|---|---|---|---|---|
@@ -299,7 +310,9 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 ## 13. Fairness and honesty (what we will say in the video)
 
 - **The baseline** is the same building and the same BMS, without occupancy sensors and without SpotCool.
-- **BOPTEST's occupant heat follows its own fixed schedule,** not our cameras. So savings in zones the cameras show empty can be somewhat overstated, by up to the heat of the occupants who aren't there. We bracket this with the RC plant, whose people heat follows the scenario, and with an `all_hands_day` scenario where savings should be about 0.
+- **BOPTEST's occupant heat follows its own fixed schedule,** not our cameras. So savings in zones the cameras show empty can be somewhat overstated, by up to the heat of the occupants who aren't there. We bracket this with the RC plant, whose people heat follows the scenario, and with control runs.
+  - With every zone occupied 07:00–19:00, SpotCool saves 0.0 %.
+  - On `all_hands_day` (everyone in from 08:30 to 18:00) it saves 2.3 %, all of it in the empty hours before and after.
 - **Comfort is judged where people actually were** ("comfort where people were"). BOPTEST's own discomfort KPIs count discomfort on its fixed schedule, so they also penalize empty zones.
 - **Every number** on screen will have a source. Please don't claim more than the scored run shows.
 
@@ -319,6 +332,18 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 | Standby also requires 06:00–19:00 | Standby ends exactly at 19:00. BOPTEST reports values one stamp late, so the setpoint alone would have run standby to 19:15 |
 | Points without data carry fault flags | Check `statusFlags` and `reliability` |
 | Release at 19:00; readings describe the step that ended | Covered in §5.4 and §11 |
+| **Nov 2–3:** the timeline sits on the 15-minute grid (door 10:00–10:45, complaint 14:15) | Times in §12 |
+| Calendar dates are 2026-01-01 plus `SIM-CLOCK` seconds, `timeZone: "UTC"` | §8 |
+| `/chat` and `/voice` must answer within 10 s; the world doesn't retry a timeout | §9 |
+| `/ws/agent` is publish-only, with limits: 64 KB, 20 a second, no images | §9 |
+| The dashboard calls `/chat` and `/voice` from the browser with `X-SpotCool-Client: dashboard` | Allow CORS for `POST` with `content-type` and `x-spotcool-client` (§9) |
+| The dashboard reads the stub's event shapes until you tell us yours | Send your `perception`, `decision`, `explanation` and `chat` fields (§9, §16) |
+| Contracts 0.1.1: `run_status` can be `cancelled` | None; it's additive |
+| The BMS power points are each meter's mean over the last step | Read them as step means (§5.1) |
+| The VRF gateway is built: brand refusals, real time, write only on change | §6 |
+| BOPTEST runs survive a dropped connection between the world and BOPTEST | None. Keep your PC on one network during a run |
+| Our stub agent backs off from an operator at priority 8, and commands at each step's close | Your agent should also leave a point an operator holds |
+| Our result: 19.94 % with the stub, as an upper bound | §10. Quote nothing higher. "Up to 60 %" isn't supported by any run |
 
 ## 16. What B needs from you
 
@@ -326,4 +351,4 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 2. **Your endpoints:** the host and port (default `http://127.0.0.1:8002`) and the `/chat` and `/voice` handling as described in §9. Tell us whether you run on the same PC as the world (§5.5).
 3. **Your dashboard events:** the `data` fields of `perception` (counts and masks per camera), `decision` and `explanation`, so WP7 can draw them.
 4. **More read points?** Anything else you need from the BMS or the VRF unit. That's a contract change, so ask early.
-5. **Integration slot:** a time on Nov 3 morning (IST) to run your agent against the world.
+5. **Integration slot:** as soon as you can on Nov 3–4 (IST), run your agent against the world on BOPTEST, paced at speed 60 (about 20 minutes). It's the only run that gives SpotCool's own figure; without it the video quotes only our stub's upper bound.

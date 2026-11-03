@@ -24,7 +24,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["**/node_modules", "video"]
+extend-exclude = ["**/node_modules"]
 
 [tool.ruff.lint]
 # Same families pipecat enforces: async pitfalls, bugbear, docstrings, pyflakes, imports, pyupgrade.
