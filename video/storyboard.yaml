@@ -1,0 +1,198 @@
+# The demo video, beat by beat: the single source of truth for every script in scripts/video/.
+#
+# Each beat runs from `start` to `end` (seconds, on the 30 fps frame grid); the beats tile the
+# video with no gap or overlap. `type` is title, motion, screen or phone. `source` is one of:
+#   composition: <id>    a HyperFrames composition, video/motion/<id>/index.html, rendered by
+#                        scripts/video/render_motion.py with on_screen_text as its variables
+#   take: <id>           an OBS take, video/takes/<id>.mkv (or .mp4/.mov), recorded by
+#                        scripts/video/take.py; the beat starts `in_s` seconds into it, the
+#                        scenes switch at `at` seconds into the beat, and `cues` tell the person
+#                        at the keyboard what to do and when
+#   clip: <path>         any other video file, relative to the repo root, from `in_s`
+# A missing take, clip or render becomes a labelled slate in the cut.
+#
+# `narration_id` names a section of video/narration.md. `on_screen_text` is the beat's text: a
+# composition's variables, or a take's `label` (drawn top left). `sources` are ids in
+# video/sources.yaml; every number on screen or in the narration must be among their figures.
+# Check it all with: uv run python scripts/video/storyboard_check.py
+
+video:
+  title: SpotCool
+  fps: 30
+  width: 1920
+  height: 1080
+  max_s: 178
+
+beats:
+  - id: title
+    start: 0
+    end: 4
+    type: title
+    source: {composition: title}
+    narration_id: null
+    on_screen_text:
+      title: SpotCool
+      tagline: Cooling that follows people
+    sources: []
+
+  - id: hook
+    start: 4
+    end: 33
+    type: motion
+    source: {composition: hook_stats}
+    narration_id: hook
+    on_screen_text:
+      headline: Half-empty offices, cooled as if full
+      attendance_value: 56.1 %
+      attendance_label: average office attendance
+      tuesday_value: 66.1 %
+      tuesday_label: on Tuesdays
+      attendance_source: "Source: Kastle Systems, US badge data"
+      hvac_value: 55 %
+      hvac_label: of a commercial building's energy goes to HVAC in India
+      hvac_source: "Source: Bureau of Energy Efficiency"
+      counting_value: up to 17.8 %
+      counting_label: HVAC savings from counting occupants
+      presence_value: 5.9 %
+      presence_label: from detecting presence only
+      counting_source: "Source: PNNL-22072"
+    sources: [kastle, bee-hvac-share, pnnl-22072]
+
+  - id: plugs_in
+    start: 33
+    end: 50
+    type: motion
+    source: {composition: three_connections}
+    narration_id: plugs_in
+    on_screen_text:
+      headline: Three connections the building already has
+      hub: SpotCool
+      cctv_title: CCTV cameras
+      cctv_body: count the people in each zone
+      bms_title: Building management system
+      bms_body: eases the cooling where nobody is
+      complaints_title: Complaints
+      complaints_body: so a cold meeting room is heard
+      footer: No new sensors
+    sources: []
+
+  - id: world
+    start: 50
+    end: 66
+    type: motion
+    source: {composition: architecture}
+    narration_id: world
+    on_screen_text:
+      headline: A building to test it on
+      agent: SpotCool agent
+      world: The world
+      bms: BACnet BMS
+      vrf: VRF unit
+      cameras: CCTV cameras
+      complaints: Complaints
+      plant_spotcool: BOPTEST office, SpotCool run
+      plant_baseline: BOPTEST office, baseline run
+      footer: Same weather, same building, same BMS. Only one run gets SpotCool's writes.
+    sources: [boptest]
+
+  - id: bms_yabe
+    start: 66
+    end: 86
+    type: screen
+    source:
+      take: yabe_override
+      in_s: 2
+      scenes:
+        - {at: 0, scene: YABE}
+        - {at: 10, scene: Dashboard}
+        - {at: 16, scene: YABE}
+      before:
+        - "Follow docs/runbooks/yabe.md, The operator override for the video, steps 1 and 2: the world on loopback (BMS on 47809) with the stub agent, and Present Value 23 written at priority 8 on ANALOG_VALUE:201 before 08:30 sim time."
+        - "Wait until the dashboard's agent panel shows the back-off (from 08:30 sim time), then start this take."
+      cues:
+        - {at: 0, say: "YABE: show ZN-COR-CLG-SP's Priority Array, 23 at 8 over 28 at 10"}
+        - {at: 10, say: "(Dashboard) the agent panel shows the back-off"}
+        - {at: 16, say: "YABE: at priority 8, clear Present Value and press Enter to release"}
+    narration_id: bms_yabe
+    on_screen_text:
+      label: "The BMS in YABE: an operator override at priority 8 (stub agent)"
+    sources: [bacnet-priorities]
+
+  - id: dashboard
+    start: 86
+    end: 107
+    type: screen
+    source:
+      take: dashboard_replay
+      in_s: 3
+      replay: {run_id: eval-live-hybrid-20261103-122941, speed: 1800}
+      dashboard_url: http://127.0.0.1:8090/?mode=video
+      scenes:
+        - {at: 0, scene: Dashboard}
+      before:
+        - "The footage is found and the dashboard is built (docs/runbooks/video-takes.md, Before any take)."
+      cues:
+        - {at: 0, say: "Hands off: the replay plays the whole day"}
+    narration_id: dashboard
+    on_screen_text:
+      label: "The hybrid Tuesday, replayed from the saved run (stub agent, in simulation)"
+    sources: [run-eval-live]
+
+  - id: louvers
+    start: 107
+    end: 124
+    type: phone
+    source:
+      take: phone_vrf
+      in_s: 2
+      dashboard_url: http://127.0.0.1:8090/?mode=video
+      scenes:
+        - {at: 0, scene: PhoneCam}
+        - {at: 7, scene: Dashboard+Camera}
+      before:
+        - "Follow docs/runbooks/video-takes.md, The VRF segment: the phone camera, the world at speed 1 with the Mitsubishi profile, settled for 6 minutes, and Person A's agent connected."
+        - "Pass the agent's address with --agent, so the Dashboard browser source opens with &agent=."
+      cues:
+        - {at: 0, say: "A enters at the left edge and walks right"}
+        - {at: 7, say: "A sits on the far chair for 5 s, then walks back toward the camera"}
+    narration_id: louvers
+    on_screen_text:
+      label: "Live: the meeting room's VRF louvers follow a person"
+    sources: []
+
+  - id: results
+    start: 124
+    end: 151
+    type: motion
+    source: {composition: results_card, run_id: eval-live-hybrid-20261103-122941}
+    narration_id: results
+    on_screen_text:
+      title: "BOPTEST: SpotCool's policy against the baseline"
+    sources: [run-eval-live, boptest]
+
+  - id: rollout
+    start: 151
+    end: 164
+    type: motion
+    source: {composition: rollout_privacy}
+    narration_id: rollout
+    on_screen_text:
+      rollout_title: Rollout
+      rollout_1: No new hardware. It runs on the cameras and the BMS already there.
+      rollout_2: Swap our world for a real building, and the agent's code does not change.
+      privacy_title: Privacy
+      privacy_1: Frames stay in memory.
+      privacy_2: The record keeps counts and decisions, never images.
+    sources: []
+
+  - id: close
+    start: 164
+    end: 170
+    type: title
+    source: {composition: close}
+    narration_id: close
+    on_screen_text:
+      title: SpotCool
+      tagline: Cooling that follows people
+      repo: github.com/IAMMOJAHID/SpotCool-AI
+    sources: []

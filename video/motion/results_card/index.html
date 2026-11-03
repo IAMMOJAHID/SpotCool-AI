@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  The results card. Every value comes from scripts/video/results_card.py, which reads a saved run
+  through the world's report; the label follows the run's verdict. Nothing here is typed in:
+  the defaults below are placeholders and the render refuses unset variables.
+-->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id": "title", "type": "string", "label": "Title", "default": "BOPTEST: SpotCool against the baseline"},
+    {"id": "label", "type": "string", "label": "Label (from the verdict)", "default": "Label"},
+    {"id": "saved", "type": "string", "label": "Energy saved", "default": "-"},
+    {"id": "saved_caption", "type": "string", "label": "Energy saved caption", "default": "less HVAC energy than the baseline"},
+    {"id": "spotcool_kwh", "type": "number", "label": "SpotCool energy (kWh)", "default": 1},
+    {"id": "baseline_kwh", "type": "number", "label": "Baseline energy (kWh)", "default": 1},
+    {"id": "spotcool_energy", "type": "string", "label": "SpotCool energy text", "default": "-"},
+    {"id": "baseline_energy", "type": "string", "label": "Baseline energy text", "default": "-"},
+    {"id": "comfort_caption", "type": "string", "label": "Comfort caption", "default": "Discomfort where people were"},
+    {"id": "comfort_spotcool", "type": "string", "label": "SpotCool discomfort", "default": "-"},
+    {"id": "comfort_baseline", "type": "string", "label": "Baseline discomfort", "default": "-"},
+    {"id": "run_line", "type": "string", "label": "Run", "default": "Run"},
+    {"id": "caveat", "type": "string", "label": "Caveat", "default": "Caveat"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SpotCool: results card</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111821;
+        --line: #2a3542;
+        --ink: #f2f1ec;
+        --muted: #a3acb6;
+        --dim: #7c8692;
+        --cool: #63d3e8;
+        --spot: #3d8bf0;
+        --spot-ink: #7db4ff;
+        --base: #eb6834;
+        --base-ink: #f59a72;
+        --warn: #f2c14e;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #card-scene {
+        position: absolute;
+        inset: 0;
+      }
+      #card-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg);
+      }
+      #card-title {
+        position: absolute;
+        left: 140px;
+        top: 96px;
+        font-size: 52px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      #card-label {
+        position: absolute;
+        left: 140px;
+        top: 178px;
+        padding: 10px 22px;
+        border: 2px solid var(--warn);
+        border-radius: 999px;
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--warn);
+      }
+      #card-saved {
+        position: absolute;
+        left: 140px;
+        top: 300px;
+        font-size: 172px;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: -0.04em;
+        font-variant-numeric: tabular-nums;
+      }
+      #card-saved-caption {
+        position: absolute;
+        left: 146px;
+        top: 500px;
+        width: 680px;
+        font-size: 44px;
+        font-weight: 700;
+        line-height: 1.15;
+        color: var(--cool);
+      }
+      /* Energy: one bar each, in proportion; the baseline's is the full width. */
+      .card-row {
+        position: absolute;
+        left: 960px;
+        width: 820px;
+        height: 110px;
+      }
+      #card-row-baseline { top: 300px; }
+      #card-row-spotcool { top: 450px; }
+      .card-row-name {
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      .card-track {
+        position: absolute;
+        left: 0;
+        top: 52px;
+        width: 560px;
+        height: 46px;
+        border-radius: 8px;
+        background: rgba(242, 241, 236, 0.06);
+      }
+      .card-bar {
+        display: block;
+        width: 100%;
+        height: 46px;
+        border-radius: 8px;
+      }
+      #card-bar-baseline { background: var(--base); }
+      #card-bar-spotcool { background: var(--spot); }
+      .card-value {
+        position: absolute;
+        left: 590px;
+        top: 52px;
+        width: 230px;
+        line-height: 46px;
+        font-size: 36px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      #card-value-baseline { color: var(--base-ink); }
+      #card-value-spotcool { color: var(--spot-ink); }
+      /* Comfort where people were: SpotCool's is worse, and the card says so as plainly. */
+      #card-comfort {
+        position: absolute;
+        left: 960px;
+        top: 610px;
+        width: 820px;
+        padding: 22px 28px;
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+      }
+      #card-comfort-caption {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      #card-comfort-values {
+        margin-top: 12px;
+        display: flex;
+        gap: 40px;
+        font-size: 36px;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      .card-comfort-name {
+        font-size: 26px;
+        font-weight: 400;
+        color: var(--dim);
+        margin-right: 12px;
+      }
+      #card-comfort-spotcool { color: var(--spot-ink); }
+      #card-comfort-baseline { color: var(--base-ink); }
+      #card-caveat {
+        position: absolute;
+        left: 140px;
+        top: 760px;
+        width: 760px;
+        font-size: 26px;
+        line-height: 1.35;
+        color: var(--muted);
+      }
+      #card-run {
+        position: absolute;
+        left: 960px;
+        top: 800px;
+        width: 820px;
+        font-family: "JetBrains Mono", monospace;
+        font-size: 20px;
+        color: var(--dim);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="results_card" data-start="0" data-duration="27" data-width="1920" data-height="1080">
+      <div id="card-scene" class="clip" data-start="0" data-duration="27" data-track-index="1">
+        <div id="card-bg"></div>
+        <div id="card-title" data-var-text="title">BOPTEST: SpotCool against the baseline</div>
+        <div id="card-label" data-var-text="label">Label</div>
+        <div id="card-saved" data-var-text="saved">-</div>
+        <div id="card-saved-caption" data-var-text="saved_caption">less HVAC energy than the baseline</div>
+
+        <div class="card-row" id="card-row-baseline">
+          <div class="card-row-name">Baseline</div>
+          <div class="card-track"><span class="card-bar" id="card-bar-baseline"></span></div>
+          <div class="card-value" id="card-value-baseline" data-var-text="baseline_energy">-</div>
+        </div>
+        <div class="card-row" id="card-row-spotcool">
+          <div class="card-row-name">SpotCool</div>
+          <div class="card-track"><span class="card-bar" id="card-bar-spotcool"></span></div>
+          <div class="card-value" id="card-value-spotcool" data-var-text="spotcool_energy">-</div>
+        </div>
+
+        <div id="card-comfort">
+          <div id="card-comfort-caption" data-var-text="comfort_caption">Discomfort where people were</div>
+          <div id="card-comfort-values">
+            <span><span class="card-comfort-name">SpotCool</span><span id="card-comfort-spotcool" data-var-text="comfort_spotcool">-</span></span>
+            <span><span class="card-comfort-name">Baseline</span><span id="card-comfort-baseline" data-var-text="comfort_baseline">-</span></span>
+          </div>
+        </div>
+
+        <div id="card-caveat" data-var-text="caveat">Caveat</div>
+        <div id="card-run" data-var-text="run_line">Run</div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const vars = window.__hyperframes && window.__hyperframes.getVariables ? window.__hyperframes.getVariables() : {};
+      const baseline = Number(vars.baseline_kwh) || 1;
+      const spotcool = Number(vars.spotcool_kwh) || 1;
+      const longest = Math.max(baseline, spotcool);
+      // Each bar opens to its share of the longest, a clip-path reveal.
+      const open = (value) => `inset(0% ${Math.max(0.01, 100 * (1 - value / longest)).toFixed(3)}% 0% 0%)`;
+      // A reveal ends at 0.01 %, not 0: the browser shortens "inset(0% 0% 0% 0%)" to "inset(0%)",
+      // and GSAP cannot tween between the two forms, so it would jump at the end.
+      const tl = gsap.timeline({ paused: true });
+      const IN = { opacity: 1, filter: "blur(0px)", y: 0, duration: 0.5, ease: "power4.out" };
+      const enter = (sel, at) => tl.fromTo(sel, { opacity: 0, filter: "blur(8px)", y: 16 }, IN, at);
+
+      enter("#card-title", 0.3);
+      enter("#card-label", 0.9);
+      // "SpotCool's policy used 19.94 % less HVAC energy than the baseline":
+      tl.fromTo("#card-saved", { opacity: 0, filter: "blur(14px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.7, ease: "expo.out" }, 3.0);
+      enter("#card-saved-caption", 3.5);
+      enter("#card-row-baseline", 4.6);
+      tl.fromTo("#card-bar-baseline", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(baseline), duration: 1.2, ease: "power3.out" }, 4.8);
+      enter("#card-row-spotcool", 5.6);
+      tl.fromTo("#card-bar-spotcool", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(spotcool), duration: 1.2, ease: "power3.out" }, 5.8);
+      // "Discomfort where people were rose":
+      enter("#card-comfort", 10.6);
+      // "Treat it as an upper bound":
+      enter("#card-caveat", 17.8);
+      enter("#card-run", 18.6);
+      window.__timelines["results_card"] = tl;
+    </script>
+  </body>
+</html>
