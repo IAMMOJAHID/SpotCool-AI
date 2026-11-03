@@ -53,9 +53,11 @@ export function scenarioLabel(name: string): string {
     .join(' ');
 }
 
-/** A number with fixed digits, or an em dash when there is none. */
+/** A number with fixed digits, or an em dash when there is none; never a negative zero. */
 export function fixed(value: number | null | undefined, digits: number): string {
-  return value == null || !Number.isFinite(value) ? '\u2014' : value.toFixed(digits);
+  if (value == null || !Number.isFinite(value)) return '\u2014';
+  // + 0 turns a rounded -0 (a louver at -0.3 deg) into 0, as the world's report does
+  return (Number(value.toFixed(digits)) + 0).toFixed(digits);
 }
 
 /** A BACnet write's value; a NULL write releases its priority slot. */

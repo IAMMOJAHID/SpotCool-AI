@@ -36,6 +36,11 @@ describe('format', () => {
     expect(bmsValue(26.12345)).toBe('26.123');
     expect(bmsValue('Unoccupied')).toBe('Unoccupied');
   });
+
+  it('never shows a negative zero', () => {
+    expect([fixed(-0.3, 0), fixed(-0.04, 1), fixed(-0, 2)]).toEqual(['0', '0.0', '0.00']);
+    expect([fixed(-0.6, 0), fixed(-1.26, 1)]).toEqual(['-1', '-1.3']);
+  });
 });
 
 describe('readConfig', () => {

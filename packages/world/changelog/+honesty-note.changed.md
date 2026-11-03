@@ -1,0 +1,1 @@
+The report's honesty note adds: "BOPTEST's own discomfort KPIs (`tdis_tot`, `idis_tot`) follow its fixed schedule, which counts every zone as occupied all day, so they include zones the scenario leaves empty."
