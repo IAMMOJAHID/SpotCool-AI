@@ -1,6 +1,6 @@
 # Agent lane handoff: SpotCool's real agent (from Person A's MVP)
 
-**Last updated:** 2026-11-04, about 01:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-04, about 02:30 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). Written so a `/compact` or a fresh session can resume safely.
 
 **Audience:** the next Claude Code session (or person) continuing the agent lane.
 - The world's own status is `docs/status/HANDOFF.md`.
@@ -13,7 +13,7 @@
   - All new work lands there, world-side fixes included, through `ag/<id>-<slug>` or `fix/<slug>` branches merged `--no-ff`. No PRs.
   - `world/main` is frozen as the record of the world.
 - **Person A isn't working on the agent.** We build, review and run it end to end from A's MVP, `origin/third_level_improvement` `b653cbf`, which stays frozen.
-- **The goal is SpotCool's own quotable figure:** a real agent perceiving with SAM 3.1 on a paced BOPTEST run whose report says "Quotable". It's set honestly against the 19.94 % perfect-perception upper bound. After that comes the video's live louvers shot, which can be tried until Nov 4, 16:00 IST.
+- **Done: SpotCool's own quotable figure, 19.94 % saved** (`runs/ag3-boptest-agent-s60`), and every P0 engineering WP is merged into `agent/main` (`c20ae9a`, CI green). **What's left is AG5:** the user's takes and narration, the live louvers take (until Nov 4, 16:00 IST), the final cut, the upload and the form.
 - **Deadline:** Nov 4, 21:00 IST.
 
 ## Resume here (a fresh session or after `/compact`)
@@ -22,7 +22,7 @@
 2. **Check what's running:**
    - `git -C C:/Users/hussa/dev/SpotCool-AI worktree list`, plus `git status` in any `C:\Users\hussa\dev\wt\ag*` worktree;
    - `gh codespace list`: shut down anything idle, but never delete `spotcool-boptest-*`.
-3. **Builder agents can't be messaged from a fresh session.** Read the WP worktree's commits and uncommitted work, then start a new `general-purpose` builder from the WP's brief in `docs/agent/workpackages/`, saying what already exists.
+3. **Nothing is building.** Builder agents can't be messaged from a fresh session anyway. For new work, start a `general-purpose` builder from a brief in `docs/agent/workpackages/`, saying what already exists. **The louvers demo:** `packages/agent/README.md` ("The louvers demo") and `docs/runbooks/phone-camera.md`. Start the agent first with `--vrf --vision meta --stt meta --llm meta`, then the world with `SPOTCOOL_WORLD_LIVE_CAMERA_URL` and `SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi`. Never run `--vrf` during a scored run.
 4. **The gate per WP** is the world's (§ Workflow below). One agent at a time; a reviewer counts.
 5. **The key** is `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY`), outside the repo. Never print it, commit it, or copy it into the repo. The user rotates it after the end-to-end test.
 
@@ -35,8 +35,8 @@
 | AG1 | Agent core: cameras → SAM 3.1 → BACnet BMS; dashboard events; `/chat` and `/voice` acknowledgements; the report's agent activity and blockers; the end-to-end eval | **Done** on `ag/ag1-agent-core` (build `b9e42ac` `d4fed74` `706a0a4`, review fixes `d491c2c` `2de469e`). The eval on RC matches the stub: 15.4469 % against 15.4469 %, 30/30 writes one step late, 240/240 agreement. Builder `ab9df4e1b4b50ea81`, reviewer `a7e31493b0cfa9325` |
 | AG2 | Perception rehearsal on RC with SAM on real footage; choose the speed | **Done:** `runs/ag2-rc-meva-s60`. Agreement 239/239, all writes one step late, 15.45 % (= the stub's RC; RC is never quoted). **Speed 60 chosen** |
 | AG3 | The scored BOPTEST run → "Quotable" | **Done:** `runs/ag3-boptest-agent-s60` says **Quotable: 19.94 % saved**, with 40 agent writes, agreement 240/240, every write on time, comfort 2.13 against 0.33 K h. The control `runs/ag3-boptest-allhands-s60` saves 5.68 % (one miss: East 13:15). Both are in `docs/release/numbers.md`; the card label is "SpotCool saved (SAM 3.1 perception, in simulation)" |
-| AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | Brief drafted; the builder starts once AG1 is merged |
-| AG5 | Video and release: takes, narration after AG3, final cut | Planned |
+| AG4 | Meeting room (VRF louvers from the phone camera), voice and chat with Meta models | **Merged** `c20ae9a` (build `e0d36bc` `b1018bf`, review fixes `12d9040` `f4f0bac`). One BACnet client and socket per device (VRF: device 1911 on UDP 47821), because a shared one went deaf to both when they started late (the reviewer's probe). Separate budgets for the VRF and the language models; the BMS is always released first; replies never claim a change an operator blocked. The live phone, STT and LLM path is not yet run end to end. Builder `a0a4fdccde6d41e26`, reviewer `af197050fb64dc5ab` |
+| AG5 | Video and release: takes, narration after AG3, final cut | **In progress.** The video shows the agent's run (`4de4264`): the results card ("SpotCool saved (SAM 3.1 perception, in simulation)", 19.94 %), the narration, the dashboard replay and the MEVA credit. The draft passes `qa.py`, pending the narration and the three takes |
 
 ## Measured (AG0, Nov 3)
 

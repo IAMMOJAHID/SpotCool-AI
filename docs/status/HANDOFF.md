@@ -3,6 +3,7 @@
 **Last updated:** 2026-11-03, about 17:15 IST, by the lead Claude Code session (session `441270a4-d753-4379-ba6d-7751619bd543`), written so that a `/compact` or a fresh session can resume safely.
 
 **State in one breath:**
+- **Since Nov 3 evening the active lane is the agent lane, on the trunk `agent/main`.** Its status, gate log and "Resume here" block are in `docs/agent/HANDOFF.md`, which supersedes this file wherever they differ. `world/main` is frozen.
 - **Every WP is merged into `world/main`,** WP9 (the video pipeline) last, and its CI is green (`86de315`, run `41628160225`; five jobs: check, evals, scenarios, dashboard, hygiene): WP0–WP11, WP1.2 and WP6.1.
 - **The world runs end to end** with every service:
   - BOPTEST or RC, the BMS and the VRF, cameras, calendar, occupants, recorder, report, and the judges' dashboard;
