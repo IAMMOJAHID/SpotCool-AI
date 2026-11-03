@@ -7,7 +7,7 @@ from results_card import ResultsCard
 from storyboard import load_sources, load_storyboard
 
 CARD = ResultsCard(
-    run_id="eval-live-hybrid-20261103-122941",
+    run_id=load_storyboard().beat("results").source.run_id,  # whichever run the storyboard names
     stub=True,
     label="Upper bound",
     variables={"label": "Upper bound", "saved": "19.94 %"},

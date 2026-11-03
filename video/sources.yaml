@@ -47,3 +47,17 @@ bacnet-priorities:
   doc: docs/runbooks/yabe.md
   figures: ["8", "10"]
   cite: "BACnet priorities: the SpotCool world's BMS (docs/runbooks/yabe.md)"
+
+run-agent:
+  name: BOPTEST run ag3-boptest-agent-s60 (SpotCool's agent, SAM 3.1 perception, hybrid_tuesday, speed 60)
+  run_id: ag3-boptest-agent-s60
+  doc: docs/release/numbers.md
+  figures: ["19.94 %", "230.4", "287.8", "2.13", "0.33"]
+  cite: "Our result: run ag3-boptest-agent-s60, SpotCool's agent with SAM 3.1 perception, in simulation"
+
+meva:
+  name: MEVA, Multiview Extended Video with Activities (Kitware, IARPA)
+  url: https://mevadata.org
+  doc: CREDITS.md
+  figures: []
+  cite: "Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0"
