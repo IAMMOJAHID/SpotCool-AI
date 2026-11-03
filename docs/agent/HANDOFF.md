@@ -1,6 +1,6 @@
 # Agent lane handoff: SpotCool's real agent (from Person A's MVP)
 
-**Last updated:** 2026-11-04, about 03:15 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). It's written so that a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-04, about 05:15 IST (AG6: `dev` integrated), by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). It's written so that a `/compact` or a fresh session can resume safely.
 
 **Audience:** the next Claude Code session, or a person, continuing SpotCool. **This file is the project's live status.**
 - `docs/status/HANDOFF.md` (Person B's world) and `docs/integration/PERSON_A_HANDOFF.md` (Person A) defer to it.
@@ -11,6 +11,7 @@
 ## State in one breath
 
 - **The trunk is `agent/main`.** Everything is merged there: the world, the agent and the video, with CI green. Work lands through `ag/*`, `fix/*` or `docs/*` branches merged `--no-ff`, never through PRs. `world/main` is frozen as the record of the world.
+- **`dev` is integrated and submission-ready** (AG6, below). After AG6, `agent/main` and `dev` are the same commit. **The judges see `main`, the default branch, which is still "Initial commit"; updating it is the user's call** (USER_GUIDE step H5).
 - **SpotCool's own figure is done and quotable: 19.94 % HVAC energy saved** (`runs/ag3-boptest-agent-s60`).
   - The setup: SpotCool's agent, perceiving with Meta's SAM 3.1 on MEVA CCTV clips, drove the world's BACnet BMS on a paced BOPTEST run.
   - The proof: agreement 240/240 zone-steps, all 30 writes one step after their decision, 40 accepted agent writes, no heartbeat-timeout release.
@@ -20,11 +21,34 @@
 - **What's left is the user's AG5 material,** by Nov 4, 21:00 IST: the narration, the takes, the final cut, the upload and the form (`docs/release/USER_GUIDE.md`). There's also an optional engineering backlog ("Remaining", below).
 - **Person A isn't working on it.** We built, reviewed and ran the agent end to end from A's MVP (`origin/third_level_improvement` `b653cbf`, frozen).
 
-## Dev integration (AG6, Nov 4)
+## Dev integration (AG6, Nov 4: done)
 
-- **`release/dev-integration`** is `origin/dev` with `agent/main` merged in (`f38a3b3`), plus AG6's two commits. The brief is `docs/agent/workpackages/AG6-dev-integration.md`. The lead reviews it, pushes it and merges it into `dev`.
+- **The user asked for it on Nov 4:** "merge the whole things from all the lanes … to dev first, also do the proper clean up of dev …, keep the submission ready things …, a root README for the judges", with the README approved.
+- **How it landed:**
+  - `release/dev-integration` is `origin/dev` with `agent/main` merged in (`f38a3b3`), then AG6's two commits and this docs commit. The brief is `docs/agent/workpackages/AG6-dev-integration.md`.
+  - It was merged into `dev` with `--no-ff`. Then `agent/main` was fast-forwarded to `dev`, so the two are one commit.
+  - **From now on,** work still lands on `agent/main` through branches. After each merge, `dev` follows with `git merge --ff-only agent/main`, and so does `main` once the user has updated it.
+- **The gate:**
+  - the builder's checks: 1263 tests, 16 evals (the agent eval at 15.4469 %, agreement 240/240), pyright 0, and the dashboard's 81 tests;
+  - branch CI green;
+  - the lead's line-by-line honesty read of the README against `numbers.md` and the code. It made four wording fixes, all along the lines of "the agent decides occupied or empty; it never counts people";
+  - an independent reviewer's read of the README. The lead fixed all of its findings, which were:
+    - **P0:** the privacy line said only counts leave the agent, but the Meta providers send snapshots, audio and complaint text to the Meta AI API;
+    - **P1:** the baseline and the scripted `hybrid_tuesday` weren't defined, so the figure could be set against PNNL's;
+    - **P1:** "swap the world for real hardware" overclaimed, because standby and the watchdog are the world's BMS emulation;
+    - **P1:** occupied zones hold their sensor at Occupied rather than being fully released;
+    - **P1:** the louvers and complaints sit outside the measured result;
+    - **P1:** the occupant-heat caveat now says which way it errs;
+    - **P1:** A's comfort physics wasn't ported.
 - **Deleted** (git history keeps them): A's pre-integration MVP that came with `dev` (`app/`, the RabbitMQ client, the Docker files, `requirements.txt`, its `.env.example`), which stays on `third_level_improvement`; and the single-AC design material (`docs/designs/`, `docs/workflow/`, `.claude/rules/`, the Antigravity config, the drift report).
 - **Rewritten:** the root `README.md` for the judges (every figure from `docs/release/numbers.md`; its `Video: <YouTube link>` line is the user's to fill in), `CLAUDE.md`, `AGENTS.md`, `REVIEW.md`'s definitions of failure (and the review workflow's copy of them), `docs/README.md`, and a key-free root `.env.example`.
+- **Left stale on purpose,** outside AG6's lane. These only matter to PR reviews, which we don't run:
+  - `.github/CODEOWNERS` names old `/src/` paths;
+  - `claude-security-review.yml` and `evals/code_review_evals.json` still describe the old single-AC twin;
+  - `docs/release/README-world-section.md`, a superseded draft, has root-relative links.
+- **Still to do:**
+  - the README's `Video: <YouTube link>` line, after the upload (USER_GUIDE step H4);
+  - updating `main` from `dev` (step H5, the user's call).
 
 ## Resume here (a fresh session or after `/compact`)
 
@@ -134,7 +158,7 @@ Each item is a gated WP. Builders run one at a time; nothing needs BOPTEST excep
 
 | # | What | Why it helps win | Size |
 |---|---|---|---|
-| 0 | **A root README for the judges.** What SpotCool is, the architecture (world plus agent), Meta's models used (SAM 3.1, muse-wonder, muse-voice), the 19.94 % result with its label and caveats, how to run it, the credits. **Written in AG6** ("Dev integration", above), replacing the stale single-AC README | Judges read the repo first. **Needs the user's OK**, since it's a shared root file (`docs/release/README-world-section.md` is a draft) | ~1 h, lead |
+| 0 | **A root README for the judges.** What SpotCool is, the architecture (world plus agent), Meta's models used (SAM 3.1, muse-wonder, muse-voice), the 19.94 % result with its label and caveats, how to run it, the credits. **Done in AG6** ("Dev integration", above): it replaces the stale single-AC README, with the user's OK (Nov 4) | Judges read the repo first | Done |
 | 1 | **LLM-written explanations** (muse-wonder) for each decision, beside the templates, then **re-run the scored BOPTEST run** so the dashboard replay shows them | Shows Meta's LLM reasoning live in the video. The figure stays 19.94 %, because the policy is unchanged | ~2 h build plus a 25 min BOPTEST run, the storyboard's `run_id`, and a re-render |
 | 2 | **VRF comfort grounding:** muse-spark clothing and activity → clo and met → A's PMV `comfort_setpoint` → `IDU-SP`, every 60 s, for the meeting room only | Uses A's physics and Meta's vision model on screen in the louvers take | ~2–3 h |
 | 3 | **A's supervisor for the VRF:** muse-wonder proposes a VRF plan through A's `simulate_plan`, governed by A's `govern` | Shows A's "agentic" core | ~3 h |

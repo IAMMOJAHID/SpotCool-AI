@@ -10,7 +10,7 @@ Built for the Meta Global AI Developer Hackathon, submitted 4 November 2026. Eve
 
 ## The problem
 
-- **Fewer people come in.** By Kastle's badge swipes, US office attendance averaged **56.1 %** of its February 2020 level across 10 cities, and **66.1 %** on the peak day, Tuesday 20 October 2026. February 2020 is what Kastle calls normal peak occupancy, not capacity, so this isn't a share of desks. ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/); the page updates weekly, read 3 November 2026.)
+- **Fewer people come in.** By Kastle's badge swipes, US office attendance's 10-city weekly average was **56.1 %** of its February 2020 level, and **66.1 %** on the peak day, Tuesday 20 October 2026. February 2020 is what Kastle calls normal peak occupancy, not capacity, so this isn't a share of desks. ([Kastle](https://www.kastle.com/safety-wellness/getting-america-back-to-work/); the page updates weekly, read 3 November 2026.)
 - **HVAC is the largest share.** In a typical commercial building in India, HVAC uses **about 55 %** of the energy. ([BEE](https://rehva.eu/fileadmin/user_upload/REHVA-ISHRAE_EC_BEE_seminar_S_Kumar_Deepa_.pdf), slide "Typical Commercial Building Energy Use".)
 - **Occupancy-based control saves energy, in simulation.** In PNNL's simulated US large office, occupancy-based control of the lights and VAV boxes saved **17.8 %** of whole-building energy with sensors that count occupants, against **5.9 %** with sensors that only detect presence. That's a national average weighted by construction volume, not a maximum, and not a share of HVAC energy; most of the saving is heating. ([PNNL-22072](https://www.pnnl.gov/main/publications/external/technical_reports/pnnl-22072.pdf), executive summary and section 3.3.)
 
@@ -20,13 +20,14 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
 
 - **The building.** Each BMS step, the agent snapshots every zone's CCTV camera and asks Meta's **SAM 3.1** to find the people. Then it drives the BMS over BACnet/IP:
   - **an empty zone** gets its occupancy sensor set to Unoccupied and a 28 °C cooling setpoint, at BACnet priority 10, so the BMS's standby mode shuts its airflow off;
-  - **an occupied zone** is released back to the building's own control;
+  - **an occupied zone** has its occupancy sensor held at Occupied and its cooling setpoint released, so the building's own schedule applies;
   - **a booked room** is pre-cooled from 30 minutes before its booking;
   - **at 19:00** everything is released;
   - **an operator** writing at priority 8 always wins: the agent reads each point's priority array first, and backs off from any slot 1 to 9.
 - **The meeting room.** The VRF unit's louvers follow a person seen on a live camera (a phone, in the demo). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled).
 - **Complaints.** An occupant types or says "it's too cold in here". Voice is transcribed by Meta's **`muse-voice-transcribe-1.0`**. Keywords, then **`muse-wonder-1.0`**, work out the intent (cold, hot, draft, stuffy). The agent adjusts the meeting room's unit (setpoint, fan or vane), and muse-wonder answers in plain words, with a template as the fallback. Complaints never touch the BMS zones.
-- **Privacy.** Frames and audio stay in memory, and the agent writes no file. What leaves it is counts, people's outlines, decisions and explanations, as dashboard events. Logs hold a complaint's length and intent, never its words. A test with an audit hook checks that no file is opened for writing.
+- **Outside the measured result.** The louvers and complaints are a live demo, not part of the 19.94 %, and the VRF unit's power enters no saving.
+- **Privacy.** Frames and audio are held in memory, and the agent writes no file. With the Meta providers, each snapshot, each voice recording and each complaint's text go to the Meta AI API; the offline providers send nothing. To the dashboard the agent publishes counts, people's boxes, decisions, explanations and chat replies. Logs hold a complaint's length and intent, never its words. A test with an audit hook checks that no file is opened for writing.
 
 ## The result
 
@@ -38,17 +39,18 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
 | Discomfort where people were (lower is better) | 2.13 K·h | 0.33 K·h |
 
 - **The run.** BOPTEST's `multizone_office_simple_air`, the scenario `hybrid_tuesday` (07:00 to 19:00 on BOPTEST's peak cooling day, in 15-minute steps), paced at speed 60. SpotCool's agent perceived each zone with SAM 3.1 on CCTV clips and drove the world's BACnet BMS. Recorded 3 Nov 18:43 UTC, commit `1689f76`; the record is the run `ag3-boptest-agent-s60`, kept outside the repo (`runs/` is git-ignored).
+- **The baseline** is the same building on the same day with no agent. Without an occupancy sensor the BMS can't tell that a zone is empty, so every zone runs its normal occupied schedule. **`hybrid_tuesday` is a day we scripted:** half the staff work from home, the East team is remote all day, and the South meeting room is used from 14:00 to 15:00. So the figure is for one such day, not an average. It isn't comparable with PNNL's figures above, which are whole-building national averages; ours is HVAC energy only.
 - **The report's verdict is `Quotable`.** BOPTEST's own energy and the world's integration agree (0.000 %, no fallbacks, no events dropped). The agent made 40 accepted priority-10 zone writes from its own address, every write landed one step after its decision, and no heartbeat-timeout release happened.
 - **Perception.** Occupancy was right on **240 of 240** zone-steps.
 - **The cost, said plainly.** Comfort where people were got worse: 2.13 against 0.33 K·h.
 - **Cost about -20 %, emissions about -20 %; peak demand unchanged** (BOPTEST's `cost_tot`, `emis_tot` and `pele_tot`, same run).
-- **The control day.** On `all_hands_day`, with everyone in from 08:30 to 18:00, the same agent saved **5.68 %** (comfort 2.99 against 0.56 K·h; occupancy right on 239 of 240 zone-steps, the one miss a single person SAM didn't see). The saving comes almost entirely from the empty hours before 08:30 and after 18:00. The agent saves little when the building is full.
+- **The control day.** On `all_hands_day`, with everyone in from 08:30 to 18:00, the same agent saved **5.68 %** (`ag3-boptest-allhands-s60`, also `Quotable`; comfort 2.99 against 0.56 K·h; occupancy right on 239 of 240 zone-steps, the one miss a single person SAM didn't see). The saving comes almost entirely from the empty hours before 08:30 and after 18:00. The agent saves little when the building is full.
 - **It matches the perfect-perception upper bound.** The stub agent, which reads the scenario's script instead of the cameras, also saves 19.94 % on the same day, plant and speed: the "upper bound with perfect perception (stub agent, in simulation)". They match because the policy is the same and SAM's occupancy was right on every step.
 
 **The caveats:**
 
 - This is a simulation, not a real building.
-- BOPTEST's occupant heat follows its own fixed schedule, not the cameras.
+- BOPTEST's occupant heat follows its own fixed schedule, not the cameras, so savings in zones the cameras show empty may be overstated by up to the occupants' heat. The control day brackets this.
 - The cameras played public **MEVA** dataset clips (CC BY 4.0), one per zone and scene.
 - Only occupied or empty is scored, not exact head counts.
 
@@ -56,7 +58,7 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
 
 ### The world and the agent
 
-The repo has two halves that share only [`packages/contracts`](packages/contracts/README.md). **The world** stands in for a real building and serves the interfaces a real one has. **The agent** speaks only those interfaces, and never imports the world. Swap the world for real hardware, and the agent's code doesn't change.
+The repo has two halves that share only [`packages/contracts`](packages/contracts/README.md). **The world** stands in for a real building and serves the interfaces a real one has. **The agent** speaks only those interfaces, and never imports the world. Occupied-standby, the airflow shut-off and the heartbeat watchdog are the world's emulation of a BMS. A real building would need the same points (`packages/contracts`) and those two features, and then the agent's code wouldn't change. So far it has run only against the world.
 
 ```text
  THE WORLD (packages/world)                             THE AGENT (packages/agent)
@@ -175,7 +177,7 @@ All three are called through the Meta AI API at `api.meta.ai/v1`.
 
 ## Team and credits
 
-- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, comfort physics. It stays as it was on branch `third_level_improvement`.
+- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, comfort physics. Its SAM perception and louver geometry were ported; its comfort physics wasn't. The MVP stays as it was on branch `third_level_improvement`.
 - **Person B** built the world, the dashboard and the video, and integrated A's MVP into `packages/agent`.
 - The repo is owned by [IAMMOJAHID](https://github.com/IAMMOJAHID).
 

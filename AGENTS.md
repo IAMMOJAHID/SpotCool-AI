@@ -6,7 +6,7 @@ Every agent working anywhere in this repo (Claude Code, Antigravity, or another)
 
 ## 1. Privacy (Law 6)
 
-- **Frames and audio live in memory only.** Nothing in `spotcool_agent` writes a file; the world serves snapshots from memory. An audit-hook test proves it for the agent.
+- **Frames and audio live in memory only.** Nothing in `spotcool_agent` writes a file; the world serves snapshots from memory. An audit-hook test proves it for the agent. The Meta providers send them to the Meta AI API and nowhere else; the offline providers send nothing.
 - **Logs carry lengths, types and decisions, never content:** no JPEG bytes, no audio, no complaint's words, no traceback locals (`diagnose=False`).
 - **Footage, audio, recorded runs and dataset archives stay outside the repo.** `.gitignore` lists them, and CI's hygiene job fails on any that is tracked.
 - **Keys live outside the repo** and reach the agent through `--env-file`. Never open, print, copy or commit a key or any `.env` file; `.env.example` is the only template.

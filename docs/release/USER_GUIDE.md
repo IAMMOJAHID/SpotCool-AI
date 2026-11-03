@@ -238,9 +238,11 @@ Use `video/QA.md` ("Watch it"). The essentials:
 2. **Description text** (safe to paste; every figure is from `docs/release/numbers.md`):
    > SpotCool's agent watches each zone of an office through Meta's SAM 3.1 and drives the building's BACnet BMS: empty zones get a raised setpoint and their airflow shut off, booked rooms are pre-cooled, and an operator's override always wins. In simulation (BOPTEST's multizone office, a hybrid Tuesday), it used 19.94 % less HVAC energy than the baseline, with occupancy right on every 15-minute step; discomfort where people were rose from 0.33 to 2.13 K·h. Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0. Building model: BOPTEST (IBPSA), BSD-3-Clause.
 3. **Watch the uploaded copy once,** at full quality.
-4. **The form.** Confirm its rules on the form itself. Our notes say: a video of 3 minutes or less (ours is 2:56), a public repo, contributors listed, built during the event, and third-party licences listed (`CREDITS.md`). Give:
+4. **Put the link in the README.** Tell Claude "the video link is", followed by the URL. Claude replaces the README's `Video: <YouTube link>` line on a `docs/readme-video-link` branch and merges it into `agent/main` and `dev` (and `main`, below). Then open `https://github.com/IAMMOJAHID/SpotCool-AI` and check that the front page shows the new README with the link.
+5. **The judges see `main`.** It's the repo's default branch, and until it's updated it holds only the "Initial commit". The submission-ready repo is `dev` (merged Nov 4, AG6). Before you submit, tell Claude "update main from dev". `main` is an ancestor of `dev`, so it's a fast-forward with nothing to resolve. Or set the default branch to `dev` in GitHub's settings.
+6. **The form.** Confirm its rules on the form itself. Our notes say: a video of 3 minutes or less (ours is 2:56), a public repo, contributors listed, built during the event, and third-party licences listed (`CREDITS.md`). Give:
    - the YouTube link;
-   - the repo `https://github.com/IAMMOJAHID/SpotCool-AI`, branch `agent/main` (or `main`, if it has been integrated by then);
+   - the repo `https://github.com/IAMMOJAHID/SpotCool-AI` (its default branch, once step 5 is done);
    - the team.
 
 ---
@@ -249,7 +251,7 @@ Use `video/QA.md` ("Watch it"). The essentials:
 
 1. **Rotate the keys** (urgent, because the repo history holds the old ones): the Meta API key and the Baseten key, in their providers' consoles. Then put the new Meta key in `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY=...`).
 2. **The BOPTEST Codespace** is already stopped. If you ever start it, stop it after: `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
-3. **The repo's default branch** still shows the old README. Merging `agent/main` into `dev`/`main` is your call (it replaces the old single-AC design); ask Claude to do it with you.
+3. **The repo** needs nothing more. `dev` holds everything, with the judges' README, and so does `main` once Step H5 is done.
 
 ---
 

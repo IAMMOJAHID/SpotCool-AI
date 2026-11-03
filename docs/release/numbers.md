@@ -56,7 +56,7 @@ BOPTEST's own discomfort KPIs (`tdis_tot` 9.85 against 0.15 K h per zone, `idis_
 | 18.2 % | WP11's first stub run, which wrote only the occupancy sensor |
 | 27.1 % | A measurement error: power sampled at step ends missed the spikes when standby dampers reopen (fixed in WP6.1) |
 | 32.8 % | WP6's example, with a stand-in agent and the same sampling error |
-| "Up to 60 %" (the shared root README) | No run of ours supports it. The user raises it with Person A before release. |
+| "Up to 60 %" (the old root README, replaced on 4 Nov in AG6) | No run of ours supports it |
 | 16.87 %, 15.45 %, or any RC figure | The RC plant is our own reduced model; its cross-check is circular. RC runs test the world, they do not measure SpotCool. |
 | `checkpoint-boptest-stub-s60` and `-2` | Both died when the laptop changed Wi-Fi networks mid-run; kept as evidence only |
 | VRF power (`IDU-PWR`) | Its constants are illustrative; it never enters a saving |
