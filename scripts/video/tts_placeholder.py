@@ -112,7 +112,7 @@ def main(argv: list[str] | None = None) -> int:
     paragraphs = [narration[beat.narration_id] for beat in narrated(board) if beat.narration_id]
     try:
         synthesize(paragraphs, args.out, args.rate, args.voice)
-        placements = voice.placements_for(args.out, board)
+        placements = voice.placements_for(args.out, board, narration)
     except (media.ToolError, voice.NarrationError) as exc:
         print(f"tts placeholder: {exc}", file=sys.stderr)
         return 1

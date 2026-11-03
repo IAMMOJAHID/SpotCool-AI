@@ -70,10 +70,22 @@ def test_no_narration_is_an_error(monkeypatch, tmp_path):
     monkeypatch.setattr(assemble, "PLACEHOLDER_NARRATION", tmp_path / "b.wav")
     with pytest.raises(assemble.BuildError, match="tts_placeholder"):
         assemble.pick_narration(None)
-    (tmp_path / "b.wav").write_bytes(b"")
+    (tmp_path / "b.wav").write_bytes(b"the placeholder")
     assert assemble.pick_narration(None) == (tmp_path / "b.wav", "placeholder")
-    (tmp_path / "a.wav").write_bytes(b"")
+    (tmp_path / "a.wav").write_bytes(b"a real voice")
     assert assemble.pick_narration(None) == (tmp_path / "a.wav", "recorded")
+
+
+def test_a_copy_of_the_placeholder_is_still_the_placeholder(monkeypatch, tmp_path):
+    monkeypatch.setattr(assemble, "RECORDED_NARRATION", tmp_path / "raw" / "narration.wav")
+    monkeypatch.setattr(assemble, "PLACEHOLDER_NARRATION", tmp_path / "placeholder.wav")
+    (tmp_path / "placeholder.wav").write_bytes(b"the placeholder")
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "narration.wav").write_bytes(b"the placeholder")
+    assert assemble.pick_narration(None)[1] == "placeholder"
+    copy = tmp_path / "elsewhere.wav"
+    copy.write_bytes(b"the placeholder")
+    assert assemble.pick_narration(copy) == (copy, "placeholder")
 
 
 def _sha(path):

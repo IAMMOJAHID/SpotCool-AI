@@ -57,9 +57,11 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
    ```
 
    It does the steps below in order:
-   1. It starts `spotcool-world replay <run_id> --wait-viewer 60 --speed 1800` (the beat's speed: the day in 24 s), and waits for its dashboard.
-   2. It starts OBS recording, and reloads the `Dashboard browser` source. The replay starts when the source connects.
-   3. At the beat's end, it stops the recording and then the replay.
+   1. It points the `Dashboard browser` source at a blank page, so no viewer starts the replay early.
+   2. It starts `spotcool-world replay <run_id> --wait-viewer 60 --speed 2700` (the beat's speed: 07:00 to 19:00 in 16 s), and waits for its dashboard.
+   3. It starts OBS recording, and waits until OBS reports it is writing.
+   4. As the beat starts (2 s in), it loads the dashboard. The replay starts when the page connects, so the whole day plays inside the beat's 21 s, with time left for the page to load.
+   5. At the beat's end, it stops the replay and the recording.
 4. **By hand, without the script:** run `uv run spotcool-world replay take-building --speed 60 --wait-viewer 60`. In OBS, start recording, then open (or reload) the one video-mode tab. The replay starts when the tab connects, and ends on its own at the record's end. To cut it short, press Ctrl+C in the replay's window.
 
 ## The VRF segment: filmed live

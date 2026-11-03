@@ -18,6 +18,7 @@ Beside the output, ``<output>.build.json`` records what went in, for ``qa.py``.
 """
 
 import argparse
+import hashlib
 import json
 import sys
 from dataclasses import asdict, dataclass
@@ -115,23 +116,34 @@ def resolve(board: Storyboard) -> list[Visual]:
 def pick_narration(given: Path | None) -> tuple[Path, str]:
     """The narration to use and what it is: ``recorded`` or ``placeholder``.
 
+    A file with the placeholder's bytes is the placeholder, wherever it is copied to.
+
     Raises:
         BuildError: If there is none.
     """
     if given is not None:
         if not given.is_file():
             raise BuildError(f"no narration at {given}")
-        return (
-            given,
-            "placeholder" if given.resolve() == PLACEHOLDER_NARRATION.resolve() else "recorded",
-        )
+        return given, narration_kind(given)
     if RECORDED_NARRATION.is_file():
-        return RECORDED_NARRATION, "recorded"
+        return RECORDED_NARRATION, narration_kind(RECORDED_NARRATION)
     if PLACEHOLDER_NARRATION.is_file():
         return PLACEHOLDER_NARRATION, "placeholder"
     raise BuildError(
         f"no narration: record {RECORDED_NARRATION}, or run scripts/video/tts_placeholder.py"
     )
+
+
+def narration_kind(path: Path) -> str:
+    """``placeholder`` if the file is the TTS placeholder (by content), else ``recorded``."""
+    if not PLACEHOLDER_NARRATION.is_file():
+        return "recorded"
+    same = _sha256(path) == _sha256(PLACEHOLDER_NARRATION)
+    return "placeholder" if same else "recorded"
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def ass_time(seconds: float) -> str:
@@ -281,7 +293,7 @@ def build(
                 "its last frame is held"
             )
     WORK.mkdir(parents=True, exist_ok=True)
-    placements = voice.placements_for(recording, board)
+    placements = voice.placements_for(recording, board, narration)
     track = voice.write_track(recording, placements, board.total_s, WORK / "voice.wav")
     mixed = mix(track, music, board.total_s, WORK / "mix.wav")
     mastering = master(mixed)

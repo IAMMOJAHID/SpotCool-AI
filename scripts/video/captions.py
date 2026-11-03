@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from itertools import combinations
 from pathlib import Path
 
+import media
 import voice
 from storyboard import (
     PLACEHOLDER_NARRATION,
@@ -216,7 +217,7 @@ def placements(
 ) -> list[voice.Placement]:
     """Where each paragraph plays: from the recording if there is one, else estimated."""
     if recording is not None and recording.is_file():
-        return voice.placements_for(recording, board)
+        return voice.placements_for(recording, board, narration)
     words = {key: spoken_words(text) for key, text in narration.items()}
     return voice.estimate(board, words)
 
@@ -236,8 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     try:
         captions = build(board, narration, placements(board, narration, recording))
-    except (voice.NarrationError, OSError) as exc:
-        print(f"captions: {exc}", file=sys.stderr)
+    except (voice.NarrationError, media.ToolError, OSError) as exc:
+        print(f"captions: {str(exc).splitlines()[0]}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(to_srt(captions), "utf-8")
