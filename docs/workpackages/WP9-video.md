@@ -42,7 +42,7 @@ Until those exist, a complete **draft cut** builds from placeholders, and every 
    - a beat's narration would need more than 150 words a minute;
    - an on-screen number has no source id.
 2. **The beats** follow plan §7:
-   1. **the hook:** half-empty offices cooled as if full, with the published figures;
+   1. **the hook:** fewer people come in, but the cooling keeps its schedule, with the published figures worded as `docs/release/numbers.md` words them (lead amendment, Nov 3);
    2. **how SpotCool plugs in:** CCTV, the BMS and complaints;
    3. **the BACnet BMS in YABE:** an operator override at priority 8, and the agent backing off (WP10);
    4. **the hybrid Tuesday on the dashboard:** a replay of the live eval run;
@@ -97,3 +97,10 @@ Until those exist, a complete **draft cut** builds from placeholders, and every 
 - **The motion renders exist,** and a draft cut, `video/renders/spotcool_draft.mp4`, builds from the placeholders. It passes `qa.py`, except for the items that need the user's material, which `qa.py` lists.
 - **`video/README.md`** gives the commands end to end: render the motion, record the takes, record the narration, assemble, run the QA.
 - **The runbook is updated.**
+
+## Lead amendments after the review (Nov 3)
+
+- **The hook's sources, checked by the lead.** Kastle's 56.1 % is badge swipes against February 2020 (normal peak occupancy, not capacity), and 66.1 % was one peak day. PNNL-22072's 17.8 % against 5.9 % is a national average of whole-building energy, mostly heating. So the first draft's "half-empty offices", "as if every desk were taken", "on Tuesdays" and "up to 17.8 %" were dropped, and `numbers.md` rows 9, 12 and 13 now say what the sources measure. BEE's 55 % held.
+- **The checks got stricter.** Signed numbers and ranges are found. The results card is checked against the never-quote list, its run's source and the results narration. `voice.py` refuses cuts at ambiguous pauses.
+- **The takes sync to OBS.** The cue clock starts on `RecordStateChanged` (`OBS_WEBSOCKET_OUTPUT_STARTED`). The dashboard replay plays 07:00 to 19:00 at speed 2700, in 16 s, inside its 21 s beat.
+- **Length:** 176 s, under the 178 s limit.
