@@ -65,19 +65,27 @@ POST /chat, /voice --AgentServer (202 at once)--> queue --> ComplaintLoop: STT (
 
 ### The meeting room's VRF loop (`loops/vrf.py`)
 
-Off by default (`--vrf`), and off in the scored run: it never touches the BMS zones. The unit
-runs on the wall clock, so the loop does too, every 0.25 s:
+Off by default (`--vrf`), and off in the scored run: it never touches the BMS zones, and
+nothing it does can hold up the building loop. It has its own BACnet client and socket
+(`SpotCool-Agent-VRF`, instance 1911, UDP `--vrf-bacnet-port` 47821) and its own SAM budget
+(2 calls at once, `--vrf-call-cap` 3000). The unit runs on the wall clock, so the loop does
+too, every 0.25 s:
 
 1. **Brand.** It reads the gateway's `Model_Name` (device 2001), which the world sets to
    `SpotCool simulated VRF gateway (<profile label>)`, and matches the label in
-   `load_vrf_profiles()`. `--vrf-brand` is used when the gateway does not answer or names no
-   known brand; without either, the vanes are left alone (complaints still change the setpoint
-   and fan).
-2. **Look.** `cam-meeting-live` from the catalog; at most 2 looks (snapshot and
+   `load_vrf_profiles()`. While the gateway does not answer it asks again every 5 s and writes
+   no vane. `--vrf-brand` is used only when the gateway answers with a name that is no known
+   brand's; without it then, the vanes are left alone (complaints still change the setpoint and
+   fan).
+2. **State.** Once the gateway has answered, a task of its own reads `IDU-ROOM-T`, `IDU-SP`,
+   `IDU-FAN` and the vanes every 2 s, stopping at the first read without an answer. Replies
+   quote these last-known values and leave out what is unknown; they never wait on the gateway.
+3. **Look.** `cam-meeting-live` from the catalog; at most 2 looks (snapshot and
    `detect(jpeg, "humans")`) in flight, at most the camera's 2 frames a second. A result older
    than one already applied is dropped. Each result is a `perception` with
-   `masks: {"cam-meeting-live": [...]}` and `people: {}`.
-3. **Aim** (`domain/louvers.py`, Person A's `locate`, `louver_angles_to` and `louver_aim`):
+   `masks: {"cam-meeting-live": [...]}` and `people: {}`. When its call cap is used up, it stops
+   looking and releases the vanes; the building is not touched.
+4. **Aim** (`domain/louvers.py`, Person A's `locate`, `louver_angles_to` and `louver_aim`):
    every person seen, weighted by box area; the camera's pose from `--vrf-camera-height-m`,
    `--vrf-camera-tilt-deg`, `--vrf-camera-hfov-deg` (A's 2.8 m, 30 deg, 90 deg; the unit under
    it at 2.6 m, aiming at 1.1 m). Vertical = -tilt and horizontal = pan (x -1 with
@@ -86,13 +94,14 @@ runs on the wall clock, so the loop does too, every 0.25 s:
    brand has no horizontal axis (A's swing is one flag). An axis the brand lacks is never
    written (Daikin and LG horizontal); LG gets Swing or a release (its default, Pos3, is swing
    off). Nobody seen for `--vrf-hold-s` (10 s): the vanes are released.
-4. **Write**, through an `Actuator` of the gateway's points (`IDU-VANE-V`, `IDU-VANE-H`,
+5. **Write**, through an `Actuator` of the gateway's points (`IDU-VANE-V`, `IDU-VANE-H`,
    `IDU-SP`, `IDU-FAN`): priority 10, on a change only, backing off from slots 1-9, releasing
    only its own slot, and at most one write per point a second. Each write is a `decision`
    (zone `sou`, the reason "aim at 1 person at 3.2 m, 1.2 m right"); an aim change is
    explained at most every 10 s. VRF events carry no `sim_time_s`: the world's report pairs
    decisions with BMS steps, and these belong to none.
-5. **Stop** cancels the looks and releases every VRF slot held, before the BMS's release.
+6. **Stop** cancels the looks, lets a state read under way finish, and releases every VRF slot
+   held, after the BMS's release and within 5 s.
 
 ### Complaints (`loops/complaints.py`)
 
@@ -107,6 +116,10 @@ runs on the wall clock, so the loop does too, every 0.25 s:
    grid) and the fan a step down; hot -> -1 degC and a step up; stuffy -> a step up (Auto counts
    as Mid); draft -> the vertical vane to Pos1, the aiming paused for `--draft-hold-s` (600).
    Setpoint and fan overrides last `--complaint-hold-s` (900 wall seconds), then are released.
+   Before claiming a change, `act()` reads the point's priority array, waiting at most 1.5 s
+   (the read is left to finish, never cut off): a point a slot 1-9 holds is left, and the
+   reply says it is held by the building operator (or the priority); one that does not answer
+   is left too, and the reply says so.
    A complaint is about the meeting room when its `room_hint` is `meeting-south`, or a real
    occupant (`source: occupant`, the dashboard) gives no room; any other, or no intent, changes
    nothing. **The BMS zones are never written from a complaint.**
@@ -117,7 +130,10 @@ runs on the wall clock, so the loop does too, every 0.25 s:
    writes are the VRF actuator's `decision`s.
 
 `--stt` and `--llm` default to `meta` with `--vision meta` and to `fake` and `off` otherwise,
-so an offline run (the eval's) makes no Meta call.
+so an offline run (the eval's) makes no Meta call. `FakeSTT` hears nothing unless given words,
+so with `--stt fake` a voice message is answered "Sorry, I couldn't hear that; please type it."
+(the agent warns once at start with `--vrf`). The transcriber and the language model share a
+budget of their own: 2 calls at once, `--llm-call-cap` (200).
 
 ### The building loop and its timing (`loops/building.py`)
 
@@ -166,14 +182,14 @@ step with no count at all, or the model-call cap used up, releases everything.
 |---|---|---|
 | `VisionService` | `services/vision.py` | the base: `detect(jpeg, concept, timeout_s, *, camera_id)` -> `Detections`, or `VisionError` |
 | `SamVision` | `services/meta/vision.py` | SAM 3.1: Person A's request, boxes below 0.3 dropped, one retry on HTTP 429 only |
-| `MetaClient` | `services/meta/client.py` | one `AsyncOpenAI` per process, made in the running loop; 5 calls at once; a ledger (model, purpose, latency, ok; never pixels); the run's call cap (`--sam-call-cap`, 600) |
+| `MetaClient` | `services/meta/client.py` | one budget: an `AsyncOpenAI` made in the running loop, a limiter, a ledger (model, purpose, latency, ok; never pixels or audio) and a call cap, through `call()`. Three of them: the building's SAM (5 at once, `--sam-call-cap` 600, AG1's), the VRF loop's SAM (2, `--vrf-call-cap` 3000), the language services' (2, `--llm-call-cap` 200) |
 | `BlobVision` | `services/fake/blob.py` | the world's synthetic frames: saturated blobs over 400 pixels, exact there |
 | `ScriptedVision` | `services/fake/scripted.py` | fixed counts per camera, for unit tests and dry runs |
 | `STTService` | `services/stt.py` | the base: `transcribe(wav, timeout_s)` -> text, or `STTError` |
 | `MetaSTT` | `services/meta/stt.py` | `muse-voice-transcribe-1.0`: Person A's multipart request with httpx, 6 s, no retries, the audio in memory; the reply's `transcript` (or its turns'); a ledger line per call |
-| `FakeSTT` | `services/fake/stt.py` | a fixed transcript (`None` fails), for tests and `--stt fake` |
+| `FakeSTT` | `services/fake/stt.py` | a fixed transcript; by default none (it hears nothing), for tests and `--stt fake` |
 | `LLMService` | `services/llm.py` | the base: `complete(prompt, timeout_s, *, purpose)` -> text, or `LLMError` |
-| `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` through `MetaClient`: the same limiter, ledger and call cap as SAM; 8 s |
+| `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` on the language services' `MetaClient`; 8 s |
 | `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`), for tests and `--llm fake` |
 
 No service logs what was said, asked or answered, only lengths. `parse_sam_output` and
@@ -184,13 +200,13 @@ A's, near-verbatim.
 
 - **`BacnetClient`** (`transports/bacnet.py`): device `SpotCool-Agent`, instance 1910, its own
   UDP port (47820 by default; any free one with `bacnet_port: 0`), on the address that reaches
-  the world. It addresses the BMS directly (no Who-Is). Requests to one device go one at a
-  time: with BACpypes3 0.0.110, several requests to a device that does not answer yet leave the
-  client deaf to it for good, which bit the agent when it started before the world. Each device
-  takes its own turns, so the BMS and the VRF gateway never wait for each other.
-- **`BacnetPeer`** (`transports/bacnet.py`): the same client and socket addressing the VRF
-  gateway (`<world_host>:47810`, `--vrf-port`): priority arrays, writes, present values in BMS
-  units (multi-state points by state text) and the device's `Model_Name`.
+  the world. It addresses one device directly (no Who-Is). Requests go one at a time: with
+  BACpypes3 0.0.110, several requests in flight while a device does not answer yet leave the
+  socket deaf for good, to every device (the review measured it on this PC; separate clients
+  recover). So each device has a client and a socket of its own: the BMS
+  (`SpotCool-Agent`, 1910, UDP 47820) and, with `--vrf`, the VRF gateway at
+  `<world_host>:47810` (`SpotCool-Agent-VRF`, 1911, UDP `--vrf-bacnet-port` 47821). It reads
+  present values in BMS units (multi-state points by state text) and a device's `Model_Name`.
 - **`WorldHttp`** (`transports/world_http.py`): the camera catalog, snapshots (memory only)
   and the room calendar, each checked against its contract model.
 - **`DashboardPublisher`** (`transports/dashboard.py`): `/ws/agent` only. At most 64 KB per
@@ -218,9 +234,11 @@ A's, near-verbatim.
   before every zone write and back off from slots 1-9 for a value; never release a slot that
   is not the agent's (slot 10 must hold its value, or one whose write was cut off in flight);
   toggle `SPOTCOOL-HEARTBEAT` every 30 s; release everything at 19:00, on a normal stop, on
-  Ctrl+C and on a crash (`Agent.run`'s `finally` stops the loops first, then releases the VRF
-  gateway's slots, then the BMS's, then the heartbeat's slot last). The VRF loop's actuator
-  follows the same rules, never beats the heartbeat, and writes one point at most once a second.
+  Ctrl+C and on a crash (`Agent.run`'s `finally` stops the loops first, then releases the
+  BMS's zones and the heartbeat's slot last, AG1's order, then, in its own `try`/`finally` and
+  within 5 s, the VRF gateway's slots, so the VRF can never skip or delay the BMS's release).
+  The VRF loop's actuator follows the same rules, never beats the heartbeat, and writes one
+  point at most once a second.
 - **Deviation from the stub: releases do not back off.** A NULL at priority 10 can never override
   a more urgent slot, so the agent releases its own slot 10 even while an operator holds slot
   8: at 19:00, at stop and on a zone release. The stub backs off from those too, which leaves
@@ -263,10 +281,8 @@ A's, near-verbatim.
 - **A run starting with zero HVAC energy** (a night with the plant off) looks like an initial
   state until the plant uses energy, so those steps are not acted on; the occupied day always
   uses energy.
-- **The VRF loop shares SAM's limiter and call cap.** Its 2 looks in flight take 2 of the 5
-  slots, so with `--vrf` a step's five zone counts can wait about one SAM call longer, and at
-  about a look a second it uses the 600-call cap in roughly ten minutes; raise
-  `--sam-call-cap` for a longer live demo. Keep `--vrf` off in a scored run.
+- **The VRF loop's budget runs out**: at about a look a second, its 3000 calls last about 50
+  minutes; then it stops aiming. Keep `--vrf` off in a scored run all the same.
 - **Keywords are crude**: one keyword settles a complaint, so "not cold at all" reads as cold.
 - **Not verified live**: `muse-voice-transcribe-1.0` and `muse-wonder-1.0` through the agent,
   the real phone in the room, and the louvers on another brand than the one the world

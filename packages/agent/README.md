@@ -35,6 +35,8 @@ slot the agent holds.
 
 `--stt meta|fake` and `--llm meta|fake|off` choose the transcriber and the language model;
 both default to Meta's with `--vision meta`, and to the offline `fake` and `off` otherwise.
+They share a budget of their own, `--llm-call-cap` (200), apart from the building's
+`--sam-call-cap`. `--stt fake` hears nothing: a voice message is asked to be typed.
 
 ## The louvers demo
 
@@ -54,15 +56,18 @@ export SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi
 uv run spotcool-world run --plant rc
 ```
 
-The agent learns the brand from the gateway's `Model_Name` (`--vrf-brand` if a gateway does not
-say), watches `cam-meeting-live` (`--vrf-camera`), and takes the phone's pose from
+The agent talks to the gateway through a BACnet client of its own (UDP `--vrf-bacnet-port`,
+47821; the BMS's is 47820), learns the brand from the gateway's `Model_Name`, asking every 5 s
+until it answers (`--vrf-brand` only if a gateway names a brand it does not know), watches
+`cam-meeting-live` (`--vrf-camera`), and takes the phone's pose from
 `--vrf-camera-height-m` (2.8), `--vrf-camera-tilt-deg` (30) and `--vrf-camera-hfov-deg` (90),
 with the unit right under it; pass `--vrf-mirror` when the phone faces the unit. The vanes are
 released after `--vrf-hold-s` (10) with nobody seen; a draft complaint levels the vertical vane
 for `--draft-hold-s` (600); a setpoint or fan change from a complaint lasts `--complaint-hold-s`
 (900). Every VRF write is at priority 10, at most once a second per point, and Ctrl+C releases
-them all. Keep `--vrf` off for a scored run; with it on, raise `--sam-call-cap` for a demo longer
-than about ten minutes.
+them all, after the BMS's. Its SAM calls have a budget of their own (`--vrf-call-cap`, 3000,
+about 50 minutes); when it runs out the vanes are released and the building carries on. Keep
+`--vrf` off for a scored run.
 
 ## Probe
 
