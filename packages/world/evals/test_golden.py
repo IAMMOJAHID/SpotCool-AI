@@ -207,16 +207,16 @@ def test_hybrid_tuesday_reproduces(
 def test_hybrid_tuesday_on_boptest_saves_as_measured(
     hybrid_tuesday_boptest: RecordedRun, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """On BOPTEST the demo day saves about 21 %, the policy's upper bound with perfect perception.
+    """On BOPTEST the demo day saves about 20 %, the policy's upper bound with perfect perception.
 
     It runs at speed 60, the paced checkpoint's, so a BOPTEST step and the stub's writes both
     fit in a step's 15 s, and every write must be taken in the step after its decision.
-    Measured on 2026-11-02 (speed 60, `checkpoint-boptest-stub-s60-3`) and 2026-11-03 (speed 0
-    with two recovered steps, `wp12-live-drop`): 21.14 % both times (227.0 against 287.8 kWh),
-    by BOPTEST's own `ener_tot`, with an earlier stub that wrote on the step's state. The stub
-    now writes at the step's close, which took RC from 16.87 to 15.45 %, so expect this a little
-    lower. Not yet measured with this stub: the band is 2.5 pp until it is. The quote is
-    blocked by the stub alone. The run's figures print before the checks.
+    Measured with this stub on 2026-11-03 (`eval-live-hybrid-20261103-122941`): 19.94 % by
+    BOPTEST's own `ener_tot` (230.4 against 287.8 kWh), every one of 30 writes taken a step
+    after its decision. BOPTEST is deterministic, so the band of 1 pp only absorbs a change of
+    policy small enough to review; a larger move fails here. (The earlier stub, which wrote on
+    the step's state, gave 21.14 %.) The quote is blocked by the stub alone. The run's
+    figures print before the checks.
     """
     run, check = hybrid_tuesday_boptest, check_energy(hybrid_tuesday_boptest)
     run_dir, run_id = run_dir_of(run), run.manifest.run_id
@@ -229,4 +229,4 @@ def test_hybrid_tuesday_on_boptest_saves_as_measured(
             f"  report: SPOTCOOL_WORLD_RUN_DIR={run_dir} uv run spotcool-world report {run_id}"
         )
     assert_valid(run, [STUB_BLOCKER])
-    assert saved_pct(run) == pytest.approx(21.14, abs=2.5)
+    assert saved_pct(run) == pytest.approx(19.94, abs=1.0)
