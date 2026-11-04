@@ -55,7 +55,7 @@ cd apps/dashboard && npm ci && npm run build && cd ../..
 **Expect:** it ends without errors and creates `apps/dashboard/dist`.
 
 ### 0.3 OBS Studio (installed already)
-1. Open OBS. Go to Scene Collection > Import, choose `C:\Users\hussa\dev\SpotCool-AI\video\obs\scene_collection.json`, then select the "SpotCool video" collection. It has four scenes: Dashboard, Dashboard+Camera, YABE, PhoneCam.
+1. Open OBS. Go to Scene Collection > Import, choose `C:\Users\hussa\dev\SpotCool-AI\video\obs\scene_collection.json`, then select the "SpotCool video" collection. It has five scenes: Dashboard, Dashboard+Camera, YABE, PhoneCam and Quad.
 2. Go to Tools > WebSocket Server Settings and tick **Enable WebSocket server**. Click "Show Connect Info" and copy the password.
 3. In Git Bash, `export OBS_WS_PASSWORD='<the password>'`. Never commit or paste it anywhere else.
 4. Go to Settings > Output > Recording and set the format to **mkv**, so a recording survives a crash.

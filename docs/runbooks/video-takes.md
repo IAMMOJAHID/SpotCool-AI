@@ -89,3 +89,33 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
 4. After the take, press Ctrl+C in the agent's window (it releases the VRF and BMS slots), then in the world's.
 
 The louvers are filmed live, never replayed: a replay plays the VRF back once a step, so the louvers would jump instead of slewing.
+
+## The live quad take
+
+Four panes at once, from OBS's `Quad` scene: the dashboard (floor plan, energy and the agent's feed) top left, the raw MEVA feeds top right, the same feeds with the boxes SAM 3.1 found bottom left, and the agent's terminal bottom right, with a `META` line for every Meta call. The world runs on RC, so the dashboard shows the RC note, never a saving: RC figures are never quoted ([numbers.md](../release/numbers.md)). It is recorded by hand; `take.py` has no take for it yet.
+
+The three browser sources are 960x540 views of the dashboard (`?panels=` and `?masks=off`, [apps/dashboard/README.md](../../apps/dashboard/README.md)). They shut down when the `Quad` scene is not shown, so they never take camera connections from the other takes. The raw feeds load the cameras from `localhost:8081` and the boxes pane from `127.0.0.1:8081`: Edge counts its six connections per host, and each pane needs six.
+
+1. **The terminal.** Open Git Bash, title it `SpotCool agent` (OBS's `Agent terminal` source captures the window by that title) and set its font to 16 pt or more (Options > Text):
+
+   ```bash
+   echo -ne "\033]0;SpotCool agent\007"
+   ```
+
+2. **Start the agent first**, in that terminal, on loopback:
+
+   ```bash
+   uv run spotcool-agent run --vision meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env --world-host 127.0.0.1
+   ```
+
+   Each SAM call logs two lines, `META -> sam-3.1 | POST https://api.meta.ai/v1/responses | count humans on cam-cor | ...` as it goes out and `META <- sam-3.1 | 200 in 1.87 s | request-id ... | out: 2 boxes [...]` as it comes back (`META x` if it failed). They never hold an image or words.
+
+3. **Then start the world** in another window, on RC, with the MEVA footage (`SPOTCOOL_WORLD_FOOTAGE_DIR`, [Before any take](#before-any-take), step 2) and on loopback, at speed 60:
+
+   ```bash
+   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 uv run spotcool-world run --plant rc --speed 60
+   ```
+
+4. **In OBS**, point the `Dashboard browser` source at a blank page (Properties > URL `about:blank`), so it takes none of the camera connections, close the dashboard in Edge, and switch to the `Quad` scene. Check that all four panes show.
+5. **Record from sim 08:15:** start when the agent's terminal logs `step 08:00: people ...` (the step that ends at 08:15; the quad has no clock), about 75 s after the world starts (at speed 60 a 15-minute step takes 15 s). The 08:30 arrivals then show: the boxes appear, the zones flip, and the writes go out in the agent's feed and terminal. Record about 70 s, then stop the recording.
+6. Press Ctrl+C in the agent's window (it releases its slots), then in the world's. Set the `Dashboard browser` URL back to `http://127.0.0.1:8090/?mode=video`.
