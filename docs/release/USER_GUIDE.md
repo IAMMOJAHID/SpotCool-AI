@@ -75,7 +75,7 @@ netsh wlan set profileparameter name="<each other profile>" connectionmode=manua
 
 ## Step A. The live take (recorded Nov 5)
 
-**What it shows:** SpotCool's agent running live on BOPTEST at speed 60, with all four Meta models on, in four panes at once (OBS's `Quad` scene): the dashboard top left, the camera clips top right, the boxes SAM 3.1 found bottom left, and the agent's terminal bottom right, with one line for every Meta call. Then about 30 s of the `Dashboard` scene around 14:00, where the meeting room's louvers follow a person in the recorded clip.
+**What it shows:** SpotCool's agent running live on BOPTEST at speed 60, with all four Meta models on, in four panes at once (OBS's `Quad` scene): the dashboard top left, the camera clips top right, the boxes SAM 3.1 found bottom left, and the agent's terminal bottom right, with the lines for Meta's calls (the meeting room's SAM calls are sampled, 1 in 10). Then about 30 s of the `Dashboard` scene around 14:00, where the meeting room's louvers follow a person in the recorded clip.
 
 How it's recorded: `docs/runbooks/video-takes.md`, "The live quad take". You record it by hand in OBS; `take.py` doesn't record it.
 

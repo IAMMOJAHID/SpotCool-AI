@@ -22,7 +22,7 @@ The scripts are in [`scripts/video/`](../scripts/video/), and each one's `--help
 | 4-26 | `hook` | motion | `hook_stats` | US office attendance 56.1 % against February 2020, 66.1 % on the peak day (Kastle); about 55 % of a typical Indian commercial building's energy goes to HVAC (BEE) |
 | 26-40 | `plugs_in` | motion | `three_connections` | CCTV (see who is in each zone), the BMS and complaints: no new sensors |
 | 40-52 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice, the BACnet BMS |
-| 52-112 | `live` | screen | take `live_quad`, scene `Quad` | Live: SpotCool's agent on BOPTEST, with every Meta call in the terminal; the cameras play MEVA dataset clips |
+| 52-112 | `live` | screen | take `live_quad`, scene `Quad` | Live: SpotCool's agent on BOPTEST, with Meta's calls logged in the terminal; the cameras play MEVA dataset clips |
 | 112-124 | `louvers` | screen | take `live_quad` (a later `in_s`), scene `Dashboard` | The meeting room's louvers follow a person (the camera plays a recorded clip) |
 | 124-144 | `meta_models` | motion | `meta_models` | The four Meta models, one card each with its model id; "Models perceive. Code decides. No language model writes to the BMS." |
 | 144-164 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from the live run `live-quad-boptest-s60` |
