@@ -1,11 +1,13 @@
 import { memo, useEffect, useState } from 'react';
-import { LIVE_CAMERA_ID, mjpegUrl } from '../cameras';
+import { LIVE_CAMERA_ID, mjpegUrl, privacyUrl } from '../cameras';
 import type { DashboardState, Masks } from '../state/reducer';
 import { Empty, Panel, StubTag, Tag } from '../ui';
 import type { CameraCatalog, CameraInfo } from '../wire';
 import { zoneName } from '../zones';
 
 const SNAPSHOT_POLL_MS = 1000;
+/** A Muse Image render takes about 24 s, and the agent renders each camera every 3 minutes. */
+const RENDER_POLL_MS = 10_000;
 
 export const CameraWall = memo(function CameraWall(props: {
   catalog: CameraCatalog | null;
@@ -19,6 +21,8 @@ export const CameraWall = memo(function CameraWall(props: {
   video: boolean;
   /** Draw SAM's boxes and the counts; off for the raw feeds (`?masks=off`). */
   showMasks: boolean;
+  /** Show the agent's privacy renders, never the raw feeds (`?privacy=on`); null for the feeds. */
+  privacy: { agentUrl: string | null } | null;
 }) {
   const { catalog, video, showMasks } = props;
   // Zone cameras always; the live phone only when the catalog lists it.
@@ -36,6 +40,7 @@ export const CameraWall = memo(function CameraWall(props: {
               // A video tile is too narrow for the catalog's name beside the count: its zone's name.
               label={video && camera.zone ? zoneName(camera.zone) : camera.name}
               camerasUrl={props.camerasUrl}
+              privacy={props.privacy}
               people={camera.zone && showMasks ? props.people[camera.zone] : undefined}
               masks={showMasks ? props.masks[camera.id] : undefined}
               script={
@@ -60,11 +65,12 @@ function CameraTile(props: {
   camera: CameraInfo;
   label: string;
   camerasUrl: string;
+  privacy: { agentUrl: string | null } | null;
   people: { people: number; stub: boolean } | undefined;
   masks: Masks | undefined;
   script: { scene: string | null; people: number | null } | null;
 }) {
-  const { camera, people, masks, script } = props;
+  const { camera, people, masks, script, privacy } = props;
   // MJPEG first (an <img> needs no CORS); if the stream fails, a snapshot every second. A frame
   // that failed is hidden behind "no signal" (a broken image would show its alt text) until the
   // next one loads.
@@ -80,6 +86,47 @@ function CameraTile(props: {
       window.clearInterval(timer);
     };
   }, [polling]);
+  // With `?privacy=on`, only the agent's render, every 10 s; "rendering…" until one loads.
+  const [rendered, setRendered] = useState(false);
+  useEffect(() => {
+    if (!privacy) return;
+    const timer = window.setInterval(() => {
+      setFrame((n) => n + 1);
+    }, RENDER_POLL_MS);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [privacy]);
+  if (privacy) {
+    return (
+      <figure className="tile" data-camera={camera.id}>
+        <div className="frame">
+          {privacy.agentUrl && (
+            <img
+              src={privacyUrl(privacy.agentUrl, camera.id, frame)}
+              alt={`${camera.name} camera, Muse Image render`}
+              decoding="async"
+              className={rendered ? undefined : 'lost'}
+              onLoad={() => {
+                setRendered(true);
+              }}
+              onError={() => {
+                setRendered(false);
+              }}
+            />
+          )}
+          {!rendered && <span className="cam-lost">{privacy.agentUrl ? 'rendering…' : 'no agent'}</span>}
+          <Overlay camera={camera} masks={masks} people={people} />
+        </div>
+        <figcaption>
+          <span className="cam-name" title={camera.name}>
+            {props.label}
+          </span>
+          <span className="cam-note">Muse Image render</span>
+        </figcaption>
+      </figure>
+    );
+  }
   const src = polling
     ? `${camera.snapshot_url}${camera.snapshot_url.includes('?') ? '&' : '?'}frame=${frame}`
     : mjpegUrl(props.camerasUrl, camera.id);
@@ -101,25 +148,8 @@ function CameraTile(props: {
           }}
         />
         {lost && <span className="cam-lost">no signal</span>}
-        {masks && masks.polygons.length > 0 && (
-          <svg
-            className="masks"
-            viewBox={`0 0 ${camera.width} ${camera.height}`}
-            preserveAspectRatio="xMidYMid slice"
-            aria-hidden="true"
-          >
-            {masks.polygons.map((polygon, i) => (
-              <polygon key={i} points={polygon.map(([x, y]) => `${x},${y}`).join(' ')} />
-            ))}
-          </svg>
-        )}
+        <Overlay camera={camera} masks={masks} people={people} />
         {live && <Tag kind="live">live</Tag>}
-        {people && (
-          <span className="cam-count" data-testid="camera-count">
-            {people.people} {people.people === 1 ? 'person' : 'people'}
-            {people.stub && <StubTag />}
-          </span>
-        )}
       </div>
       <figcaption>
         <span className="cam-name" title={camera.name}>
@@ -133,5 +163,36 @@ function CameraTile(props: {
         {polling && <span className="cam-note">snapshots</span>}
       </figcaption>
     </figure>
+  );
+}
+
+/** SAM's boxes and the count, drawn over a tile's image. */
+function Overlay(props: {
+  camera: CameraInfo;
+  masks: Masks | undefined;
+  people: { people: number; stub: boolean } | undefined;
+}) {
+  const { camera, masks, people } = props;
+  return (
+    <>
+      {masks && masks.polygons.length > 0 && (
+        <svg
+          className="masks"
+          viewBox={`0 0 ${camera.width} ${camera.height}`}
+          preserveAspectRatio="xMidYMid slice"
+          aria-hidden="true"
+        >
+          {masks.polygons.map((polygon, i) => (
+            <polygon key={i} points={polygon.map(([x, y]) => `${x},${y}`).join(' ')} />
+          ))}
+        </svg>
+      )}
+      {people && (
+        <span className="cam-count" data-testid="camera-count">
+          {people.people} {people.people === 1 ? 'person' : 'people'}
+          {people.stub && <StubTag />}
+        </span>
+      )}
+    </>
   );
 }

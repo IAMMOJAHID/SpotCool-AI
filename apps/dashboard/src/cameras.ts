@@ -31,6 +31,11 @@ export function mjpegUrl(camerasUrl: string, id: string): string {
   return `${camerasUrl}/cameras/${encodeURIComponent(id)}/mjpeg`;
 }
 
+/** A camera's latest Muse Image render on the agent's server; `n` makes each refresh a new URL. */
+export function privacyUrl(agentUrl: string, id: string, n: number): string {
+  return `${agentUrl}/privacy/${encodeURIComponent(id)}.jpg?n=${n}`;
+}
+
 /** The camera catalog, fetched again for each run and retried every 5 s until it answers. */
 export function useCameraCatalog(
   camerasUrl: string,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCatalog, mjpegUrl } from './cameras';
+import { parseCatalog, mjpegUrl, privacyUrl } from './cameras';
 import { inkFor, tempColor } from './colors';
 import { isLocalHost, readConfig } from './config';
 import { backoffMs } from './feed';
@@ -73,6 +73,15 @@ describe('readConfig', () => {
     expect(c.masks).toBe(false);
     const all = readConfig('?mode=video', page, prod);
     expect([all.panels, all.masks]).toEqual([null, true]);
+  });
+
+  it('takes ?privacy=on with an agent; without one it says no feed is shown', () => {
+    const on = readConfig('?privacy=on&agent=http://127.0.0.1:8002', page, prod);
+    expect([on.privacy, on.agentUrl, on.problems]).toEqual([true, 'http://127.0.0.1:8002', []]);
+    const alone = readConfig('?privacy=on', page, prod);
+    expect(alone.privacy).toBe(true);
+    expect(alone.problems).toEqual(['?privacy=on needs ?agent=; no camera feed is shown']);
+    expect(readConfig('?privacy=yes', page, prod).privacy).toBe(false);
   });
 
   it('falls back to VITE_AGENT_URL, and reports a bad agent URL instead of using it', () => {
@@ -163,6 +172,7 @@ describe('cameras', () => {
     expect(parsed?.privacy_notice).toBe('n');
     expect(parseCatalog({})).toBeNull();
     expect(mjpegUrl('http://h:8081', 'cam-sou')).toBe('http://h:8081/cameras/cam-sou/mjpeg');
+    expect(privacyUrl('http://h:8002', 'cam-meeting-live', 3)).toBe('http://h:8002/privacy/cam-meeting-live.jpg?n=3');
   });
 });
 

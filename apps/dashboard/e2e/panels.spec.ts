@@ -89,3 +89,30 @@ test.describe('an RC run', () => {
     await expect(page.getByTestId('kpi-rc')).toHaveCount(0);
   });
 });
+
+// One pixel, as the agent's /privacy/<id>.jpg stand-in: any image the browser can decode.
+const RENDER = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
+
+test("privacy=on: the tiles show the agent's Muse Image renders with SAM's boxes, never a raw feed", async ({ page }) => {
+  const agent = 'http://127.0.0.1:41799';
+  await page.route(`${agent}/privacy/*`, (route) =>
+    route.request().url().includes('/privacy/cam-sou.jpg?')
+      ? route.fulfill({ status: 200, contentType: 'image/png', body: RENDER, headers: { 'cache-control': 'no-store' } })
+      : route.fulfill({ status: 404, body: '' }),
+  );
+  const feeds: string[] = [];
+  page.on('request', (request) => {
+    if (/\/cameras\/[^/]+\/(mjpeg|snapshot)/.test(request.url())) feeds.push(request.url());
+  });
+  await served(page);
+  await page.goto(`${dashboard('video', agent)}&panels=cameras&privacy=on`);
+  const sou = page.locator('[data-camera=cam-sou]');
+  await expect(sou.locator('img')).toBeVisible();
+  await expect(sou.locator('img')).toHaveAttribute('src', `${agent}/privacy/cam-sou.jpg?n=0`);
+  await expect(sou.locator('.cam-note')).toHaveText('Muse Image render');
+  await expect(page.locator('[data-camera=cam-nor] .cam-lost')).toHaveText('rendering…');
+  await expect(page.locator('.tile svg.masks').first()).toBeAttached();
+  await expect(page.getByTestId('camera-count').first()).toBeVisible();
+  expect(feeds).toEqual([]);
+  expect(await overflowing(page)).toEqual([]);
+});
