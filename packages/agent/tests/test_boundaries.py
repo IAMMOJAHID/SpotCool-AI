@@ -15,18 +15,21 @@ import httpx
 import pytest
 from loguru import logger
 from openai import AsyncOpenAI
+from PIL import Image
 from pydantic import SecretStr
 
 import spotcool_agent
 from spotcool_agent.actuator import Actuator
 from spotcool_agent.domain.events import Value
 from spotcool_agent.loops.building import BuildingLoop
+from spotcool_agent.loops.render import RenderLoop
 from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.observers.metrics import StageMetrics
 from spotcool_agent.processors.policy import AgentPolicy
 from spotcool_agent.services.fake.blob import BlobVision
 from spotcool_agent.services.fake.scene import FakeScene
 from spotcool_agent.services.meta.client import MetaClient
+from spotcool_agent.services.meta.render import MuseImageRender
 from spotcool_agent.services.meta.scene import SparkScene
 from spotcool_agent.services.meta.vision import SamVision
 from spotcool_agent.services.scene import SceneError
@@ -147,11 +150,27 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
             with pytest.raises(SceneError):  # the frame goes to Muse Spark from memory too
                 await SparkScene(meta).assess(snapshot, 2, 5.0, camera_id="cam-sou")
 
+            painter = SimpleNamespace(  # Muse Image: the frame back as a PNG, then a JPEG
+                images=SimpleNamespace(
+                    with_raw_response=SimpleNamespace(edit=lambda **kw: _render(kw["image"][1]))
+                ),
+                close=_none,
+            )
+            image_meta = MetaClient(
+                SecretStr("sk-x"), base_url="x", make_openai=lambda: cast(AsyncOpenAI, painter)
+            )
+            ids = [ZONES[zone].camera_id for zone in Zone]
+            renders = RenderLoop(MuseImageRender(image_meta), world, cameras=ids)
+            assert await renders.round() and set(renders.latest) == set(ids)
+
             queue: asyncio.Queue[Complaint] = asyncio.Queue()
-            app = httpx.ASGITransport(app=create_app(queue, origins=[]))
+            agent_app = create_app(queue, origins=[], renders=renders.latest)
+            app = httpx.ASGITransport(app=agent_app)
             async with httpx.AsyncClient(transport=app, base_url="http://agent") as agent:
                 files = {"audio": ("voice.wav", wav_near_the_cap(), "audio/wav")}
                 assert (await agent.post("/voice", files=files)).status_code == 202
+                shown = await agent.get("/privacy/cam-sou.jpg")  # served from memory
+                assert shown.status_code == 200 and shown.content[:3] == bytes([0xFF, 0xD8, 0xFF])
             await loop.stop_background()
             await actuator.stop()
             await publisher.stop()
@@ -168,6 +187,7 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
         "\\xff\\xd8\\xff",
         "ffd8ff",
         "/9j/",
+        "iVBOR",  # a PNG's base64
         base64.b64encode(snapshot[:12]).decode(),
     ):
         assert jpeg not in seen
@@ -175,6 +195,15 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
 
 async def _answer() -> Any:  # with_raw_response's answer
     answer = SimpleNamespace(output_text="")
+    return SimpleNamespace(headers={}, status_code=200, parse=lambda: answer)
+
+
+async def _render(jpeg: bytes) -> Any:  # images.with_raw_response.edit's answer
+    buffer = io.BytesIO()
+    with Image.open(io.BytesIO(jpeg)) as frame:
+        frame.save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode()
+    answer = SimpleNamespace(data=[SimpleNamespace(b64_json=b64)])
     return SimpleNamespace(headers={}, status_code=200, parse=lambda: answer)
 
 

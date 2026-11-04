@@ -264,7 +264,7 @@ If anything's wrong, tell Claude the time in the video and what you saw.
    ```
 4. **Description:** paste this. Every figure in it is checked:
    ```text
-   SpotCool's agent watches each zone of an office through Meta's SAM 3.1 and drives the building's BACnet BMS: empty zones get a raised setpoint and their airflow shut off, booked rooms are pre-cooled, and an operator's override always wins. In the meeting room, the AC's louvers follow a person on camera. Muse Spark (muse-spark-1.3) reads what people wear and do, for the room's comfort setpoint; Muse Voice (muse-voice-transcribe-1.0) turns a spoken complaint into text; Muse Wonder (muse-wonder-1.0) works out what it means, answers it, and narrates each step's decisions. The models perceive and code decides: no language model decides a BMS write. In simulation (BOPTEST's multizone office, a hybrid Tuesday), it used 19.94 % less HVAC energy than the baseline, and was right about which zones had people at every step it perceived; discomfort where people were rose from 0.33 to 2.13 K·h. BOPTEST's occupant heat follows its own schedule, not the cameras. Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0. Building model: BOPTEST (IBPSA), BSD-3-Clause.
+   SpotCool's agent watches each zone of an office through Meta's SAM 3.1 and drives the building's BACnet BMS: empty zones get a raised setpoint and their airflow shut off, booked rooms are pre-cooled, and an operator's override always wins. In the meeting room, the AC's louvers follow a person on camera. Muse Spark (muse-spark-1.3) reads what people wear and do, for the room's comfort setpoint; Muse Voice (muse-voice-transcribe-1.0) turns a spoken complaint into text; Muse Wonder (muse-wonder-1.0) works out what it means, answers it, and narrates each step's decisions; Muse Image (muse-image-1.0) can redraw the cameras as illustrations for a privacy view. The models perceive and code decides: no language model decides a BMS write. In simulation (BOPTEST's multizone office, a hybrid Tuesday), it used 19.94 % less HVAC energy than the baseline, and was right about which zones had people at every step it perceived; discomfort where people were rose from 0.33 to 2.13 K·h. BOPTEST's occupant heat follows its own schedule, not the cameras. Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0. Building model: BOPTEST (IBPSA), BSD-3-Clause.
    ```
 5. **Audience:** select **No, it's not made for kids**.
 6. Click **Next** three times, until you reach **Visibility**.
@@ -294,7 +294,7 @@ Give:
 - **Video:** your YouTube link.
 - **Repo:** `https://github.com/IAMMOJAHID/SpotCool-AI`
 - **Team:** your team's names.
-- **If it asks which Meta models you used:** `sam-3.1`, `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0`. Add `muse-image-1.0` only if Claude has confirmed it's merged. The full explanation is `docs/META_MODELS.md`, which you can link.
+- **If it asks which Meta models you used:** `sam-3.1`, `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0`, `muse-image-1.0`. The full explanation is `docs/META_MODELS.md`, which you can link.
 
 Then **submit**, and take a screenshot of the confirmation page.
 

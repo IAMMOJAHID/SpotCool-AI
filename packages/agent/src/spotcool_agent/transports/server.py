@@ -3,6 +3,8 @@
 - ``POST /chat``: a ``ComplaintText`` JSON body.
 - ``POST /voice``: ``multipart/form-data`` with an ``audio`` WAV in ``VOICE_FORMAT`` and an
   optional ``meta`` field holding a ``ComplaintText`` JSON string (its text is for logging only).
+- ``GET /privacy/{camera_id}.jpg``: the camera's latest Muse Image render (``loops/render.py``),
+  from memory, with ``Cache-Control: no-store``; 404 before the first. Display only.
 - ``GET /healthz``.
 
 A complaint is validated, queued and answered ``202`` at once, well inside the world's 10 s; the
@@ -10,7 +12,7 @@ complaint loop handles it later. A full queue answers ``503``, which the world r
 stays in memory: the body is capped at ``MAX_VOICE_BYTES``, below Starlette's spool size, so the
 form parser never moves it to a temporary file. CORS lets the dashboard's page (the world's
 dashboard port, and Vite's ``http://localhost:5173``) send ``POST`` with ``content-type`` and
-``x-spotcool-client``.
+``x-spotcool-client``, and ``GET`` the renders.
 
 ``AgentServer`` serves the app with uvicorn on the event loop it is started from, without
 uvicorn's own signal handlers: the agent's runner owns Ctrl+C.
@@ -22,12 +24,12 @@ import io
 import socket
 import sys
 import wave
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import Literal
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pydantic import ValidationError
@@ -72,18 +74,25 @@ def dashboard_origins(world_host: str, dashboard_port: int) -> list[str]:
     return [f"http://{host}:{dashboard_port}" for host in hosts] + ["http://localhost:5173"]
 
 
-def create_app(queue: "asyncio.Queue[Complaint]", *, origins: list[str]) -> FastAPI:
+def create_app(
+    queue: "asyncio.Queue[Complaint]",
+    *,
+    origins: list[str],
+    renders: Mapping[str, bytes] | None = None,
+) -> FastAPI:
     """The agent's complaint app.
 
     Args:
         queue: Where accepted complaints go.
         origins: The browser origins allowed to ``POST`` (``dashboard_origins``).
+        renders: The latest privacy render of each camera (``RenderLoop.latest``); ``None``
+            for none.
     """
     app = FastAPI(title="SpotCool agent", docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_methods=["POST"],
+        allow_methods=["GET", "POST"],
         allow_headers=["content-type", "x-spotcool-client"],
     )
 
@@ -123,6 +132,14 @@ def create_app(queue: "asyncio.Queue[Complaint]", *, origins: list[str]) -> Fast
             except ValidationError:
                 raise HTTPException(422, "'meta' is not a ComplaintText") from None
         return accept(Complaint("voice", complaint, audio, seconds))
+
+    @app.get("/privacy/{camera_id}.jpg")
+    async def privacy(camera_id: str) -> Response:
+        """A camera's latest privacy render, or 404 before the first."""
+        render = (renders or {}).get(camera_id)
+        if render is None:
+            raise HTTPException(404, "no render of this camera yet")
+        return Response(render, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.get("/healthz")
     async def healthz() -> dict[str, bool]:

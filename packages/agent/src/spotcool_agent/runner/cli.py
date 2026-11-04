@@ -92,6 +92,10 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="no comfort setpoint from Muse Spark",
     )
+    run.add_argument(
+        "--render", choices=["meta", "fake", "off"], help="Muse Image privacy renders (off)"
+    )
+    run.add_argument("--render-call-cap", type=int, help="the privacy renders (60)")
     run.add_argument("--dry-run", action="store_true", help="print the settings and exit")
     args = parser.parse_args(argv)
     if args.command == "version":
@@ -129,6 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             "draft_hold_s": args.draft_hold_s,
             "complaint_hold_s": args.complaint_hold_s,
             "comfort": args.comfort,
+            "render": args.render,
+            "render_call_cap": args.render_call_cap,
         }
     try:
         settings = load_settings(args.env_file, **flags)

@@ -71,6 +71,8 @@ export function App({ config }: { config: Config }) {
               script={state.script}
               video={video}
               showMasks={config.masks}
+              privacy={config.privacy}
+              agentUrl={config.agentUrl}
             />
           </PanelBoundary>
         )}

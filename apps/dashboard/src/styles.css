@@ -471,6 +471,16 @@ input {
   color: var(--spotcool);
 }
 
+.cam-age {
+  position: absolute;
+  top: 0.3em;
+  left: 0.3em;
+  padding: 0 0.35em;
+  border-radius: 6px;
+  background: rgba(5, 7, 10, 0.82);
+  color: var(--script);
+}
+
 .cam-script,
 .cam-note {
   color: var(--script);
@@ -1153,7 +1163,8 @@ button:disabled {
   min-width: 0;
 }
 
-.app.video .cam-count {
+.app.video .cam-count,
+.app.video .cam-age {
   font-size: 22px;
 }
 

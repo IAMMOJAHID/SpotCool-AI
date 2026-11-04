@@ -13,9 +13,11 @@ line when it is sent and a ``META <-`` (answered) or ``META x`` (failed) line wh
 INFO, for the demo's terminal: the model, the endpoint, the request id, the rate limit left,
 and what went in and came out as sizes, counts, boxes and labels, never content.
 
-The agent keeps three, so that no budget can starve another: the building's SAM calls (5 at
-once, the concurrency the lead measured, ``--sam-call-cap``), the VRF loop's SAM calls (2,
-``--vrf-call-cap``), and the transcriber's and language model's (2, ``--llm-call-cap``).
+The agent keeps one per budget, so that no budget can starve another: the building's SAM calls
+(5 at once, the concurrency the lead measured, ``--sam-call-cap``), the VRF loop's SAM calls
+(2, ``--vrf-call-cap``), the transcriber's and language model's (2, ``--llm-call-cap``), Muse
+Spark's scene readings (3, ``--scene-call-cap``) and Muse Image's renders (1,
+``--render-call-cap``).
 """
 
 import asyncio
@@ -134,6 +136,18 @@ class MetaClient:
         """Whether the run's call cap is used up."""
         return self._call_cap is not None and self._calls >= self._call_cap
 
+    @property
+    def base_url(self) -> str:
+        """The API's base URL."""
+        return self._base_url
+
+    @property
+    def openai(self) -> AsyncOpenAI:
+        """The underlying client, made on first use, inside the running event loop."""
+        if self._openai is None:
+            self._openai = self._make_openai()
+        return self._openai
+
     def new_run(self) -> None:
         """Start the call count, and so the cap, afresh for a new run; the ledger stays."""
         self._calls = 0
@@ -166,9 +180,7 @@ class MetaClient:
         """
         url = self._base_url.rstrip("/") + "/responses"
         async with self.call(model, purpose, url=url, sent=sent, timeout_s=timeout_s) as trace:
-            if self._openai is None:
-                self._openai = self._make_openai()
-            raw = await self._openai.responses.with_raw_response.create(  # for its headers
+            raw = await self.openai.responses.with_raw_response.create(  # for its headers
                 model=model,
                 metadata=metadata,
                 input=[{"type": "message", "role": "user", "content": content}],  # type: ignore[list-item]

@@ -46,6 +46,17 @@ steps, as explanations only, and with `--vrf` sets the meeting room's comfort se
 A's PMV 0, on `IDU-SP`) every 60 s while people are seen; `--no-comfort` turns that off. Its
 budget is its own, `--scene-call-cap` (300). None of it changes a BMS write.
 
+`--render meta|fake|off` chooses the privacy renderer (`muse-image-1.0`). It is `off` by
+default, whatever `--vision` says: each render takes about 24 s. With it on, every 180 s the
+agent redraws the five zone cameras and the meeting room's, one at a time, as illustrations
+(Person A's prompt asks for faceless figures; nothing verifies a render has none), keeps the
+latest of each in memory and serves it at `GET /privacy/<camera>.jpg` on its own server (404
+before the first; a new run clears them). The dashboard shows them
+with `?privacy=on&agent=http://127.0.0.1:8002`. Its budget is its own, `--render-call-cap`
+(60); at the cap it stops and the last renders stay. A render is an illustration, display
+only: nothing the agent decides reads it, and it never changes a BMS or VRF write. It can be
+up to about 180 s old, under live boxes and counts.
+
 Every Meta request logs a `META ->` line as it is sent and a `META <-` (answered) or `META x`
 (failed) line as it ends, for the demo's terminal: the model, the endpoint, the request id, the
 rate limit left, and sizes, boxes and labels, never an image, audio or words. `--no-meta-trace`
@@ -57,6 +68,8 @@ META <- sam-3.1 | 200 in 1.87 s | request-id 2bf0123a-... | response resp_6aeb..
 META x  sam-3.1 | timeout after 3.5 s | count humans on cam-sou
 META -> muse-spark-1.3 | POST https://api.meta.ai/v1/responses | read the scene on cam-meeting-live | in: JPEG 1280x720, 52 KB + prompt 1350 characters
 META <- muse-spark-1.3 | 200 in 10.40 s | request-id ... | out: 2 people (trousers_long_sleeve 2), doors open 1, windows open 0, sunlight none, office
+META -> muse-image-1.0 | POST https://api.meta.ai/v1/images/edits | privacy render of cam-sou | in: JPEG 1280x720, 52 KB + prompt 324 characters
+META <- muse-image-1.0 | 200 in 24.00 s | request-id ... | out: <format> <width>x<height>, <size> KB
 ```
 
 ## The louvers demo

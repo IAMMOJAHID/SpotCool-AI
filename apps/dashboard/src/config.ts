@@ -4,7 +4,9 @@
 //
 // What it shows: `?panels=a,b,c` only those panels, filling the window, in the order the grid
 // keeps (the ids: header, floorplan, cameras, kpis, energy, timeline, bacnet, acunit, agent,
-// errors); `?masks=off` the camera tiles without SAM's boxes and counts, the raw feeds.
+// errors); `?masks=off` the camera tiles without SAM's boxes and counts, the raw feeds;
+// `?privacy=on` (with `?agent=`) the camera tiles as the agent's Muse Image renders, never the
+// raw feeds.
 
 export interface Config {
   /** `host:port` of the world's dashboard server. */
@@ -25,6 +27,8 @@ export interface Config {
   panels: string[] | null;
   /** Whether the camera tiles draw SAM's boxes and counts. */
   masks: boolean;
+  /** Whether the camera tiles show the agent's privacy renders in place of the raw feeds. */
+  privacy: boolean;
 }
 
 /** The world's dashboard server in development, when `?world=` is not given. */
@@ -110,6 +114,8 @@ export function readConfig(
   const secure = page.protocol === 'https:';
   const agentValue = query.get('agent') ?? env.agentUrl;
   const agent = agentValue ? agentParam(agentValue, page.hostname) : null;
+  const privacy = query.get('privacy')?.toLowerCase() === 'on';
+  if (privacy && !(agent && 'url' in agent)) problems.push('?privacy=on needs ?agent=; no camera feed is shown');
   return {
     world,
     eventsUrl: `${secure ? 'wss' : 'ws'}://${world}/ws/events`,
@@ -121,5 +127,6 @@ export function readConfig(
     video: query.get('mode') === 'video',
     panels: query.get('panels')?.split(',').map((id) => id.trim()).filter(Boolean) ?? null,
     masks: query.get('masks') !== 'off',
+    privacy,
   };
 }

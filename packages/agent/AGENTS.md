@@ -17,7 +17,9 @@ live phone camera's people aim the VRF unit's louvers, in wall time. Complaints 
 `muse-wonder-1.0`), acted on in the meeting room's VRF unit only, and answered in plain words.
 AG8 added `muse-spark-1.3` (the scene: clothing, activity, doors) for the meeting room's
 comfort setpoint and for explanation-only scene notes on the zones, and muse-wonder's
-one-sentence narration of each step that wrote. **None of it changes a BMS write.**
+one-sentence narration of each step that wrote. AG9 added `muse-image-1.0`'s privacy renders
+of the cameras (`--render`, off by default), served at `/privacy/<camera>.jpg` for the
+dashboard's `?privacy=on`, display only. **None of it changes a BMS write.**
 
 It speaks only the building's interfaces (`docs/integration/PERSON_A_HANDOFF.md` sections
 4-9), as defined in `packages/contracts`. **It never imports `spotcool_world`**: its tests and
@@ -67,6 +69,8 @@ POST /chat, /voice --AgentServer (202 at once)--> queue --> ComplaintLoop: STT (
    every 60 s with people seen: snapshot -> Muse Spark -> PMV 0 (domain/comfort.py) -> IDU-SP
 after a step's writes, in the background: SceneNotes (Muse Spark per occupied zone, every 4
    steps) and Narrator (muse-wonder, one sentence) -> explanations only
+--render, every 180 s, a task apart: RenderLoop: each zone camera, then cam-meeting-live:
+   snapshot -> Muse Image (1 at a time) -> latest render in memory -> GET /privacy/<id>.jpg
 ```
 
 ### The meeting room's VRF loop (`loops/vrf.py`)
@@ -207,7 +211,7 @@ step with no count at all, or the model-call cap used up, releases everything.
 |---|---|---|
 | `VisionService` | `services/vision.py` | the base: `detect(jpeg, concept, timeout_s, *, camera_id)` -> `Detections`, or `VisionError` |
 | `SamVision` | `services/meta/vision.py` | SAM 3.1: Person A's request, boxes below 0.3 dropped, one retry on HTTP 429 only |
-| `MetaClient` | `services/meta/client.py` | one budget: an `AsyncOpenAI` made in the running loop, a limiter, a ledger (model, purpose, latency, ok; never pixels or audio) and a call cap, through `call()`. Three of them: the building's SAM (5 at once, `--sam-call-cap` 600, AG1's), the VRF loop's SAM (2, `--vrf-call-cap` 3000), the language services' (2, `--llm-call-cap` 200) |
+| `MetaClient` | `services/meta/client.py` | one budget: an `AsyncOpenAI` made in the running loop, a limiter, a ledger (model, purpose, latency, ok; never pixels or audio) and a call cap, through `call()`. One per budget: the building's SAM (5 at once, `--sam-call-cap` 600, AG1's), the VRF loop's SAM (2, `--vrf-call-cap` 3000), the language services' (2, `--llm-call-cap` 200), the scene's (3, `--scene-call-cap` 300) and the renders' (1, `--render-call-cap` 60) |
 | `BlobVision` | `services/fake/blob.py` | the world's synthetic frames: saturated blobs over 400 pixels, exact there |
 | `ScriptedVision` | `services/fake/scripted.py` | fixed counts per camera, for unit tests and dry runs |
 | `STTService` | `services/stt.py` | the base: `transcribe(wav, timeout_s)` -> text, or `STTError` |
@@ -219,6 +223,9 @@ step with no count at all, or the model-call cap used up, releases everything.
 | `SceneService` | `services/scene.py` | the base: `assess(jpeg, sam_count, timeout_s, *, camera_id)` -> `Scene` (`domain/scene.py`, A's enums, extra keys forbidden), or `SceneError` |
 | `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: A's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 30 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
 | `FakeScene` | `services/fake/scene.py` | a scripted scene (one seated office worker by default); `None` fails |
+| `RenderService` | `services/render.py` | the base: `render(jpeg, timeout_s, *, camera_id)` -> JPEG bytes, or `RenderError` (`CallCapReached` at the cap) |
+| `MuseImageRender` | `services/meta/render.py` | `muse-image-1.0`: Person A's `images.edit` with `PRIVACY_RENDER_PROMPT`, `n=1`; 45 s, no retries; the `b64_json` checked and kept as a JPEG; on a `MetaClient` of its own (1 at once, `--render-call-cap` 60) |
+| `FakeRender` | `services/fake/render.py` | a small solid JPEG for every render |
 
 No service logs what was said, asked or answered, only lengths. Each Meta request logs a
 `META ->` line when sent and a `META <-` or `META x` line when it ends (`MetaClient`'s trace,
@@ -226,7 +233,8 @@ No service logs what was said, asked or answered, only lengths. Each Meta reques
 limit left, and sizes, box pixels, confidences and intent labels only. `parse_sam_output` and
 `Detection` (`domain/geometry.py`), the louver geometry (`domain/louvers.py`) and the comfort
 physics and its clo and met tables (`domain/comfort.py`) are Person A's, near-verbatim. Muse
-Spark's trace gives the people, a clothing tally and the doors; the narration's, its length.
+Spark's trace gives the people, a clothing tally and the doors; the narration's, its length;
+Muse Image's, the frame's and the render's sizes, never the image or its base64.
 
 ## Transports
 
@@ -305,6 +313,12 @@ Spark's trace gives the people, a clothing tally and the doors; the narration's,
   invalid scene or `--no-comfort` (`test_vrf_loop.py`); **the building loop's BMS writes,
   decisions and explanations identical with and without the scene notes and narration**
   (`test_building_loop.py`); Spark in the audit-hook test.
+- AG9: `MuseImageRender` on a fake client (A's prompt, the trace's sizes, no base64, a PNG
+  kept as a JPEG; no image, bad base64, not an image, late), the render loop's order, skips, retries, one warning per failure type, new runs
+  and call cap, `/privacy` (404, the latest, `no-store`, CORS), `--render` off by default
+  (`test_render.py`); **the BMS writes identical with and without the render loop**
+  (`test_building_loop.py`); the renders through the real world's cameras and `/privacy` in
+  the audit-hook test; the runner's tests with `--render fake`.
 - `evals/` (marker `eval`, CI's evals job): `hybrid_tuesday` on RC with the agent at speed 300
   and the blob counter, against a stub run of the same day. It checks the saving against the
   stub's, the write lags, the report's agent activity and agreement, no heartbeat release,
@@ -328,6 +342,11 @@ Spark's trace gives the people, a clothing tally and the doors; the narration's,
   air and 50 % RH, and its comfort effect is not measured.
 - **The narration shares the language budget** (`--llm-call-cap` 200) with complaints: a day
   of about 40 writing steps uses about 40 of it.
-- **Not verified live**: `muse-spark-1.3`, `muse-voice-transcribe-1.0` and `muse-wonder-1.0` through the agent,
+- **The renders are slow and few**: about 24 s each, so a round of six cameras takes about 2.5
+  minutes, and the 60-call cap lasts about 30 minutes. A render is an illustration, never
+  evidence. SAM's boxes and counts over it are live and the raw frame's, and the render can be
+  up to about 180 s old, so they may not match it. The prompt asks for faceless figures; nothing
+  verifies a render has none. A new run clears the renders until the next round.
+- **Not verified live**: `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0` and `muse-image-1.0`'s render loop and privacy view through the agent (its service call ran live on Nov 5),
   the real phone in the room, and the louvers on another brand than the one the world
   emulates; the tests use fakes and the world's own gateway.

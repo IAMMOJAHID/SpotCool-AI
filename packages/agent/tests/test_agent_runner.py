@@ -32,6 +32,7 @@ def settings(bms_port: int) -> AgentSettings:
         dashboard_port=free_port(socket.SOCK_STREAM),  # nor the dashboard
         listen=f"{HOST}:{free_port(socket.SOCK_STREAM)}",
         vision="blob",
+        render="fake",  # its background task must neither end the run nor outlive it
         bacnet_address=HOST,
         bacnet_port=0,
     )
