@@ -98,14 +98,14 @@ beats:
     type: screen
     source:
       take: live_quad
-      in_s: 0  # placeholder: the lead sets it, the second the Quad segment starts
+      in_s: 44  # sim 08:13: every zone empty at 28 degC; the 08:30 arrivals land 17 s in
       scenes:
         - {at: 0, scene: Quad}
       before:
         - "Follow docs/runbooks/video-takes.md, The live quad take: SpotCool's agent with the Meta models and --vrf, then the world on BOPTEST at speed 60. Recorded by hand in OBS; save it as video/takes/live_quad.mkv."
     narration_id: live
     on_screen_text:
-      label: "Live: SpotCool's agent on BOPTEST. Meta's calls are logged in the terminal. The cameras play MEVA dataset clips"
+      label: "Live: SpotCool's agent on BOPTEST. Meta's calls are logged in the terminal. The zone cameras play MEVA dataset clips"
     sources: [meta-models, meva]
 
   - id: louvers
@@ -114,7 +114,11 @@ beats:
     type: screen
     source:
       take: live_quad
-      in_s: 0  # placeholder: the lead sets it, the second the Dashboard segment (about 14:00) starts
+      in_s: 405  # the Dashboard segment runs 390.5-427: the complaint's writes, then the louvers
+      # The Results panel's mid-day figures aren't quotable, and the chat box has no agent URL here.
+      cover:
+        - {x: 1268, y: 98, w: 646, h: 394, color: '0x040809'}
+        - {x: 1278, y: 908, w: 300, h: 36, color: '0x0a1117'}
       scenes:
         - {at: 0, scene: Dashboard}
     narration_id: louvers
@@ -149,7 +153,7 @@ beats:
     start: 144
     end: 164
     type: motion
-    source: {composition: results_card, run_id: live-quad-boptest-s60}
+    source: {composition: results_card, run_id: live-quad-boptest-s60-c}
     narration_id: results
     on_screen_text:
       title: "BOPTEST: SpotCool's policy against the baseline"

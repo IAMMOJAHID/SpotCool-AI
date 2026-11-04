@@ -206,10 +206,15 @@ def video_inputs(board: Storyboard, visuals: list[Visual]) -> tuple[list[str], l
             continue
         seek = ["-ss", f"{visual.in_s:g}"] if visual.in_s else []
         args += [*seek, "-t", f"{duration + 1:g}", "-i", str(visual.path)]
+        cover = "".join(
+            f"drawbox=x={x}:y={y}:w={w}:h={h}:color={color}:t=fill,"
+            for x, y, w, h, color in visual.beat.source.cover
+        )
         chains.append(
             f"[{i}:v]scale={board.width}:{board.height}:force_original_aspect_ratio=decrease:"
             "flags=lanczos,"
             f"pad={board.width}:{board.height}:(ow-iw)/2:(oh-ih)/2:color={PAD_COLOR},setsar=1,"
+            f"{cover}"
             f"fps={board.fps},format=yuv420p,tpad=stop_mode=clone:stop_duration={duration:g},"
             f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
         )

@@ -103,6 +103,7 @@ class Source:
         scenes: For a take: its scene switches, the first at 0.
         cues: For a take: prompts for the person at the keyboard.
         before: For a take: what must be ready before it starts.
+        cover: Filled boxes drawn over the source: (x, y, w, h, color), in the video's pixels.
     """
 
     composition: str | None = None
@@ -115,6 +116,7 @@ class Source:
     scenes: tuple[Scene, ...] = ()
     cues: tuple[Cue, ...] = ()
     before: tuple[str, ...] = ()
+    cover: tuple[tuple[int, int, int, int, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -337,6 +339,10 @@ def _source(data: dict[str, Any], where: str) -> Source:
         scenes=tuple(Scene(float(s["at"]), str(s["scene"])) for s in data.get("scenes") or ()),
         cues=tuple(Cue(float(c["at"]), str(c["say"])) for c in data.get("cues") or ()),
         before=tuple(str(line) for line in data.get("before") or ()),
+        cover=tuple(
+            (int(c["x"]), int(c["y"]), int(c["w"]), int(c["h"]), str(c["color"]))
+            for c in data.get("cover") or ()
+        ),
     )
 
 

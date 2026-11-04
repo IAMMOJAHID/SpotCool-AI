@@ -25,7 +25,7 @@ The scripts are in [`scripts/video/`](../scripts/video/), and each one's `--help
 | 52-112 | `live` | screen | take `live_quad`, scene `Quad` | Live: SpotCool's agent on BOPTEST, with Meta's calls logged in the terminal; the cameras play MEVA dataset clips |
 | 112-124 | `louvers` | screen | take `live_quad` (a later `in_s`), scene `Dashboard` | The meeting room's louvers follow a person (the camera plays a recorded clip) |
 | 124-144 | `meta_models` | motion | `meta_models` | The four Meta models, one card each with its model id; "Models perceive. Code decides. No language model writes to the BMS." |
-| 144-164 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from the live run `live-quad-boptest-s60` |
+| 144-164 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from the live run `live-quad-boptest-s60-c` |
 | 164-172 | `rollout` | motion | `rollout_privacy` | Rollout (a real BMS needs the same BACnet points and occupied-standby) and privacy (SpotCool never stores a frame) |
 | 172-176 | `close` | title | `close` | SpotCool, the repo, the sources slide |
 
@@ -79,7 +79,7 @@ cd video/motion/hook_stats && npx --yes hyperframes@0.8.6 preview
 
 Studio shows the placeholders, not the storyboard's text; the render always passes the text.
 
-**Done Nov 5:** the results beat names the live run `live-quad-boptest-s60` (quotable, the run the video shows live; the scored run `ag3-boptest-agent-s60` has the same figures). For any later run, the steps are:
+**Done Nov 5:** the results beat names the live run `live-quad-boptest-s60-c` (quotable, the run the video shows live; the scored run `ag3-boptest-agent-s60` has the same figures). For any later run, the steps are:
 
 1. Name it in the results beat's `run_id`, add a `video/sources.yaml` entry with that `run_id`, its figures (in `docs/release/numbers.md`) and its `cite`, and list it in the beat's `sources`.
 2. Run `results_card.py` and `render_motion.py --only results_card`. The label becomes "SpotCool saved" only if the report's verdict is `Quotable`.
