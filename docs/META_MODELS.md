@@ -106,7 +106,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 
 **The call:**
 - **Input:** one snapshot, in memory, and a JSON-only prompt adapted from Person A's `SCENE_INSTRUCTIONS`, with SAM 3.1's count as text.
-- **Output:** per person, the closest ASHRAE 55 clothing ensemble, the activity, the posture and a visible discomfort cue; for the room, the open doors and windows, the sunlight and the space type. It is validated against a strict schema: any other key, a temperature included, makes the answer invalid. An invalid or late answer (20 s) is dropped.
+- **Output:** per person, the closest ASHRAE 55 clothing ensemble, the activity, the posture and a visible discomfort cue; for the room, the open doors and windows, the sunlight and the space type. It is validated against a strict schema: any other key, a temperature included, makes the answer invalid. An invalid or late answer (30 s) is dropped.
 - **Budget:** its own, `--scene-call-cap` (300). It never takes a call from SAM 3.1's.
 
 **The meeting room's comfort setpoint** (`loops/vrf.py`, with `--vrf`; `--no-comfort` turns it off):

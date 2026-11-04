@@ -168,6 +168,7 @@ class BuildingLoop:
             run: The new run's count, ``Step.run``.
         """
         logger.info(f"new run detected (run {run}): releasing, and starting afresh")
+        await self.stop_background()  # an old run's note or narration must not land in this one
         self._run = run
         await self._actuator.reset()
         self._policy.reset()

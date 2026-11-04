@@ -207,3 +207,26 @@ async def test_wonder_narrates_one_sentence_marked_and_a_failure_says_nothing() 
     Narrator(silent, events).narrate(decisions, 0.0)
     await settle()
     assert events.texts == []
+
+
+@pytest.mark.asyncio
+async def test_a_narration_with_a_made_up_figure_is_dropped() -> None:
+    decisions = ["West: 0 people counted; the zone is empty"]
+    for answer in ("The agent saved 20 % by easing off West.", "West is empty, so 3 kW is saved."):
+        llm, events = FakeLLM({"narrate": answer}), Events()
+        Narrator(llm, events).narrate(decisions, 0.0)
+        await settle()
+        assert events.texts == [], answer
+    kept, events = FakeLLM({"narrate": "West has 0 people, so it eased off."}), Events()
+    Narrator(kept, events).narrate(decisions, 0.0)
+    await settle()
+    assert events.texts == [("Muse Wonder: West has 0 people, so it eased off.", 0.0)]
+
+
+def test_grounded() -> None:
+    from spotcool_agent.loops.narration import grounded
+
+    facts = ["Core: 4 people counted; occupied", "West: 0 people counted; the zone is empty"]
+    assert grounded("Core has 4 people; West is empty.", facts)
+    assert not grounded("Saved 19.94 percent.", facts)
+    assert not grounded("Core has 5 people.", facts)

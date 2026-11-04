@@ -6,9 +6,14 @@ step's decisions only: each zone written, its reason and its count. The answer, 
 sentence, goes out as an ``explanation`` marked "Muse Wonder:". One call at a time: a step
 while one is under way is not narrated. A call that fails says nothing; the template
 explanations already cover the step. The narrator never writes, and the step never waits.
+
+A sentence with a percentage, or a number the step's decisions don't hold, is dropped: the
+dashboard shows no figure the model made up (AGENTS.md, Honesty). At most ``MAX_CALLS`` per
+process, so the narration can't use up the complaints' language budget.
 """
 
 import asyncio
+import re
 from collections.abc import Sequence
 
 from loguru import logger
@@ -21,6 +26,9 @@ from spotcool_contracts.events import EventType
 
 TIMEOUT_S = 8.0
 """The longest a narration may take: the language model's reply budget."""
+MAX_CALLS = 60
+"""The most narrations per process: the language budget is 200, shared with complaints."""
+NUMBER = re.compile(r"\d+(?:[.,]\d+)?")
 MARK = "Muse Wonder:"
 """What every narration starts with, so the panel shows who wrote it."""
 
@@ -36,6 +44,14 @@ def narration_prompt(decisions: Sequence[str]) -> str:
     )
 
 
+def grounded(sentence: str, decisions: Sequence[str]) -> bool:
+    """Whether every number in the sentence is one of the decisions', and it has no percentage."""
+    if "%" in sentence or "percent" in sentence.lower():
+        return False
+    known = set(NUMBER.findall(" ".join(decisions)))
+    return all(number in known for number in NUMBER.findall(sentence))
+
+
 class Narrator:
     """Narrates decisions in the background (see the module docstring).
 
@@ -48,6 +64,7 @@ class Narrator:
         self._llm = llm
         self._publish = publish
         self._talking: asyncio.Task[None] | None = None
+        self._calls = 0
 
     def narrate(self, decisions: Sequence[str], t_s: float) -> None:
         """Start one narration of a step's decisions, unless one is under way; never waits.
@@ -56,9 +73,10 @@ class Narrator:
             decisions: One line per zone written: the zone, its count and the reason.
             t_s: The stamp of the explanation: the step's start.
         """
-        if not decisions or self._talking is not None:
+        if not decisions or self._talking is not None or self._calls >= MAX_CALLS:
             return
-        self._talking = asyncio.create_task(self._say(narration_prompt(decisions), t_s))
+        self._calls += 1
+        self._talking = asyncio.create_task(self._say(decisions, t_s))
 
     async def stop(self) -> None:
         """Cancel a narration under way. Safe to call twice."""
@@ -67,14 +85,18 @@ class Narrator:
             talking.cancel()
             await asyncio.gather(talking, return_exceptions=True)
 
-    async def _say(self, prompt: str, t_s: float) -> None:
+    async def _say(self, decisions: Sequence[str], t_s: float) -> None:
         try:
-            answer = await self._llm.complete(prompt, TIMEOUT_S, purpose="narrate")
+            answer = await self._llm.complete(
+                narration_prompt(decisions), TIMEOUT_S, purpose="narrate"
+            )
         except LLMError as exc:
             logger.info(f"narration: none this step ({exc})")
             return
         finally:
             self._talking = None
         sentence = trimmed(answer, sentences=1)
-        if sentence:
+        if sentence and not grounded(sentence, decisions):
+            logger.info("narration: dropped, it named a figure the decisions don't hold")
+        elif sentence:
             self._publish(EventType.EXPLANATION, Explanation(text=f"{MARK} {sentence}"), t_s)
