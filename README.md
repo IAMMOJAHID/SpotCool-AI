@@ -167,15 +167,16 @@ CI also runs `ruff`, `pyright`, the scenario linter and the dashboard's build, l
 
 ## Meta models used
 
-All three are called through the Meta AI API at `api.meta.ai/v1`.
+All four are called through the Meta AI API at `api.meta.ai/v1`.
 
 | Model | What SpotCool uses it for |
 |---|---|
 | `sam-3.1` | Perception: the people in each zone's CCTV snapshot (the building loop), and the person the meeting room's louvers follow (the VRF loop) |
-| `muse-wonder-1.0` | Chat: the intent of a complaint the keywords can't settle, and the plain-words reply |
+| `muse-spark-1.3` | The scene: what people wear and do, open doors and windows. It sets the meeting room's comfort setpoint, through Person A's PMV physics, and writes scene notes on the zones, explanations only |
+| `muse-wonder-1.0` | Chat: the intent of a complaint the keywords can't settle, and the plain-words reply; a one-sentence narration of each step's decisions |
 | `muse-voice-transcribe-1.0` | Voice complaints: the occupant's recording, transcribed in memory |
 
-- **Models perceive, and code decides.** SAM 3.1's boxes become occupied or empty for each zone, and a fixed, tested policy turns that into BACnet writes. No language model ever writes to the BMS.
+- **Models perceive, and code decides.** SAM 3.1's boxes become occupied or empty for each zone, and a fixed, tested policy turns that into BACnet writes. No language model ever writes to the BMS; muse-spark's scene reaches only the meeting room's VRF setpoint, and only through the comfort physics.
 - **Every model call has a deadline, a budget and a fallback,** and each fallback returns control to the building.
 - **Cameras as occupancy sensors.** SAM 3.1 finds people from the one-word prompt `humans`, with no training on our building. That turns the cameras a building already has into its occupancy sensors. Most zones don't have one.
 

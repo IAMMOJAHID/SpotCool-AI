@@ -15,6 +15,9 @@ explanations to the dashboard. With `--vrf` it also runs the meeting room's spot
 live phone camera's people aim the VRF unit's louvers, in wall time. Complaints on `/chat` and
 `/voice` are transcribed (`muse-voice-transcribe-1.0`), understood (keywords, then
 `muse-wonder-1.0`), acted on in the meeting room's VRF unit only, and answered in plain words.
+AG8 added `muse-spark-1.3` (the scene: clothing, activity, doors) for the meeting room's
+comfort setpoint and for explanation-only scene notes on the zones, and muse-wonder's
+one-sentence narration of each step that wrote. **None of it changes a BMS write.**
 
 It speaks only the building's interfaces (`docs/integration/PERSON_A_HANDOFF.md` sections
 4-9), as defined in `packages/contracts`. **It never imports `spotcool_world`**: its tests and
@@ -61,6 +64,9 @@ POST /chat, /voice --AgentServer (202 at once)--> queue --> ComplaintLoop: STT (
    intent (keywords, then LLM) -> VrfLoop.act (meeting room only) -> reply (LLM or template)
 --vrf, every 0.25 s: VrfLoop: cam-meeting-live snapshot -> detect (2 in flight) -> locate ->
    louver aim -> brand's vane states -> its own Actuator (VRF gateway, UDP 47810)
+   every 60 s with people seen: snapshot -> Muse Spark -> PMV 0 (domain/comfort.py) -> IDU-SP
+after a step's writes, in the background: SceneNotes (Muse Spark per occupied zone, every 4
+   steps) and Narrator (muse-wonder, one sentence) -> explanations only
 ```
 
 ### The meeting room's VRF loop (`loops/vrf.py`)
@@ -100,8 +106,17 @@ too, every 0.25 s:
    (zone `sou`, the reason "aim at 1 person at 3.2 m, 1.2 m right"); an aim change is
    explained at most every 10 s. VRF events carry no `sim_time_s`: the world's report pairs
    decisions with BMS steps, and these belong to none.
-6. **Stop** cancels the looks, lets a state read under way finish, and releases every VRF slot
-   held, after the BMS's release and within 5 s.
+6. **Comfort** (AG8; with a scene reader, `--no-comfort` turns it off). Every
+   `comfort_every_s` (60) while people are seen, a task of its own snapshots the live camera
+   and asks the scene reader (Muse Spark, `--scene`) who is there, with SAM's count as a hint.
+   Person A's `comfort_temperature` (`domain/comfort.py`) gives the air temperature at PMV 0
+   in still air (0.1 m/s) at 50 % RH (the gateway has no RH point), put on the 0.5 grid within
+   16-30 degC and written to `IDU-SP` by the same actuator rules (reason "comfort: PMV 0 for
+   the people seen"), explained when it changes. Precedence: the operator (back-off), then a
+   complaint's override, then comfort; with nobody seen for `--vrf-hold-s` it is released. A
+   failed or invalid reading changes nothing.
+7. **Stop** cancels the looks and a comfort reading, lets a state read under way finish, and
+   releases every VRF slot held, after the BMS's release and within 5 s.
 
 ### Complaints (`loops/complaints.py`)
 
@@ -160,6 +175,16 @@ The world never waits for the agent, so each round fits in the step it starts in
 5. The `perception`, `decision` and `explanation` events are stamped with the step's start
    (S - step), as the stub stamps its own with the state it acted on. The world's `write_lags`
    then pairs each decision with the write the BMS took one step later.
+6. Only then, in the background and never awaited by the step: with a scene reader,
+   `SceneNotes` (`loops/scene.py`) reads each occupied zone's snapshot of that step at most
+   every `scene_every_steps` (4), skipping a zone still being read (20 s each), and publishes
+   "Muse Spark, West: 1 person, typical office clothing; a door is open", plus A's cross-check
+   ("SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's") when |Spark - SAM| > max(2, 0.3 *
+   max). With `--llm meta`, `Narrator` (`loops/narration.py`) makes one call (8 s, one at a
+   time) when the step's writes changed what the actuator holds, grounded on each written
+   zone's count and reason, and publishes the first sentence as "Muse Wonder: ...". A failure
+   says nothing. Both get the counts after the policy used them; `run()`'s `finally` cancels
+   them.
 
 At speed 300 a round takes about 0.35 s with the blob counter (0.3 s of it the settle); with
 SAM 3.1 (p50 1.9 s, p95 3.2 s for five calls at once) it needs speed 60 or slower. One bad step
@@ -190,14 +215,18 @@ step with no count at all, or the model-call cap used up, releases everything.
 | `FakeSTT` | `services/fake/stt.py` | a fixed transcript; by default none (it hears nothing), for tests and `--stt fake` |
 | `LLMService` | `services/llm.py` | the base: `complete(prompt, timeout_s, *, purpose)` -> text, or `LLMError` |
 | `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` on the language services' `MetaClient`; 8 s |
-| `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`), for tests and `--llm fake` |
+| `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`, `narrate`), for tests and `--llm fake` |
+| `SceneService` | `services/scene.py` | the base: `assess(jpeg, sam_count, timeout_s, *, camera_id)` -> `Scene` (`domain/scene.py`, A's enums, extra keys forbidden), or `SceneError` |
+| `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: A's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 20 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
+| `FakeScene` | `services/fake/scene.py` | a scripted scene (one seated office worker by default); `None` fails |
 
 No service logs what was said, asked or answered, only lengths. Each Meta request logs a
 `META ->` line when sent and a `META <-` or `META x` line when it ends (`MetaClient`'s trace,
 `--no-meta-trace`): the endpoint, the `x-request-id` (also in the ledger's `Call`), the rate
 limit left, and sizes, box pixels, confidences and intent labels only. `parse_sam_output` and
-`Detection` (`domain/geometry.py`) and the louver geometry (`domain/louvers.py`) are Person
-A's, near-verbatim.
+`Detection` (`domain/geometry.py`), the louver geometry (`domain/louvers.py`) and the comfort
+physics and its clo and met tables (`domain/comfort.py`) are Person A's, near-verbatim. Muse
+Spark's trace gives the people, a clothing tally and the doors; the narration's, its length.
 
 ## Transports
 
@@ -269,6 +298,13 @@ A's, near-verbatim.
   `spotcool_world`; no ground-truth feed named in the source; an audit hook on `open` scoped to
   stacks with agent code, while the agent works against the world's servers, sees no file
   opened to write, and the logs and console hold no JPEG bytes.
+- AG8: A's comfort functions against values computed by A's own `physics.py`
+  (`test_comfort.py`); the scene schema, `SparkScene` on a fake client (its trace, an invalid
+  or late answer), the scene notes' cadence and cross-check, the narration
+  (`test_scene.py`); the comfort setpoint, its precedence, its clamp, and no write on an
+  invalid scene or `--no-comfort` (`test_vrf_loop.py`); **the building loop's BMS writes,
+  decisions and explanations identical with and without the scene notes and narration**
+  (`test_building_loop.py`); Spark in the audit-hook test.
 - `evals/` (marker `eval`, CI's evals job): `hybrid_tuesday` on RC with the agent at speed 300
   and the blob counter, against a stub run of the same day. It checks the saving against the
   stub's, the write lags, the report's agent activity and agreement, no heartbeat release,
@@ -287,6 +323,11 @@ A's, near-verbatim.
 - **The VRF loop's budget runs out**: at about a look a second, its 3000 calls last about 50
   minutes; then it stops aiming. Keep `--vrf` off in a scored run all the same.
 - **Keywords are crude**: one keyword settles a complaint, so "not cold at all" reads as cold.
-- **Not verified live**: `muse-voice-transcribe-1.0` and `muse-wonder-1.0` through the agent,
+- **The scene schema is strict**: an answer with any key the prompt did not ask for is invalid,
+  so a chatty model costs a reading, never a wrong value. The comfort setpoint assumes still
+  air and 50 % RH, and its comfort effect is not measured.
+- **The narration shares the language budget** (`--llm-call-cap` 200) with complaints: a day
+  of about 40 writing steps uses about 40 of it.
+- **Not verified live**: `muse-spark-1.3`, `muse-voice-transcribe-1.0` and `muse-wonder-1.0` through the agent,
   the real phone in the room, and the louvers on another brand than the one the world
   emulates; the tests use fakes and the world's own gateway.

@@ -1,14 +1,15 @@
 # How SpotCool uses Meta's models
 
-SpotCool uses three Meta models, each with one job:
+SpotCool uses four Meta models, each with one job:
 
 - **SAM 3.1** sees the people.
+- **muse-spark-1.3** reads the scene: what the people wear and do, and whether doors are open.
 - **muse-voice-transcribe-1.0** hears a spoken complaint.
-- **muse-wonder-1.0** works out what a complaint means and answers it.
+- **muse-wonder-1.0** works out what a complaint means, answers it, and narrates the agent's decisions.
 
 The decisions around them are deterministic code: **the models perceive, and the code decides.** No language model ever writes to the building's BMS.
 
-All three are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probe, which is AG0's (recorded in [`agent/HANDOFF.md`](agent/HANDOFF.md)).
+All four are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probes: SAM 3.1's is AG0's (recorded in [`agent/HANDOFF.md`](agent/HANDOFF.md)), and Muse Spark's is the lead's of Nov 4 (recorded in [`agent/workpackages/AG8-meta-models.md`](agent/workpackages/AG8-meta-models.md)).
 
 ```text
  CCTV snapshot ──► SAM 3.1 ──► boxes ──► occupied / empty ──► policy ──► BACnet writes (BMS)
@@ -16,6 +17,9 @@ All three are called through the Meta AI API (`api.meta.ai/v1`) by the agent in 
  voice message ──► muse-voice-transcribe ──► text ──┐
  typed message ─────────────────────────────────────┴► keywords, else muse-wonder ──► intent ──► meeting-room AC
                                                         muse-wonder ──► reply in plain words (grounded on live state)
+ phone camera  ──► muse-spark ──► clothing, activity ──► PMV physics ──► comfort setpoint (meeting-room AC)
+ zone snapshot ──► muse-spark ──► scene note (explanation only; the policy keeps SAM 3.1's count)
+ step's writes ──► muse-wonder ──► one-sentence narration (explanation only)
 ```
 
 ## 1. SAM 3.1: the eyes
@@ -94,17 +98,44 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
    - It has 8 s, and the reply is cut to two sentences.
    - If it's late or fails, a template answers instead.
 
+4. **Narration.** After a building step whose writes changed what the agent holds, one background call asks muse-wonder for a one-sentence summary, grounded on that step's decisions only: each zone written, its count and its reason. It has 8 s and goes out as an explanation starting "Muse Wonder:". If it fails, nothing is sent; the template explanations already cover the step. It needs `--llm meta`, shares the language models' budget, and never delays the step or writes anything.
+
+## 4. muse-spark-1.3: the scene
+
+`services/meta/scene.py`, `domain/scene.py`, `domain/comfort.py`
+
+**The call:**
+- **Input:** one snapshot, in memory, and a JSON-only prompt adapted from Person A's `SCENE_INSTRUCTIONS`, with SAM 3.1's count as text.
+- **Output:** per person, the closest ASHRAE 55 clothing ensemble, the activity, the posture and a visible discomfort cue; for the room, the open doors and windows, the sunlight and the space type. It is validated against a strict schema: any other key, a temperature included, makes the answer invalid. An invalid or late answer (20 s) is dropped.
+- **Budget:** its own, `--scene-call-cap` (300). It never takes a call from SAM 3.1's.
+
+**The meeting room's comfort setpoint** (`loops/vrf.py`, with `--vrf`; `--no-comfort` turns it off):
+1. Every 60 s while people are seen, muse-spark reads the live camera's frame.
+2. Person A's ISO 7730 physics, ported near verbatim, turns each person into clo (the ensemble's, plus 0.1 seated) and met (the activity's), and finds the air temperature at PMV 0 for them, in still air at 50 % RH (the gateway has no humidity point).
+3. The result goes on the setpoint's 0.5 °C grid, within 16–30 °C, and is written to `IDU-SP` at priority 10 on a change only.
+4. **Precedence:** the operator first (the agent backs off from slots 1 to 9), then a complaint's override, then the comfort setpoint. With nobody seen, it's released, and the unit goes back to its default.
+5. The explanation reads like "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort setpoint 24.5 degC (PMV 0)".
+
+**Scene notes for the building's zones** (`loops/scene.py`), explanations only:
+- Each occupied zone is read at most every 4 steps, from that step's snapshot, after the step's writes are made, in a background task. A zone still being read is skipped.
+- The note reads like "Muse Spark, West: 1 person, typical office clothing; a door is open".
+- **Cross-check (Person A's rule):** when muse-spark's count differs from SAM 3.1's by more than 2, or 30 % of the larger, a second note says "SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's".
+- The notes never change the policy's input. A test runs the building loop with and without the scene notes and narration and requires the same BMS writes, in the same order.
+
+**The latency probe** (the lead's, Nov 4): one MEVA cafe frame took 10.4 s and came back as valid JSON. That's why muse-spark runs in the background and never on a building step's deadline.
+
 ## Why it's built this way
 
 - **The models perceive, and code decides.** The building's actions come from a small, tested policy, so every write can be audited, and a model's mistake can't become an arbitrary command.
 - **Every model call has a deadline, a budget and a fallback.**
-  - **Budgets:** 600 SAM calls a run for the building, 3,000 for the louvers, and 200 for the voice and language models.
+  - **Budgets:** 600 SAM calls a run for the building, 3,000 for the louvers, 200 for the voice and language models, and 300 for muse-spark.
   - **Fallbacks:** each one returns control to the building or to a template.
 - **Privacy:**
   - **Nothing on disk.** Frames and audio stay in memory, and the agent writes no file; an audit-hook test checks it.
   - **What the API sees.** With the Meta providers, the snapshots, recordings and complaint text go to the Meta AI API.
   - **What the dashboard sees.** It gets counts, boxes, decisions and explanations.
-- **Offline fakes.** Each model sits behind a provider interface with an offline fake: a colour-blob counter, and scripted speech and language models. CI and the evals therefore run with no key and no network.
+- **What the logs see.** Muse-spark's trace gives the people, a clothing tally and the doors; the narration's, its length.
+- **Offline fakes.** Each model sits behind a provider interface with an offline fake: a colour-blob counter, and scripted speech, language and scene models. CI and the evals therefore run with no key and no network.
 
 ## What the models make possible
 
@@ -120,7 +151,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
   - The cost: discomfort where people were rose from 0.33 to 2.13 K·h.
 
 **What we don't claim:**
-- The louvers and complaints are a live demo, not part of the 19.94 %.
-- Muse Spark and Person A's PMV comfort physics weren't ported into this agent.
+- The louvers, complaints, comfort setpoint, scene notes and narration are a live demo, not part of the 19.94 %. With `--vision blob`, as in the evals, none of muse-spark or the narration runs.
+- The comfort setpoint's effect on comfort isn't measured, and muse-spark and the narration haven't been verified live through the agent; the tests use fakes.
 - The cameras played public MEVA dataset clips.
 - BOPTEST's occupant heat follows its own schedule, not the cameras.
