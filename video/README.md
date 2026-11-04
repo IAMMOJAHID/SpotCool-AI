@@ -8,7 +8,7 @@ The video is built from code, from the sources in this folder. The user supplies
 | [`narration.md`](narration.md) | The voice-over, one section per beat, written to be read aloud |
 | [`sources.yaml`](sources.yaml) | Every source a beat cites, with the figures it backs and the file in the repo that records them (`docs/release/numbers.md` for every figure) |
 | [`motion/<id>/index.html`](motion/) | The HyperFrames compositions: `title`, `hook_stats`, `three_connections`, `architecture`, `results_card`, `rollout_privacy`, `close` |
-| [`obs/scene_collection.json`](obs/scene_collection.json) | The OBS scenes: `Dashboard`, `Dashboard+Camera`, `YABE`, `PhoneCam` |
+| [`obs/scene_collection.json`](obs/scene_collection.json) | The OBS scenes: `Dashboard`, `Dashboard+Camera`, `YABE`, `PhoneCam`, and `Quad` (the live quad take, [video-takes.md](../docs/runbooks/video-takes.md#the-live-quad-take)) |
 | [`QA.md`](QA.md) | The checklist before upload |
 | `raw/`, `takes/`, `renders/` | The narration and music, the OBS takes, and everything generated. All git-ignored (Law 6) |
 

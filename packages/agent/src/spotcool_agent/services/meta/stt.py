@@ -9,17 +9,20 @@ the text is ``transcript``, or the turns' texts joined when it is missing.
 
 One request, a timeout of ``TIMEOUT_S``, no retries: the occupant can say it again. The audio
 stays in memory. Each call takes a turn of the language services' ``MetaClient`` (its limiter,
-its call cap and a ``Call`` in its ledger, never the audio or the text).
+its call cap, its trace and a ``Call`` in its ledger, never the audio or the text: the trace
+gives the audio's length and size, and the transcript's length).
 """
 
 import asyncio
+import io
 import json
+import wave
 from typing import Any
 
 import httpx
 from pydantic import SecretStr
 
-from spotcool_agent.services.meta.client import MetaClient
+from spotcool_agent.services.meta.client import MetaClient, characters
 from spotcool_agent.services.stt import STTError, STTService
 from spotcool_agent.services.vision import CallCapReached
 
@@ -54,6 +57,16 @@ def parse_transcript(body: bytes) -> str:
         said = [t.get("transcript") for t in turns if isinstance(t, dict)]
         return " ".join(s.strip() for s in said if isinstance(s, str) and s.strip())
     raise STTError("the answer has no transcript")
+
+
+def describe_wav(wav: bytes) -> str:
+    """The trace's ``in``: the audio's length and size, never its samples."""
+    try:
+        with wave.open(io.BytesIO(wav)) as audio:
+            seconds = f"{audio.getnframes() / audio.getframerate():.1f} s, "
+    except (wave.Error, EOFError, ZeroDivisionError):
+        seconds = ""
+    return f"WAV {seconds}{round(len(wav) / 1024)} KB (comfort keywords)"
 
 
 class MetaSTT(STTService):
@@ -112,14 +125,24 @@ class MetaSTT(STTService):
         try:
             async with (
                 asyncio.timeout(timeout_s),
-                self._client.call(self._model, "transcribe a voice complaint"),
+                self._client.call(
+                    self._model,
+                    "transcribe a voice complaint",
+                    url=self._url,
+                    sent=describe_wav(wav),
+                    timeout_s=timeout_s,
+                ) as trace,
             ):
                 response = await self._http.post(
                     self._url, files=files, headers=headers, timeout=timeout_s
                 )
+                trace.status = response.status_code
+                trace.read_headers(response.headers)
                 if response.status_code != 200:
                     raise STTError(f"HTTP {response.status_code}")
-                return parse_transcript(response.content)
+                text = parse_transcript(response.content)
+                trace.out = characters(text)
+                return text
         except TimeoutError:
             raise STTError(f"no answer within {timeout_s:.1f} s") from None
         except CallCapReached as exc:

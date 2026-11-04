@@ -50,6 +50,8 @@ npm run test:e2e            # Playwright on the installed Microsoft Edge; run `n
 | `cameras=host:port` | the world's host, port 8081 | WP4's camera server: `/cameras`, `/cameras/{id}/mjpeg`, `/cameras/{id}/snapshot.jpg` |
 | `agent=http://host:port` | `VITE_AGENT_URL`, else none | Person A's agent: `POST /chat` and `POST /voice` |
 | `mode=video` | operator view | the 1920×1080 video layout |
+| `panels=a,b,c` | every panel | only those panels, filling the window (such as a 960×540 OBS source): `header`, `floorplan`, `cameras`, `kpis`, `energy`, `timeline`, `bacnet`, `acunit`, `agent`, `errors` |
+| `masks=off` | boxes drawn | the camera tiles without SAM's boxes and counts: the raw feeds |
 
 `world`, `cameras` and `agent` (`VITE_AGENT_URL` too) must be on this machine (loopback), a
 private RFC 1918 or link-local address (IPv4 or IPv6), or the page's own host; anything else is
@@ -65,6 +67,11 @@ where the camera server is).
 
 ## Behaviour worth knowing
 
+- **An RC run shows no saving.** RC is our own test model, and none of its figures is quoted
+  (`docs/release/numbers.md`): on a run whose plant is `rc`, the KPI cards and the energy chart
+  show "RC test plant: a model for testing, no saving is quoted" in place of the saving, the
+  comfort figures and the kWh; the power lines and kW stay. BOPTEST and replayed runs are
+  unchanged. The fixture is a BOPTEST run (`boptest-local`), so the tests see a saving.
 - **One reducer** (`src/state/reducer.ts`) folds every envelope into the state. World state keeps
   the latest sim time, wall-clock state (VRF, perception) the latest `t_ms`, and lists are kept in
   `t_ms` order. A `tick` closes its step, so the clock shows the step's end. Every new connection

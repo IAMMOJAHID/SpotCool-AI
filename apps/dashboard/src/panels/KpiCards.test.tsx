@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { DashboardState } from '../state/reducer';
 import { initialState } from '../state/reducer';
 import type { KpiData } from '../wire';
-import { BOPTEST_CAPTION, KpiCards, STUB_KPI_NOTE } from './KpiCards';
+import { BOPTEST_CAPTION, KpiCards, RC_NOTE, STUB_KPI_NOTE } from './KpiCards';
 
 const kpi = (run: 'spotcool' | 'baseline', provisional: boolean): KpiData => ({
   run,
@@ -17,8 +17,8 @@ const state = (provisional: boolean): DashboardState => ({
   kpi: { spotcool: { data: kpi('spotcool', provisional), t: 1 }, baseline: { data: kpi('baseline', provisional), t: 1 } },
 });
 // React escapes the apostrophe in the caption.
-const html = (s: DashboardState, video: boolean, stub = false) =>
-  renderToStaticMarkup(<KpiCards kpi={s.kpi} stub={stub} video={video} />).replaceAll('&#x27;', "'");
+const html = (s: DashboardState, video: boolean, stub = false, rc = false) =>
+  renderToStaticMarkup(<KpiCards kpi={s.kpi} stub={stub} video={video} rc={rc} />).replaceAll('&#x27;', "'");
 
 describe('KPI cards (the lead amendment on BOPTEST discomfort)', () => {
   it('video mode shows energy saved and comfort where people were, never tdis_tot or idis_tot', () => {
@@ -49,5 +49,17 @@ describe('KPI cards on a stub run', () => {
       expect(html(state(false), video, false)).not.toContain('Stub agent');
     }
     expect(STUB_KPI_NOTE).toBe('Stub agent: upper bound with perfect perception');
+  });
+});
+
+describe('KPI cards on an RC run', () => {
+  it('show no figure at all, only the RC note, in both modes', () => {
+    for (const video of [true, false]) {
+      const out = html(state(false), video, false, true);
+      expect(out).toContain(RC_NOTE);
+      expect(out.replace(/<[^>]*>/g, '')).not.toMatch(/\d/); // no saving, comfort or BOPTEST KPI
+    }
+    expect(RC_NOTE).toBe('RC test plant: a model for testing, no saving is quoted');
+    expect(html(state(false), true)).not.toContain(RC_NOTE);
   });
 });

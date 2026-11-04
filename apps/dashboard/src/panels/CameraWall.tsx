@@ -17,8 +17,10 @@ export const CameraWall = memo(function CameraWall(props: {
   scenes: DashboardState['scenes'];
   script: DashboardState['script'];
   video: boolean;
+  /** Draw SAM's boxes and the counts; off for the raw feeds (`?masks=off`). */
+  showMasks: boolean;
 }) {
-  const { catalog, video } = props;
+  const { catalog, video, showMasks } = props;
   // Zone cameras always; the live phone only when the catalog lists it.
   const cameras = catalog?.cameras.filter((c) => c.zone != null || c.id === LIVE_CAMERA_ID) ?? [];
   return (
@@ -34,8 +36,8 @@ export const CameraWall = memo(function CameraWall(props: {
               // A video tile is too narrow for the catalog's name beside the count: its zone's name.
               label={video && camera.zone ? zoneName(camera.zone) : camera.name}
               camerasUrl={props.camerasUrl}
-              people={camera.zone ? props.people[camera.zone] : undefined}
-              masks={props.masks[camera.id]}
+              people={camera.zone && showMasks ? props.people[camera.zone] : undefined}
+              masks={showMasks ? props.masks[camera.id] : undefined}
               script={
                 video
                   ? null

@@ -130,7 +130,10 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
             )
 
             fake = SimpleNamespace(
-                responses=SimpleNamespace(create=lambda **kw: _answer()), close=_none
+                responses=SimpleNamespace(
+                    with_raw_response=SimpleNamespace(create=lambda **kw: _answer())
+                ),
+                close=_none,
             )
             meta = MetaClient(
                 SecretStr("sk-x"), base_url="x", make_openai=lambda: cast(AsyncOpenAI, fake)
@@ -162,8 +165,9 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
         assert jpeg not in seen
 
 
-async def _answer() -> Any:
-    return SimpleNamespace(output_text="")
+async def _answer() -> Any:  # with_raw_response's answer
+    answer = SimpleNamespace(output_text="")
+    return SimpleNamespace(headers={}, status_code=200, parse=lambda: answer)
 
 
 async def _none() -> None:

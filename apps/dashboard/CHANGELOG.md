@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `?panels=a,b,c` shows only those panels, filling the window, and `?masks=off` the camera tiles
+  without SAM's boxes and counts: the live quad take's 960×540 OBS sources.
+- An RC run shows no saving, comfort figure or kWh, only the RC note; its power stays.
+- The fixture's run is a BOPTEST run (`boptest-local`), so the tests still see a saving.
+
 ## 0.2.0
 
 - The power chart draws each step's mean over its own step (`stepped: "after"`), not the next.

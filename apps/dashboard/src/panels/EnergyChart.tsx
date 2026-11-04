@@ -8,6 +8,7 @@ import type { DashboardState } from '../state/reducer';
 import type { Axis } from '../state/selectors';
 import { Empty, Panel } from '../ui';
 import type { Run } from '../wire';
+import { RcNote } from './KpiCards';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, Legend, Tooltip);
 
@@ -23,11 +24,14 @@ const RUNS: ReadonlyArray<[Run, string]> = [
  */
 export const POWER_STEPPED = 'after';
 
-/** Two sim-time series per run: power (each step's mean, drawn over that step) and energy. */
-export function chartData(power: DashboardState['power']): ChartData<'line', Array<{ x: number; y: number }>> {
+/**
+ * Two sim-time series per run: power (each step's mean, drawn over that step) and energy; on an
+ * RC run, power only (no RC figure is quoted, so its kWh are not shown).
+ */
+export function chartData(power: DashboardState['power'], rc = false): ChartData<'line', Array<{ x: number; y: number }>> {
   return {
-    datasets: RUNS.flatMap(([run, label]) => [
-      {
+    datasets: RUNS.flatMap(([run, label]) => {
+      const kw = {
         label: `${label} kW`,
         data: power[run].map((p) => ({ x: p.t, y: p.kw })),
         stepped: POWER_STEPPED,
@@ -36,8 +40,8 @@ export function chartData(power: DashboardState['power']): ChartData<'line', Arr
         borderWidth: 3,
         pointRadius: 0,
         yAxisID: 'kw',
-      },
-      {
+      } as const;
+      const kwh = {
         label: `${label} kWh`,
         data: power[run].map((p) => ({ x: p.t, y: p.kwh })),
         borderColor: RUN_COLOR[run],
@@ -46,12 +50,13 @@ export function chartData(power: DashboardState['power']): ChartData<'line', Arr
         borderWidth: 2,
         pointRadius: 0,
         yAxisID: 'kwh',
-      },
-    ]),
+      };
+      return rc ? [kw] : [kw, kwh];
+    }),
   };
 }
 
-function chartOptions(axis: Axis | null, video: boolean): ChartOptions<'line'> {
+function chartOptions(axis: Axis | null, video: boolean, rc: boolean): ChartOptions<'line'> {
   const font = { size: video ? 22 : 12 };
   const ink = '#c9d4e0';
   const grid = { color: 'rgba(255,255,255,0.08)' };
@@ -82,6 +87,7 @@ function chartOptions(axis: Axis | null, video: boolean): ChartOptions<'line'> {
         grid,
       },
       kwh: {
+        display: !rc,
         position: 'right',
         beginAtZero: true,
         title: { display: true, text: 'kWh', color: ink, font },
@@ -97,37 +103,55 @@ export const EnergyChart = memo(function EnergyChart(props: {
   latest: DashboardState['latest'];
   axis: Axis | null;
   video: boolean;
+  /** An RC run: power only, the RC note instead of kWh. */
+  rc: boolean;
 }) {
-  const { power, latest, axis, video } = props;
-  const data = useMemo(() => chartData(power), [power]);
-  const options = useMemo(() => chartOptions(axis, video), [axis, video]);
+  const { power, latest, axis, video, rc } = props;
+  const data = useMemo(() => chartData(power, rc), [power, rc]);
+  const options = useMemo(() => chartOptions(axis, video, rc), [axis, video, rc]);
   const populated = power.spotcool.length > 0 || power.baseline.length > 0;
+  const readouts = (
+    <dl className="readouts">
+      {RUNS.map(([run, label]) => {
+        const m = latest[run];
+        return (
+          <div key={run} className={`readout readout-${run}`}>
+            <dt>{label}</dt>
+            <dd>
+              <span className="big">{fixed(m?.totalKw, 1)}</span> kW
+            </dd>
+            {!rc && (
+              <dd>
+                <span className="big">{fixed(m?.energyKwh, 1)}</span> kWh
+              </dd>
+            )}
+          </div>
+        );
+      })}
+    </dl>
+  );
   return (
     <Panel id="energy" title="HVAC power and energy" populated={populated}>
       {!populated ? (
         <Empty>Waiting for the plants' first measurements.</Empty>
       ) : (
         <div className="energy">
-          <dl className="readouts">
-            {RUNS.map(([run, label]) => {
-              const m = latest[run];
-              return (
-                <div key={run} className={`readout readout-${run}`}>
-                  <dt>{label}</dt>
-                  <dd>
-                    <span className="big">{fixed(m?.totalKw, 1)}</span> kW
-                  </dd>
-                  <dd>
-                    <span className="big">{fixed(m?.energyKwh, 1)}</span> kWh
-                  </dd>
-                </div>
-              );
-            })}
-          </dl>
+          {rc ? (
+            <div className="energy-head">
+              {readouts}
+              <RcNote testId="energy-rc" />
+            </div>
+          ) : (
+            readouts
+          )}
           <div
             className="chart"
             role="img"
-            aria-label={`Power and energy: SpotCool ${fixed(latest.spotcool?.energyKwh, 1)} kWh, baseline ${fixed(latest.baseline?.energyKwh, 1)} kWh so far`}
+            aria-label={
+              rc
+                ? `Power: SpotCool ${fixed(latest.spotcool?.totalKw, 1)} kW, baseline ${fixed(latest.baseline?.totalKw, 1)} kW`
+                : `Power and energy: SpotCool ${fixed(latest.spotcool?.energyKwh, 1)} kWh, baseline ${fixed(latest.baseline?.energyKwh, 1)} kWh so far`
+            }
           >
             <Line data={data} options={options} />
           </div>

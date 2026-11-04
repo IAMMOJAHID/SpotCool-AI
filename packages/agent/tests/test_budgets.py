@@ -40,13 +40,16 @@ def free_port(kind: socket.SocketKind) -> int:
 
 
 def sam(cap: int) -> MetaClient:
-    async def create(**kwargs: Any) -> Any:
-        return SimpleNamespace(output_text=ONE_PERSON)
+    async def create(**kwargs: Any) -> Any:  # with_raw_response's answer
+        answer = SimpleNamespace(output_text=ONE_PERSON)
+        return SimpleNamespace(headers={}, status_code=200, parse=lambda: answer)
 
     async def close() -> None:
         return None
 
-    fake = SimpleNamespace(responses=SimpleNamespace(create=create), close=close)
+    fake = SimpleNamespace(
+        responses=SimpleNamespace(with_raw_response=SimpleNamespace(create=create)), close=close
+    )
     return MetaClient(
         SecretStr("sk-x"), base_url="x", call_cap=cap, make_openai=lambda: cast(AsyncOpenAI, fake)
     )

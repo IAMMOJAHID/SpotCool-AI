@@ -192,7 +192,10 @@ step with no count at all, or the model-call cap used up, releases everything.
 | `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` on the language services' `MetaClient`; 8 s |
 | `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`), for tests and `--llm fake` |
 
-No service logs what was said, asked or answered, only lengths. `parse_sam_output` and
+No service logs what was said, asked or answered, only lengths. Each Meta request logs a
+`META ->` line when sent and a `META <-` or `META x` line when it ends (`MetaClient`'s trace,
+`--no-meta-trace`): the endpoint, the `x-request-id` (also in the ledger's `Call`), the rate
+limit left, and sizes, box pixels, confidences and intent labels only. `parse_sam_output` and
 `Detection` (`domain/geometry.py`) and the louver geometry (`domain/louvers.py`) are Person
 A's, near-verbatim.
 

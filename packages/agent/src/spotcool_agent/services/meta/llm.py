@@ -2,20 +2,27 @@
 
 Each prompt is one ``responses.create`` through the process's ``MetaClient``, so it shares the
 limiter, the ledger and the run's call cap with SAM 3.1. No retries: a caller has a template or
-keywords to fall back on.
+keywords to fall back on. The trace gives the prompt's and the answer's lengths, and a
+classification's intent label, never their words.
 """
 
 import asyncio
 
 import openai
 
+from spotcool_agent.processors.intents import parse_intent
 from spotcool_agent.services.llm import LLMError, LLMService
-from spotcool_agent.services.meta.client import MetaClient
+from spotcool_agent.services.meta.client import MetaClient, characters
 from spotcool_agent.services.vision import CallCapReached
 
 LLM_MODEL = "muse-wonder-1.0"
 TIMEOUT_S = 8.0
 """The longest a reply may take (a short prompt took about 2.2 s)."""
+
+
+def describe_intent(text: str) -> str:
+    """The trace's ``out`` for a classification: one of the intent labels, never other words."""
+    return f'intent "{parse_intent(text)}"'
 
 
 class MetaLLM(LLMService):
@@ -39,7 +46,12 @@ class MetaLLM(LLMService):
         try:
             async with asyncio.timeout(timeout_s):
                 return await self._client.respond(
-                    model=self._model, purpose=purpose, timeout_s=timeout_s, content=content
+                    model=self._model,
+                    purpose=purpose,
+                    timeout_s=timeout_s,
+                    content=content,
+                    sent=f"prompt {len(prompt)} characters",
+                    describe=describe_intent if purpose == "classify" else characters,
                 )
         except TimeoutError:
             raise LLMError(f"no answer within {timeout_s:.1f} s") from None

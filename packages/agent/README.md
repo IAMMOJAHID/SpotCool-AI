@@ -38,6 +38,17 @@ both default to Meta's with `--vision meta`, and to the offline `fake` and `off`
 They share a budget of their own, `--llm-call-cap` (200), apart from the building's
 `--sam-call-cap`. `--stt fake` hears nothing: a voice message is asked to be typed.
 
+Every Meta request logs a `META ->` line as it is sent and a `META <-` (answered) or `META x`
+(failed) line as it ends, for the demo's terminal: the model, the endpoint, the request id, the
+rate limit left, and sizes, boxes and labels, never an image, audio or words. `--no-meta-trace`
+(`SPOTCOOL_AGENT_META_TRACE=false`) turns them off; the offline providers log none.
+
+```text
+META -> sam-3.1 | POST https://api.meta.ai/v1/responses | count humans on cam-cor | in: JPEG 1280x720, 52 KB + text "humans" (include_confidence)
+META <- sam-3.1 | 200 in 1.87 s | request-id 2bf0123a-... | response resp_6aeb... | out: 2 boxes [(785,376)-(905,691) c=0.93, ...] -> kept 2 (c >= 0.30) | rate limit 58/60 left
+META x  sam-3.1 | timeout after 3.5 s | count humans on cam-sou
+```
+
 ## The louvers demo
 
 The meeting room's VRF unit, its louvers aimed at whoever the phone camera sees, and voice and

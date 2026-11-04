@@ -135,7 +135,7 @@ export function makeFixture(): string[] {
   measurements('spotcool', START_S, true);
   measurements('baseline', START_S, true);
   const status = (s: RunStatusData['status'], t: number) => {
-    const data: RunStatusData = { run_id: RUN_ID, status: s, plant: 'rc', scenario: 'hybrid_tuesday', message: null };
+    const data: RunStatusData = { run_id: RUN_ID, status: s, plant: 'boptest-local', scenario: 'hybrid_tuesday', message: null };
     emit('run_status', data, t);
   };
   status('running', START_S);

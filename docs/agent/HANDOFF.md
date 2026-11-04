@@ -85,6 +85,8 @@
 | AG3 | The scored BOPTEST run | `runs/ag3-boptest-agent-s60`: **Quotable, 19.94 %**, recorded Nov 3 18:43 UTC, commit `1689f76`. The control is `runs/ag3-boptest-allhands-s60`: 5.68 %, with one miss (East at 13:15). The docs (`numbers.md`, the card label, the MEVA credits) are merged as `842f442` |
 | AG4 | Meeting room, voice and chat | The VRF louvers follow a person on the phone camera (A's `locate`, `louver_angles_to` and `louver_aim`, brand-aware Pos1–5). Complaints go text or muse-voice → intent → **the VRF only**, answered by muse-wonder with a template fallback. One BACnet client and socket per device (VRF: 1911 on UDP 47821). Separate budgets; the BMS is released first; honest replies. Merged `c20ae9a`. Builder `a0a4fdccde6d41e26`, reviewer `af197050fb64dc5ab` |
 | AG5 | The video | The results card, narration, dashboard replay and sources point at the agent's run (`4de4264`). The YABE take is re-planned for the real agent, and that flow was rehearsed (the Nov 4 docs commit). The draft passes `qa.py` |
+| AG6 | `dev` integrated | Cleanup, the judges' README, `dev` = `agent/main` (see "Dev integration") |
+| AG7 | The live demo screen | **`META` call trace** in the agent's log: the model, the endpoint, the `x-request-id`, the response id, the rate limit, and what went in and came out as sizes, boxes and labels, never content (a live call was checked). The dashboard's `?panels=` and `?masks=off`, for OBS's new **`Quad`** scene. **RC runs show no saving, kWh or comfort figure.** Reviewer: no P0 or P1. Left open as P2s: the mock fixture now reads as BOPTEST (20.6 %, never record it), and a `--plant replay` of an RC run shows its figures |
 
 ### Key decisions, with the reasons
 

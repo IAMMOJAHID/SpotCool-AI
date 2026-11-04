@@ -74,6 +74,7 @@ def meta_client(
         base_url=settings.meta_base_url,
         max_concurrency=concurrency,
         call_cap=call_cap,
+        trace=settings.meta_trace,
     )
 
 
@@ -133,6 +134,7 @@ def create_language(
         base_url=settings.meta_base_url,
         max_concurrency=LANGUAGE_CONCURRENCY,
         call_cap=settings.llm_call_cap,
+        trace=settings.meta_trace,
     )
     if settings.stt == "meta":
         stt = MetaSTT(client, key, base_url=settings.meta_base_url, model=settings.stt_model)
