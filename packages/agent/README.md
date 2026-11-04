@@ -36,7 +36,15 @@ slot the agent holds.
 `--stt meta|fake` and `--llm meta|fake|off` choose the transcriber and the language model;
 both default to Meta's with `--vision meta`, and to the offline `fake` and `off` otherwise.
 They share a budget of their own, `--llm-call-cap` (200), apart from the building's
-`--sam-call-cap`. `--stt fake` hears nothing: a voice message is asked to be typed.
+`--sam-call-cap`. `--stt fake` hears nothing: a voice message is asked to be typed. With
+`--llm meta`, muse-wonder also narrates each building step that wrote, in one sentence, as an
+explanation.
+
+`--scene meta|fake|off` chooses the scene reader (`muse-spark-1.3`): Meta's with
+`--vision meta`, `off` otherwise. It notes each occupied zone's people and open doors every 4
+steps, as explanations only, and with `--vrf` sets the meeting room's comfort setpoint (Person
+A's PMV 0, on `IDU-SP`) every 60 s while people are seen; `--no-comfort` turns that off. Its
+budget is its own, `--scene-call-cap` (300). None of it changes a BMS write.
 
 Every Meta request logs a `META ->` line as it is sent and a `META <-` (answered) or `META x`
 (failed) line as it ends, for the demo's terminal: the model, the endpoint, the request id, the
@@ -47,6 +55,8 @@ rate limit left, and sizes, boxes and labels, never an image, audio or words. `-
 META -> sam-3.1 | POST https://api.meta.ai/v1/responses | count humans on cam-cor | in: JPEG 1280x720, 52 KB + text "humans" (include_confidence)
 META <- sam-3.1 | 200 in 1.87 s | request-id 2bf0123a-... | response resp_6aeb... | out: 2 boxes [(785,376)-(905,691) c=0.93, ...] -> kept 2 (c >= 0.30) | rate limit 58/60 left
 META x  sam-3.1 | timeout after 3.5 s | count humans on cam-sou
+META -> muse-spark-1.3 | POST https://api.meta.ai/v1/responses | read the scene on cam-meeting-live | in: JPEG 1280x720, 52 KB + prompt 1350 characters
+META <- muse-spark-1.3 | 200 in 10.40 s | request-id ... | out: 2 people (trousers_long_sleeve 2), doors open 1, windows open 0, sunlight none, office
 ```
 
 ## The louvers demo

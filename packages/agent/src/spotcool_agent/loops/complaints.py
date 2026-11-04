@@ -76,10 +76,10 @@ def reply_prompt(text: str, intent: Intent, action: Action, facts: Mapping[str, 
     )
 
 
-def trimmed(answer: str) -> str:
-    """A model's reply cut to two sentences and ``MAX_REPLY_CHARS``; empty if it said nothing."""
-    sentences = re.split(r"(?<=[.!?])\s+", " ".join(answer.split()))
-    return " ".join(sentences[:2])[:MAX_REPLY_CHARS].strip()
+def trimmed(answer: str, sentences: int = 2) -> str:
+    """A model's reply cut to ``sentences`` and ``MAX_REPLY_CHARS``; empty if it said nothing."""
+    said = re.split(r"(?<=[.!?])\s+", " ".join(answer.split()))
+    return " ".join(said[:sentences])[:MAX_REPLY_CHARS].strip()
 
 
 class ComplaintLoop:

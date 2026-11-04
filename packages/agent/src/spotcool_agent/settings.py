@@ -69,6 +69,14 @@ class AgentSettings(BaseSettings):
         vrf_hold_s: Wall seconds with nobody seen before the vanes are released.
         draft_hold_s: Wall seconds a draft complaint pauses the aiming.
         complaint_hold_s: Wall seconds a complaint's setpoint and fan override lasts.
+        scene: The scene reader for the zones' scene notes and the meeting room's comfort
+            setpoint: ``meta`` (``muse-spark-1.3``), ``fake`` or ``off``; by default ``meta``
+            with ``--vision meta``, else ``off``. Explanations and the VRF only, never the BMS.
+        scene_model: The scene model.
+        scene_call_cap: Scene calls the run may make in all, a budget of their own.
+        scene_every_steps: Steps between two scene notes on one zone, at least.
+        comfort: With ``--vrf`` and a scene reader, set the meeting room's comfort setpoint.
+        comfort_every_s: Wall seconds between two comfort readings, at least.
     """
 
     model_config = SettingsConfigDict(env_prefix="SPOTCOOL_AGENT_", extra="ignore")
@@ -115,15 +123,23 @@ class AgentSettings(BaseSettings):
     vrf_hold_s: float = Field(default=10.0, gt=0)
     draft_hold_s: float = Field(default=600.0, ge=0)
     complaint_hold_s: float = Field(default=900.0, ge=0)
+    scene: Literal["meta", "fake", "off"] | None = None
+    scene_model: str = "muse-spark-1.3"
+    scene_call_cap: int = Field(default=300, ge=0)
+    scene_every_steps: int = Field(default=4, ge=1)
+    comfort: bool = True
+    comfort_every_s: float = Field(default=60.0, gt=0)
 
     @model_validator(mode="after")
     def _offline_follows_vision(self) -> "AgentSettings":
-        """Unset ``stt`` and ``llm`` follow ``vision``: Meta with Meta, offline otherwise."""
+        """Unset ``stt``, ``llm`` and ``scene`` follow ``vision``: Meta with Meta, else offline."""
         online = self.vision == "meta"
         if self.stt is None:
             self.stt = "meta" if online else "fake"
         if self.llm is None:
             self.llm = "meta" if online else "off"
+        if self.scene is None:
+            self.scene = "meta" if online else "off"
         return self
 
     @field_validator("world_host", "bacnet_address")

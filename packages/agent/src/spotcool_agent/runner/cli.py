@@ -55,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("--sam-call-cap", type=int, help="the building's SAM calls (600)")
         sub.add_argument("--llm-call-cap", type=int, help="the STT and LLM calls (200)")
         sub.add_argument(
+            "--scene", choices=["meta", "fake", "off"], help="Muse Spark (meta with --vision meta)"
+        )
+        sub.add_argument("--scene-call-cap", type=int, help="the scene calls (300)")
+        sub.add_argument(
             "--no-meta-trace",
             dest="meta_trace",
             action="store_false",
@@ -81,6 +85,13 @@ def main(argv: list[str] | None = None) -> int:
     vrf.add_argument("--vrf-hold-s", type=float, help="nobody seen, then release (10)")
     vrf.add_argument("--draft-hold-s", type=float, help="a draft pauses the aim (600)")
     vrf.add_argument("--complaint-hold-s", type=float, help="a complaint's override (900)")
+    vrf.add_argument(
+        "--no-comfort",
+        dest="comfort",
+        action="store_false",
+        default=None,
+        help="no comfort setpoint from Muse Spark",
+    )
     run.add_argument("--dry-run", action="store_true", help="print the settings and exit")
     args = parser.parse_args(argv)
     if args.command == "version":
@@ -94,6 +105,8 @@ def main(argv: list[str] | None = None) -> int:
         "llm": args.llm,
         "sam_call_cap": args.sam_call_cap,
         "llm_call_cap": args.llm_call_cap,
+        "scene": args.scene,
+        "scene_call_cap": args.scene_call_cap,
         "meta_trace": args.meta_trace,
     }
     if args.command == "run":
@@ -115,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             "vrf_hold_s": args.vrf_hold_s,
             "draft_hold_s": args.draft_hold_s,
             "complaint_hold_s": args.complaint_hold_s,
+            "comfort": args.comfort,
         }
     try:
         settings = load_settings(args.env_file, **flags)

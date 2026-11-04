@@ -21,11 +21,15 @@ import spotcool_agent
 from spotcool_agent.actuator import Actuator
 from spotcool_agent.domain.events import Value
 from spotcool_agent.loops.building import BuildingLoop
+from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.observers.metrics import StageMetrics
 from spotcool_agent.processors.policy import AgentPolicy
 from spotcool_agent.services.fake.blob import BlobVision
+from spotcool_agent.services.fake.scene import FakeScene
 from spotcool_agent.services.meta.client import MetaClient
+from spotcool_agent.services.meta.scene import SparkScene
 from spotcool_agent.services.meta.vision import SamVision
+from spotcool_agent.services.scene import SceneError
 from spotcool_agent.transports.bacnet import ClockReading, StepClock
 from spotcool_agent.transports.dashboard import DashboardPublisher, agent_url
 from spotcool_agent.transports.server import Complaint, create_app
@@ -119,6 +123,7 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
                 publish=publisher.publish,
                 metrics=StageMetrics(),
                 settle_s=0.0,
+                notes=SceneNotes(FakeScene(), publisher.publish, every_steps=1),
             )
             await asyncio.sleep(1.0)  # every camera has a frame
             for k in range(1, 4):
@@ -139,12 +144,15 @@ async def test_frames_and_audio_stay_in_memory_and_out_of_the_logs(
                 SecretStr("sk-x"), base_url="x", make_openai=lambda: cast(AsyncOpenAI, fake)
             )
             await SamVision(meta).detect(snapshot, "humans", 5.0, camera_id="cam-sou")
+            with pytest.raises(SceneError):  # the frame goes to Muse Spark from memory too
+                await SparkScene(meta).assess(snapshot, 2, 5.0, camera_id="cam-sou")
 
             queue: asyncio.Queue[Complaint] = asyncio.Queue()
             app = httpx.ASGITransport(app=create_app(queue, origins=[]))
             async with httpx.AsyncClient(transport=app, base_url="http://agent") as agent:
                 files = {"audio": ("voice.wav", wav_near_the_cap(), "audio/wav")}
                 assert (await agent.post("/voice", files=files)).status_code == 202
+            await loop.stop_background()
             await actuator.stop()
             await publisher.stop()
             await world.aclose()

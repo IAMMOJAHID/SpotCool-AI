@@ -20,18 +20,23 @@ from spotcool_agent.actuator import Actuator
 from spotcool_agent.domain.louvers import CameraPose
 from spotcool_agent.loops.building import BuildingLoop
 from spotcool_agent.loops.complaints import ComplaintLoop
+from spotcool_agent.loops.narration import Narrator
+from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.loops.vrf import VrfLoop
 from spotcool_agent.observers.metrics import StageMetrics, ledger_summary
 from spotcool_agent.processors.policy import AgentPolicy
 from spotcool_agent.services.fake.blob import BlobVision
 from spotcool_agent.services.fake.llm import FakeLLM
+from spotcool_agent.services.fake.scene import FakeScene
 from spotcool_agent.services.fake.scripted import ScriptedVision
 from spotcool_agent.services.fake.stt import FakeSTT
 from spotcool_agent.services.llm import LLMService
 from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.meta.llm import MetaLLM
+from spotcool_agent.services.meta.scene import SparkScene
 from spotcool_agent.services.meta.stt import MetaSTT
 from spotcool_agent.services.meta.vision import SamVision
+from spotcool_agent.services.scene import SceneService
 from spotcool_agent.services.stt import STTService
 from spotcool_agent.services.vision import VisionService
 from spotcool_agent.settings import AgentSettings
@@ -55,6 +60,8 @@ VRF_CONCURRENCY = 2
 """SAM calls the VRF loop may have in flight, on a budget of its own."""
 LANGUAGE_CONCURRENCY = 2
 """Calls the transcriber and the language model may have in flight together."""
+SCENE_CONCURRENCY = 3
+"""Scene calls in flight at once: the zones' notes and the meeting room's comfort reading."""
 VRF_STOP_TIMEOUT_S = 5.0
 """The longest the VRF gateway's release may take at stop, after the BMS's."""
 
@@ -143,6 +150,28 @@ def create_language(
     return stt, llm, client
 
 
+def create_scene(settings: AgentSettings) -> tuple[SceneService | None, MetaClient | None]:
+    """The settings' scene reader, and the Meta budget behind it if it has one.
+
+    Its budget is its own (``SCENE_CONCURRENCY`` at once, ``scene_call_cap``), so it can never
+    take a call from the building's SAM budget.
+
+    Raises:
+        ValueError: If ``meta`` is chosen without a key.
+    """
+    if settings.scene == "off":
+        return None, None
+    if settings.scene == "fake":
+        return FakeScene(), None
+    client = meta_client(
+        settings,
+        "--scene meta",
+        concurrency=SCENE_CONCURRENCY,
+        call_cap=settings.scene_call_cap,
+    )
+    return SparkScene(client, model=settings.scene_model), client
+
+
 def local_address(world_host: str) -> str:
     """This machine's IPv4 address on the route to ``world_host`` (no packet is sent)."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
@@ -174,6 +203,7 @@ class Agent:
         self.vision = vision
         made_stt, self.llm, self._language = create_language(settings)
         self.stt = stt or made_stt
+        self.scene, self._scene_meta = create_scene(settings)
         host = settings.world_host
         local = settings.bacnet_address or local_address(host)
         self.bacnet = BacnetClient(
@@ -201,6 +231,18 @@ class Agent:
             metrics=self.metrics,
             settle_s=settings.settle_s,
             on_new_run=self._meta.new_run if self._meta is not None else None,
+            notes=(
+                SceneNotes(
+                    self.scene, self.publisher.publish, every_steps=settings.scene_every_steps
+                )
+                if self.scene is not None
+                else None
+            ),
+            narrator=(  # Muse Wonder only: a fake's scripted words are no narration
+                Narrator(self.llm, self.publisher.publish)
+                if self.llm is not None and settings.llm == "meta"
+                else None
+            ),
         )
         self.vrf: VrfLoop | None = None
         self.vrf_bacnet: BacnetClient | None = None
@@ -239,6 +281,8 @@ class Agent:
                 hold_s=settings.vrf_hold_s,
                 draft_hold_s=settings.draft_hold_s,
                 complaint_hold_s=settings.complaint_hold_s,
+                scene=self.scene if settings.comfort else None,
+                comfort_every_s=settings.comfort_every_s,
             )
         self.complaint_loop = ComplaintLoop(
             self.complaints,
@@ -262,8 +306,9 @@ class Agent:
             Exception: Whatever crashed a loop, after the release.
         """
         llm = self.llm.name if self.llm else "off"
+        scene = self.scene.name if self.scene else "off"
         logger.info(
-            f"agent: vision {self.vision.name}, STT {self.stt.name}, LLM {llm}, BMS "
+            f"agent: vision {self.vision.name}, STT {self.stt.name}, LLM {llm}, scene {scene}, BMS "
             f"{self.bacnet.device}, cameras {self.world.base_url}, dashboard {self.publisher.url}"
         )
         if self.vrf is not None and self.vrf_bacnet is not None:
@@ -331,7 +376,14 @@ class Agent:
         if self.vrf_vision is not None and self.vrf_vision is not self.vision:
             await self.vrf_vision.close()
         await self.stt.close()
-        budgets = {"building": self._meta, "VRF": self._vrf_meta, "language": self._language}
+        if self.scene is not None:
+            await self.scene.close()
+        budgets = {
+            "building": self._meta,
+            "VRF": self._vrf_meta,
+            "language": self._language,
+            "scene": self._scene_meta,
+        }
         for client in budgets.values():
             if client is not None:
                 await client.close()  # vision closes its own too; closing twice is safe

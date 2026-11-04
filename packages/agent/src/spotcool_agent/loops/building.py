@@ -18,6 +18,11 @@ The world never waits for the agent, so each round fits in the step it starts in
    start, as the stub stamps its own with the state it acted on, so the record pairs each
    decision with the write the BMS took one step later.
 
+7. Only then, and in the background: Muse Spark's scene notes on the occupied zones
+   (``loops/scene.py``) and Muse Wonder's one-sentence narration of a step that wrote
+   (``loops/narration.py``). They are explanations only: they get the step's counts after the
+   policy has used them, never delay it, and nothing they learn flows back into the policy.
+
 One bad step never ends the day: a step that raises is logged (once per kind of failure) and
 the loop goes on; only a cancel stops it. A new run (``Step.run`` changed) starts afresh: the
 actuator releases and forgets its points, the policy forgets its state, and the call cap and
@@ -33,6 +38,8 @@ from loguru import logger
 from spotcool_agent.actuator import Actuator, Publish
 from spotcool_agent.domain.events import Perception
 from spotcool_agent.domain.geometry import Detections
+from spotcool_agent.loops.narration import Narrator
+from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.observers.metrics import LOG_EVERY_STEPS, StageMetrics
 from spotcool_agent.processors.occupancy import occupancy
 from spotcool_agent.processors.policy import AgentPolicy, clock_text
@@ -82,6 +89,8 @@ class BuildingLoop:
         settle_s: Wall seconds from a step's change to its snapshots.
         concept: What to count.
         on_new_run: Called when a new run starts, such as the Meta client's ``new_run``.
+        notes: Muse Spark's scene notes on the occupied zones; ``None`` for none.
+        narrator: Muse Wonder's narration of the steps that wrote; ``None`` for none.
     """
 
     def __init__(
@@ -97,6 +106,8 @@ class BuildingLoop:
         settle_s: float = SETTLE_S,
         concept: str = CONCEPT,
         on_new_run: Callable[[], None] | None = None,
+        notes: SceneNotes | None = None,
+        narrator: Narrator | None = None,
     ) -> None:
         self._clock = clock
         self._world = world
@@ -111,6 +122,8 @@ class BuildingLoop:
         self._failing: dict[str, str] = {}  # camera or room -> its last failure, logged once
         self._cap_reached = False
         self._on_new_run = on_new_run
+        self._notes = notes
+        self._narrator = narrator
         self._run = 0
         self._step_errors: set[str] = set()  # kinds of step failure logged so far
         self.steps = 0
@@ -120,23 +133,33 @@ class BuildingLoop:
 
     async def run(self) -> None:
         """Handle every step as ``SIM-CLOCK`` changes, until cancelled."""
-        while True:
-            step = await self._clock.next_step()
-            try:  # one bad step never ends the day; a cancel still does
-                if step.run != self._run:
-                    await self.new_run(step.run)
-                wait = step.seen_at + self._settle_s - time.perf_counter()
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                if self._clock.latest is not step:
-                    continue  # SIM-CLOCK moved on during the settle: take the newer step
-                await self.step(step)
-            except Exception as exc:
-                kind = type(exc).__name__
-                if kind not in self._step_errors:
-                    self._step_errors.add(kind)
-                    when = clock_text(step.start_s)
-                    logger.error(f"step {when} failed, the loop goes on: {kind}: {exc}")
+        try:
+            while True:
+                step = await self._clock.next_step()
+                try:  # one bad step never ends the day; a cancel still does
+                    if step.run != self._run:
+                        await self.new_run(step.run)
+                    wait = step.seen_at + self._settle_s - time.perf_counter()
+                    if wait > 0:
+                        await asyncio.sleep(wait)
+                    if self._clock.latest is not step:
+                        continue  # SIM-CLOCK moved on during the settle: take the newer step
+                    await self.step(step)
+                except Exception as exc:
+                    kind = type(exc).__name__
+                    if kind not in self._step_errors:
+                        self._step_errors.add(kind)
+                        when = clock_text(step.start_s)
+                        logger.error(f"step {when} failed, the loop goes on: {kind}: {exc}")
+        finally:
+            await self.stop_background()
+
+    async def stop_background(self) -> None:
+        """Cancel the scene notes and the narration under way. Safe to call twice."""
+        if self._notes is not None:
+            await self._notes.stop()
+        if self._narrator is not None:
+            await self._narrator.stop()
 
     async def new_run(self, run: int) -> None:
         """Start a new run afresh (see the module docstring).
@@ -145,6 +168,7 @@ class BuildingLoop:
             run: The new run's count, ``Step.run``.
         """
         logger.info(f"new run detected (run {run}): releasing, and starting afresh")
+        await self.stop_background()  # an old run's note or narration must not land in this one
         self._run = run
         await self._actuator.reset()
         self._policy.reset()
@@ -158,7 +182,7 @@ class BuildingLoop:
         deadline = deadline_after(step.seen_at, self._clock.step_wall_s)
         calendar = asyncio.create_task(self._calendar(), name="calendar")
         try:
-            found = await self._perceive(deadline)
+            found, jpegs = await self._perceive(deadline)
             await calendar
         finally:
             calendar.cancel()  # done already, unless perceiving failed
@@ -172,18 +196,34 @@ class BuildingLoop:
         commands = self._policy.commands(
             occupancy(counts), counts, step.end_s, cap_reached=self._cap_reached
         )
+        held = self._actuator.held if self._narrator is not None else {}
         await self._actuator.apply(commands, step.start_s)
         now = time.perf_counter()
         self._metrics.add("actuate", now - began)
         self._metrics.add("step", now - step.seen_at)
+        if self._notes is not None:  # after the writes: explanations only
+            ids = {zone: camera.id for zone, camera in cameras.items()}
+            self._notes.offer(jpegs, counts, ids, step.start_s)
+        if self._narrator is not None:
+            written = written_zones(held, self._actuator.held)
+            decisions = [
+                f"{ZONES[zone].display_name}: {counts.get(zone, 'unknown')} people counted; "
+                f"{commands[zone].reason}"
+                for zone in Zone
+                if zone in written and zone in commands
+            ]
+            self._narrator.narrate(decisions, step.start_s)
         self.steps += 1
         seen = " ".join(f"{z.value}={counts.get(z, '?')}" for z in Zone)
         logger.info(f"step {clock_text(step.start_s)}: people {seen}")
         if self.steps % LOG_EVERY_STEPS == 0:
             logger.info(f"latency: {self._metrics.summary()}")
 
-    async def _perceive(self, deadline: float) -> dict[Zone, Detections]:
-        """Each zone's detections that came back by the deadline; the rest are unknown."""
+    async def _perceive(self, deadline: float) -> tuple[dict[Zone, Detections], dict[Zone, bytes]]:
+        """Each zone's detections that came back by the deadline, and the snapshots taken.
+
+        A zone without detections is unknown. The snapshots stay in memory, for the scene notes.
+        """
         cameras = await self._zone_cameras()
         began = time.perf_counter()
         snapshots = await asyncio.gather(
@@ -196,7 +236,8 @@ class BuildingLoop:
             *(self._detect(cameras[zone], jpeg, deadline) for zone, jpeg in jpegs.items())
         )
         self._metrics.add("detect", time.perf_counter() - began)
-        return {zone: found for zone, found in zip(jpegs, results, strict=True) if found}
+        seen = {zone: found for zone, found in zip(jpegs, results, strict=True) if found}
+        return seen, jpegs
 
     async def _zone_cameras(self) -> Mapping[Zone, CameraInfo]:
         """Each zone's camera, from the catalog (fetched until it answers, then kept)."""
@@ -275,3 +316,11 @@ class BuildingLoop:
     def _recovered(self, what: str) -> None:
         if self._failing.pop(what, None) is not None:
             logger.info(f"{what}: answering again")
+
+
+def written_zones(before: Mapping[str, object], after: Mapping[str, object]) -> set[Zone]:
+    """The zones with a point whose held value changed between two ``Actuator.held``."""
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    return {
+        zone for zone in Zone if any(n.startswith(f"ZN-{zone.value.upper()}-") for n in changed)
+    }

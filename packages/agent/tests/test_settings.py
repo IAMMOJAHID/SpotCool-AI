@@ -132,3 +132,27 @@ def test_meta_models_without_a_key_fail_to_start() -> None:
         create_language(AgentSettings(vision="blob", stt="meta"))
     with pytest.raises(ValueError, match="--llm meta needs META_API_KEY"):
         create_language(AgentSettings(vision="blob", llm="meta"))
+
+
+def test_the_scene_follows_vision_and_its_flags_reach_the_settings(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from spotcool_agent.runner.agent import create_scene
+
+    assert (AgentSettings(vision="meta").scene, AgentSettings(vision="blob").scene) == (
+        "meta",
+        "off",
+    )
+    settings = AgentSettings(vision="blob")
+    assert (settings.scene_model, settings.scene_call_cap, settings.comfort) == (
+        "muse-spark-1.3",
+        300,
+        True,
+    )
+    assert create_scene(settings) == (None, None)  # offline: no Spark call
+    with pytest.raises(ValueError, match="--scene meta needs META_API_KEY"):
+        create_scene(AgentSettings(vision="blob", scene="meta"))
+    flags = ["run", "--vision", "blob", "--scene", "fake", "--scene-call-cap", "7", "--vrf"]
+    assert main([*flags, "--no-comfort", "--dry-run"]) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert (shown["scene"], shown["scene_call_cap"], shown["comfort"]) == ("fake", 7, False)

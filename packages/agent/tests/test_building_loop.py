@@ -64,19 +64,21 @@ class FakeWorld:
 class FakeBms:
     def __init__(self) -> None:
         self.arrays: dict[str, list[Value]] = {}
+        self.writes: list[tuple[str, Value]] = []
 
     async def slots(self, point: PointSpec) -> list[Value] | None:
         return list(self.arrays.setdefault(point.name, [None] * 16))
 
     async def write(self, point: PointSpec, value: Value) -> bool:
         self.arrays.setdefault(point.name, [None] * 16)[9] = value
+        self.writes.append((point.name, value))
         return True
 
 
 class Rig:
     """A building loop on fakes, stepped by hand through its clock."""
 
-    def __init__(self, vision: Any = None) -> None:
+    def __init__(self, vision: Any = None, **features: Any) -> None:
         self.world = FakeWorld()
         self.bms = FakeBms()
         self.events: list[tuple[EventType, dict[str, Any]]] = []
@@ -97,6 +99,7 @@ class Rig:
             metrics=StageMetrics(),
             settle_s=0.0,
             on_new_run=new_run,
+            **features,
         )
 
     def publish(self, kind: EventType, data: BaseModel, t_s: float | None) -> None:
@@ -173,3 +176,57 @@ async def test_a_new_run_releases_forgets_and_starts_the_cap_afresh() -> None:
     reasons = [data["reason"] for kind, data in rig.events if kind is EventType.DECISION]
     assert "a new run started" in reasons  # the old run's slots were released ...
     assert rig.bms.arrays["ZN-SOU-CLG-SP"][9] == 28.0  # ... and the new run commands afresh
+
+
+async def a_day(**features: Any) -> tuple[list[tuple[str, Value]], list[Any], list[str]]:
+    """Eight steps of changing counts: the BMS writes, the decisions, the explanations."""
+    vision = ScriptedVision()
+    rig = Rig(vision, **features)
+    days = [
+        {"cam-sou": 2},
+        {"cam-sou": 2, "cam-wes": 1},
+        {"cam-wes": 1},
+        {},
+        {"cam-eas": 3, "cam-nor": 1},
+        {"cam-eas": 3, "cam-cor": 4},
+        {"cam-sou": 1},
+        {},
+    ]
+    for k, counts in enumerate(days, start=1):
+        vision.counts = dict(counts)
+        rig.clock.observe(ClockReading(T0 + k * STEP_S))
+        assert rig.clock.latest is not None
+        await rig.loop.step(rig.clock.latest)
+        await asyncio.sleep(0.01)  # the background readings and narration finish
+    await rig.loop.stop_background()
+    decisions = [data for kind, data in rig.events if kind is EventType.DECISION]
+    texts = [data["text"] for kind, data in rig.events if kind is EventType.EXPLANATION]
+    return rig.bms.writes, decisions, texts
+
+
+@pytest.mark.asyncio
+async def test_the_scene_notes_and_narration_never_change_a_bms_write() -> None:
+    from spotcool_agent.loops.narration import Narrator
+    from spotcool_agent.loops.scene import SceneNotes
+    from spotcool_agent.services.fake.llm import FakeLLM
+    from spotcool_agent.services.fake.scene import FakeScene, office
+
+    plain_writes, plain_decisions, plain_texts = await a_day()
+
+    events: list[tuple[EventType, dict[str, Any]]] = []
+
+    def publish(kind: EventType, data: BaseModel, t_s: float | None) -> None:
+        events.append((kind, data.model_dump()))
+
+    scene = FakeScene(office(9, doors_open=1))  # it disagrees with SAM 3.1 everywhere
+    llm = FakeLLM({"narrate": "The agent eased off the empty zones."})
+    notes = SceneNotes(scene, publish, every_steps=1)
+    writes, decisions, texts = await a_day(notes=notes, narrator=Narrator(llm, publish))
+
+    assert plain_writes and writes == plain_writes  # the same writes, in the same order
+    assert decisions == plain_decisions and texts == plain_texts
+    said = [data["text"] for _, data in events]
+    assert any(t.startswith("Muse Spark, South: 9 people") for t in said)  # they did run
+    assert any(t.endswith("the policy keeps SAM's") for t in said)
+    assert any(t == "Muse Wonder: The agent eased off the empty zones." for t in said)
+    assert scene.asked and all(purpose == "narrate" for purpose, _ in llm.prompts)
