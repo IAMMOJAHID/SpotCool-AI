@@ -216,10 +216,12 @@ class MetaClient:
                 yield trace
                 ok = True
             except BaseException as exc:
+                trace.request_id = trace.request_id or getattr(exc, "request_id", None)
                 if self._trace:
                     now = time.perf_counter()
                     why = failure(exc, now - started, now - entered, timeout_s, trace)
-                    logger.info(f"META x  {model} | {why} | {purpose}")
+                    rid = f" | request-id {trace.request_id}" if trace.request_id else ""
+                    logger.info(f"META x  {model} | {why}{rid} | {purpose}")
                 raise
             finally:
                 latency_s = round(time.perf_counter() - started, 3)
