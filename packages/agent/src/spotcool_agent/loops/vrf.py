@@ -34,6 +34,15 @@ socket), and finds people with a vision provider whose budget is its own (2 call
    time. None of it touches the BMS zones, and its events carry no simulation time, so the
    world's report never pairs them with BMS steps.
 
+7. **Comfort** (with a scene reader, ``--no-comfort`` turns it off). Every ``comfort_every_s``
+   while people are seen, a task of its own takes a live snapshot and asks the scene reader
+   (Muse Spark) who is there; Person A's comfort physics (``domain/comfort.py``) then gives the
+   air temperature at PMV 0 for them, at 50 % RH (the gateway has no RH point), on the
+   setpoint's grid within 16-30 degC. It is written to ``IDU-SP`` by the same rules, and
+   explained when it changes. A complaint's override comes before it, and the operator before
+   both (the actuator's back-off). With nobody seen for ``hold_s``, or a reading that fails, no
+   new one is taken: the last stands while people are seen, and is released when nobody is.
+
 A complaint (``act``) first reads the point's priority array, waiting at most
 ``READ_TIMEOUT_S``: a point a more urgent slot holds (the building operator at 8) or one that
 does not answer is left as it is, and the action says so rather than claim a change.
@@ -50,6 +59,7 @@ from typing import Protocol, TypeVar
 from loguru import logger
 
 from spotcool_agent.actuator import Actuator, BacnetSeam, Publish
+from spotcool_agent.domain.comfort import comfort_setpoint, occupants
 from spotcool_agent.domain.events import Explanation, Perception, Value
 from spotcool_agent.domain.geometry import Detections
 from spotcool_agent.domain.louvers import (
@@ -63,6 +73,7 @@ from spotcool_agent.domain.louvers import (
 )
 from spotcool_agent.processors import explain
 from spotcool_agent.processors.intents import Intent
+from spotcool_agent.services.scene import SceneError, SceneService
 from spotcool_agent.services.vision import CallCapReached, VisionError, VisionService
 from spotcool_agent.transports.world_http import WorldHttp, WorldHttpError
 from spotcool_contracts import Zone, load_point_map, load_vrf_profiles
@@ -96,6 +107,11 @@ SETPOINT_STEP_C = 1.0
 SETPOINT_GRID_C = 0.5
 FAN_STEPS = ("Low", "Mid", "High")
 """The fan speeds a complaint steps through; Auto runs as Mid."""
+COMFORT_EVERY_S = 60.0
+"""Wall seconds between two comfort readings, at least."""
+SCENE_TIMEOUT_S = 20.0
+"""The longest one comfort reading may take."""
+COMFORT_REASON = "comfort: PMV 0 for the people seen"
 CONCEPT = "humans"
 ZONE = Zone.SOU
 """The meeting room's zone, for the decisions."""
@@ -168,6 +184,8 @@ class VrfLoop:
         hold_s: Wall seconds with nobody seen before the vanes are released.
         draft_hold_s: Wall seconds a draft complaint pauses the aiming.
         complaint_hold_s: Wall seconds a setpoint or fan override lasts.
+        scene: The scene reader for the comfort setpoint; ``None`` for no comfort setpoint.
+        comfort_every_s: Wall seconds between two comfort readings, at least.
         clock: Wall clock in seconds; tests inject one.
     """
 
@@ -185,6 +203,8 @@ class VrfLoop:
         hold_s: float = HOLD_S,
         draft_hold_s: float = DRAFT_HOLD_S,
         complaint_hold_s: float = COMPLAINT_HOLD_S,
+        scene: SceneService | None = None,
+        comfort_every_s: float = COMFORT_EVERY_S,
         clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self.actuator = Actuator(gateway, publish, points={ZONE: COMMANDED})
@@ -200,7 +220,13 @@ class VrfLoop:
         self._hold_s = hold_s
         self._draft_hold_s = draft_hold_s
         self._complaint_hold_s = complaint_hold_s
+        self._scene = scene
+        self._comfort_every_s = comfort_every_s
         self._clock = clock
+        self.comfort_c: float | None = None
+        """The comfort setpoint for the people last read, while they are seen."""
+        self._comfort_next = -math.inf
+        self._comforting: asyncio.Task[None] | None = None
         self.profile: VrfProfile | None = None
         """The brand's gateway profile, once known."""
         self._brand_settled = False
@@ -259,6 +285,7 @@ class VrfLoop:
         self._refresh_again(self._clock())
         await self._find_camera(self._clock())
         self._look_again(self._clock())
+        self._comfort_again(self._clock())
         await self._write(self._clock())
 
     def seen(self, found: Detections, look: int) -> bool:
@@ -494,7 +521,55 @@ class VrfLoop:
         self._recovered(self._camera_id)
         self.seen(found, look)
 
+    def _people_seen(self, now: float) -> bool:
+        return self.aim is not None and now - self._seen_at < self._hold_s
+
+    def _comfort_again(self, now: float) -> None:
+        if not self._people_seen(now):
+            self.comfort_c = None  # nobody: the setpoint goes back to the unit's default
+            return
+        url, scene = self._snapshot_url, self._scene
+        if url is None or scene is None or self._comforting is not None or self.capped:
+            return
+        if now < self._comfort_next:
+            return
+        self._comfort_next = now + self._comfort_every_s
+        seen = self.aim.people if self.aim else None
+        self._comforting = asyncio.create_task(
+            self._read_comfort(scene, url, seen), name="vrf-comfort"
+        )
+
+    async def _read_comfort(self, scene: SceneService, url: str, sam_count: int | None) -> None:
+        """One comfort reading: a snapshot, the scene, then the setpoint at PMV 0."""
+        try:
+            jpeg = await self._world.snapshot(url, SNAPSHOT_TIMEOUT_S)
+            found = await scene.assess(jpeg, sam_count, SCENE_TIMEOUT_S, camera_id=self._camera_id)
+        except (WorldHttpError, SceneError) as exc:
+            self._failed("comfort", f"{scene.name}: {exc}")
+            return
+        except Exception as exc:  # a provider's bug: this reading is lost, the loop goes on
+            self._failed("comfort", f"{scene.name}: {type(exc).__name__}: {exc}")
+            return
+        finally:
+            self._comforting = None
+        self._recovered("comfort")
+        if not found.people or not self._people_seen(self._clock()):
+            return
+        target = _setpoint(comfort_setpoint(found.people))
+        if target != self.comfort_c:
+            people = occupants(found.people)
+            clo = sum(o.clo for o in people) / len(people)
+            met = sum(o.met for o in people) / len(people)
+            text = explain.comfort(found.people, clo, met, target)
+            logger.info(f"VRF: {text}")
+            self._publish(EventType.EXPLANATION, Explanation(text=text), None)
+        self.comfort_c = target
+
     async def _stop_looking(self) -> None:
+        comforting = self._comforting
+        if comforting is not None:
+            comforting.cancel()
+            await asyncio.gather(comforting, return_exceptions=True)
         looking = list(self._looking)
         for task in looking:
             task.cancel()
@@ -517,7 +592,7 @@ class VrfLoop:
             if now < self._draft_until and vertical is not None:
                 state = "Pos1" if vertical.positions else None  # LG: swing off
                 wanted.append((VANES[VANE_V], state, REASONS["draft"], True))  # H stays put
-            elif self.aim is not None and now - self._seen_at < self._hold_s:
+            elif self._people_seen(now) and self.aim is not None:
                 for name, state in vane_states(self.aim, profile, mirror=self._mirror).items():
                     wanted.append((VANES[name], state, self.aim.reason(), False))
             else:
@@ -529,10 +604,18 @@ class VrfLoop:
                 wanted += [(VANES[name], None, reason, True) for name in axes]
         for point in (SETPOINT, FAN):
             value, until, reason = self._overrides.get(point.name, (None, -math.inf, ""))
-            if now < until:
+            if now < until:  # a complaint's override comes before the comfort setpoint
                 wanted.append((point, value, reason, True))
+            elif point is SETPOINT and self.comfort_c is not None:
+                wanted.append((point, self.comfort_c, COMFORT_REASON, True))
             else:
-                wanted.append((point, None, "the complaint's hold ended", True))
+                comforted = point is SETPOINT and self.actuator.held.get(point.name) != value
+                why = (
+                    f"nobody seen for {self._hold_s:g} s"
+                    if comforted
+                    else "the complaint's hold ended"
+                )
+                wanted.append((point, None, why, True))
         return wanted
 
     async def _write(self, now: float) -> None:

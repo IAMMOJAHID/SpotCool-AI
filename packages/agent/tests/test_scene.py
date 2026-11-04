@@ -1,4 +1,4 @@
-"""Muse Spark's scene service, on fakes."""
+"""Muse Spark's scene service and the zones' scene notes, on fakes."""
 
 import asyncio
 import io
@@ -10,12 +10,17 @@ import pytest
 from loguru import logger
 from openai import AsyncOpenAI
 from PIL import Image
-from pydantic import SecretStr
+from pydantic import BaseModel, SecretStr
 
 from spotcool_agent.domain.scene import parse_scene
+from spotcool_agent.loops.scene import SceneNotes
+from spotcool_agent.processors import explain
+from spotcool_agent.services.fake.scene import FakeScene, office
 from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.meta.scene import SparkScene
 from spotcool_agent.services.scene import SceneError
+from spotcool_contracts import Zone
+from spotcool_contracts.events import EventType
 
 ANSWER = {
     "people": [
@@ -122,3 +127,61 @@ async def test_an_invalid_or_late_answer_is_a_scene_error() -> None:
         )
     with pytest.raises(SceneError, match="not an image"):
         await spark(FakeResponses(json.dumps(ANSWER))).assess(b"no", 0, 5.0, camera_id="c")
+
+
+def test_the_explanations_read_plainly() -> None:
+    scene = parse_scene(json.dumps(ANSWER))
+    assert explain.scene_note(Zone.WES, office(1, doors_open=1)) == (
+        "Muse Spark, West: 1 person, typical office clothing; a door is open"
+    )
+    assert explain.scene_note(Zone.SOU, scene).endswith("visible discomfort: fanning self")
+    assert explain.counts_disagree(2, 5) and explain.counts_disagree(10, 15)
+    assert not explain.counts_disagree(2, 4) and not explain.counts_disagree(10, 14)
+    assert explain.comfort(office(2).people, 0.71, 1.1, 24.5) == (
+        "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort "
+        "setpoint 24.5 degC (PMV 0)"
+    )
+
+
+class Events:
+    def __init__(self) -> None:
+        self.texts: list[tuple[str, float | None]] = []
+
+    def __call__(self, kind: EventType, data: BaseModel, t_s: float | None) -> None:
+        assert kind is EventType.EXPLANATION
+        self.texts.append((data.model_dump()["text"], t_s))
+
+
+async def settle() -> None:
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_notes_read_occupied_zones_every_4_steps_and_skip_a_zone_being_read() -> None:
+    scene, events = FakeScene(office(6)), Events()
+    notes = SceneNotes(scene, events, every_steps=4)
+    cameras = {Zone.SOU: "cam-sou", Zone.WES: "cam-wes"}
+    for _ in range(9):
+        notes.offer({Zone.SOU: b"j", Zone.WES: b"j"}, {Zone.SOU: 2, Zone.WES: 0}, cameras, 60.0)
+        await settle()
+    assert scene.asked == [("cam-sou", 2)] * 3  # steps 0, 4 and 8; West is empty
+    assert events.texts[:2] == [
+        ("Muse Spark, South: 6 people, typical office clothing", 60.0),
+        ("South: SAM 3.1 saw 2, Muse Spark 6: the policy keeps SAM's", 60.0),
+    ]
+
+    slow, events = FakeScene(delay_s=10.0), Events()
+    notes = SceneNotes(slow, events, every_steps=1)
+    for _ in range(3):
+        notes.offer({Zone.SOU: b"j"}, {Zone.SOU: 1}, cameras, 0.0)
+        await settle()
+    assert len(slow.asked) == 1  # the zone's last reading is still running
+    await notes.stop()
+    assert events.texts == []
+
+    failing, events = FakeScene(None), Events()
+    notes = SceneNotes(failing, events)
+    notes.offer({Zone.SOU: b"j"}, {Zone.SOU: 1}, cameras, 0.0)
+    await settle()
+    assert len(failing.asked) == 1 and events.texts == []  # a failed reading says nothing

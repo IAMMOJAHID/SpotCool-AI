@@ -10,10 +10,13 @@ from pydantic import BaseModel
 from spotcool_agent.domain.events import Value
 from spotcool_agent.domain.geometry import Detection, Detections
 from spotcool_agent.domain.louvers import CameraPose, project_floor_point
-from spotcool_agent.loops.vrf import VrfLoop
+from spotcool_agent.domain.scene import PersonScene
+from spotcool_agent.loops.vrf import VrfLoop, _setpoint
+from spotcool_agent.services.fake.scene import FakeScene, office
 from spotcool_agent.services.fake.scripted import ScriptedVision
 from spotcool_agent.transports.world_http import WorldHttp, WorldHttpError
-from spotcool_contracts import load_vrf_profiles
+from spotcool_contracts import Zone, load_vrf_profiles
+from spotcool_contracts.cameras import CameraCatalog, CameraInfo, CameraSource
 from spotcool_contracts.events import EventType
 from spotcool_contracts.points import PointSpec
 
@@ -108,6 +111,7 @@ def make(
     gateway: FakeGateway,
     clock: Clock,
     events: list[tuple[EventType, dict[str, object]]],
+    world: object = None,
     **kw: object,
 ) -> VrfLoop:
     def publish(kind: EventType, data: BaseModel, t_s: float | None) -> None:
@@ -116,7 +120,7 @@ def make(
 
     return VrfLoop(
         gateway=gateway,
-        world=cast(WorldHttp, NoCameras()),
+        world=cast(WorldHttp, world or NoCameras()),
         vision=ScriptedVision(),
         publish=publish,
         clock=clock,
@@ -368,3 +372,136 @@ async def test_the_state_card_shows_the_unit_as_last_read_and_stop_releases_ever
     await loop.stop()
     assert loop.actuator.held == {}
     assert all(slots[9] is None for slots in gateway.arrays.values())
+
+
+class LiveCamera:
+    """The world's live meeting-room camera, frames in memory."""
+
+    async def cameras(self) -> CameraCatalog:
+        live = CameraInfo(
+            id="cam-meeting-live",
+            name="meeting room",
+            zone=Zone.SOU,
+            snapshot_url="http://world/live",
+            width=W,
+            height=H,
+            fps_hint=2,
+            source=CameraSource.LIVE,
+        )
+        return CameraCatalog(cameras=[live])
+
+    async def snapshot(self, url: str, timeout_s: float = 5.0) -> bytes:
+        return b"jpeg"
+
+
+async def settle() -> None:
+    for _ in range(10):
+        await asyncio.sleep(0)
+
+
+def comfortable(
+    scene: FakeScene,
+    gateway: FakeGateway,
+    clock: Clock,
+    events: list[tuple[EventType, dict[str, object]]],
+) -> VrfLoop:
+    return make(gateway, clock, events, world=LiveCamera(), scene=scene, comfort_every_s=60.0)
+
+
+@pytest.mark.asyncio
+async def test_spark_sets_the_comfort_setpoint_while_people_are_seen() -> None:
+    gateway, clock, events = FakeGateway(), Clock(), []
+    scene = FakeScene(office(2))
+    loop = comfortable(scene, gateway, clock, events)
+    await loop.tick()
+    assert scene.asked == []  # nobody seen yet: no reading
+    loop.seen(at((0.0, 3.0), (1.0, 3.0)), 10**6)  # newer than any scripted look
+    await loop.tick()
+    await settle()
+    assert scene.asked == [("cam-meeting-live", 2)]  # SAM's count goes with the frame
+    clock.now += 1.0
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] == 24.5  # A's 24.415 degC on the 0.5 grid
+    explained = [data["text"] for kind, data in events if kind is EventType.EXPLANATION]
+    assert (
+        "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort "
+        "setpoint 24.5 degC (PMV 0)"
+    ) in explained
+    reasons = {d["reason"] for k, d in events if k is EventType.DECISION and d["point"] == "IDU-SP"}
+    assert reasons == {"comfort: PMV 0 for the people seen"}
+
+    clock.now += 30.0
+    await loop.tick()
+    await settle()
+    assert len(scene.asked) == 1  # one reading a minute at most
+    clock.now += 10.0  # nobody seen for the hold: the comfort setpoint is released
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] is None and loop.comfort_c is None
+
+
+@pytest.mark.asyncio
+async def test_a_complaint_comes_before_comfort_and_the_operator_before_both() -> None:
+    gateway, clock, events = FakeGateway(), Clock(), []
+    loop = comfortable(FakeScene(office(1)), gateway, clock, events)
+    await loop.tick()
+    loop.seen(at((0.0, 3.0)), 10**6)
+    await loop.tick()
+    await settle()
+    clock.now += 1.0
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] == 24.5
+    hot = await loop.act("hot")  # from the comfort setpoint in force
+    assert hot.summary.startswith("lowered the meeting room's setpoint to 23.5 degC")
+    clock.now += 1.0
+    loop.seen(at((0.0, 3.0)), 10**6 + 1)
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] == 23.5  # the complaint's override wins
+    clock.now += 900.0  # the override ends; people still seen: comfort again
+    loop.seen(at((0.0, 3.0)), 10**6 + 2)
+    await loop.tick()
+    await settle()
+    clock.now += 1.0
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] == 24.5
+
+    gateway.arrays["IDU-SP"][7] = 22.0  # the operator, at 8
+    loop.comfort_c = 25.0  # a new comfort reading wants another value
+    clock.now += 1.0
+    loop.seen(at((0.0, 3.0)), 10**6 + 3)
+    await loop.tick()
+    assert gateway.arrays["IDU-SP"][9] == 24.5  # backed off: slot 10 not rewritten
+    assert any(d["reason"].startswith("backed off") for k, d in events if k is EventType.DECISION)
+
+
+@pytest.mark.asyncio
+async def test_the_comfort_setpoint_is_clamped_and_an_invalid_scene_writes_nothing() -> None:
+    bundled = PersonScene(
+        clothing_ensemble="winter_outerwear",
+        activity="exercising",
+        posture="standing",
+        discomfort_cue="none",
+    )
+    scene = office(1).model_copy(update={"people": [bundled]})
+    gateway, clock, events = FakeGateway(), Clock(), []
+    loop = comfortable(FakeScene(scene), gateway, clock, events)
+    await loop.tick()
+    loop.seen(at((0.0, 3.0)), 10**6)
+    await loop.tick()
+    await settle()
+    assert loop.comfort_c == 16.0  # under 16 degC at PMV 0: the unit's lowest
+    assert _setpoint(31.2) == 30.0 and _setpoint(24.26) == 24.5
+
+    for failing in (FakeScene(None), None):  # Spark's answer was invalid; --no-comfort
+        gateway, clock, events = FakeGateway(), Clock(), []
+        loop = (
+            comfortable(failing, gateway, clock, events)
+            if failing
+            else make(gateway, clock, events, world=LiveCamera())
+        )
+        await loop.tick()
+        loop.seen(at((0.0, 3.0)), 10**6)
+        await loop.tick()
+        await settle()
+        clock.now += 1.0
+        await loop.tick()
+        assert loop.comfort_c is None and gateway.written("IDU-SP") == []
