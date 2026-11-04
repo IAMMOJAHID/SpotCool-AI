@@ -77,6 +77,12 @@ class AgentSettings(BaseSettings):
         scene_every_steps: Steps between two scene notes on one zone, at least.
         comfort: With ``--vrf`` and a scene reader, set the meeting room's comfort setpoint.
         comfort_every_s: Wall seconds between two comfort readings, at least.
+        render: The privacy renderer for the dashboard's ``?privacy=on``: ``meta``
+            (``muse-image-1.0``), ``fake`` or ``off``. ``off`` by default, whatever the vision:
+            each render takes about 24 s. Display only, never the BMS or the VRF.
+        render_model: The image model.
+        render_call_cap: Renders the process may make in all, a budget of their own (1 at once).
+        render_every_s: Wall seconds from one round of renders to the next.
     """
 
     model_config = SettingsConfigDict(env_prefix="SPOTCOOL_AGENT_", extra="ignore")
@@ -129,6 +135,10 @@ class AgentSettings(BaseSettings):
     scene_every_steps: int = Field(default=4, ge=1)
     comfort: bool = True
     comfort_every_s: float = Field(default=60.0, gt=0)
+    render: Literal["meta", "fake", "off"] = "off"
+    render_model: str = "muse-image-1.0"
+    render_call_cap: int = Field(default=60, ge=0)
+    render_every_s: float = Field(default=180.0, gt=0)
 
     @model_validator(mode="after")
     def _offline_follows_vision(self) -> "AgentSettings":

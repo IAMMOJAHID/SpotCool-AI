@@ -178,10 +178,22 @@ async def test_a_new_run_releases_forgets_and_starts_the_cap_afresh() -> None:
     assert rig.bms.arrays["ZN-SOU-CLG-SP"][9] == 28.0  # ... and the new run commands afresh
 
 
-async def a_day(**features: Any) -> tuple[list[tuple[str, Value]], list[Any], list[str]]:
-    """Eight steps of changing counts: the BMS writes, the decisions, the explanations."""
+async def a_day(
+    render: Any = None, **features: Any
+) -> tuple[list[tuple[str, Value]], list[Any], list[str]]:
+    """Eight steps of changing counts: the BMS writes, the decisions, the explanations.
+
+    With ``render``, a render loop runs beside the building loop all day, on the same cameras.
+    """
+    from spotcool_agent.loops.render import RenderLoop
+
     vision = ScriptedVision()
     rig = Rig(vision, **features)
+    beside = None
+    if render is not None:
+        cameras = [ZONES[zone].camera_id for zone in Zone]
+        renders = RenderLoop(render, cast(WorldHttp, rig.world), cameras=cameras, every_s=0.001)
+        beside = asyncio.create_task(renders.run())
     days = [
         {"cam-sou": 2},
         {"cam-sou": 2, "cam-wes": 1},
@@ -199,6 +211,9 @@ async def a_day(**features: Any) -> tuple[list[tuple[str, Value]], list[Any], li
         await rig.loop.step(rig.clock.latest)
         await asyncio.sleep(0.01)  # the background readings and narration finish
     await rig.loop.stop_background()
+    if beside is not None:
+        beside.cancel()
+        await asyncio.gather(beside, return_exceptions=True)
     decisions = [data for kind, data in rig.events if kind is EventType.DECISION]
     texts = [data["text"] for kind, data in rig.events if kind is EventType.EXPLANATION]
     return rig.bms.writes, decisions, texts
@@ -230,3 +245,15 @@ async def test_the_scene_notes_and_narration_never_change_a_bms_write() -> None:
     assert any(t.endswith("the policy keeps SAM's") for t in said)
     assert any(t == "Muse Wonder: The agent eased off the empty zones." for t in said)
     assert scene.asked and all(purpose == "narrate" for purpose, _ in llm.prompts)
+
+
+@pytest.mark.asyncio
+async def test_the_privacy_renders_never_change_a_bms_write() -> None:
+    from spotcool_agent.services.fake.render import FakeRender
+
+    plain_writes, plain_decisions, plain_texts = await a_day()
+    render = FakeRender()
+    writes, decisions, texts = await a_day(render)
+    assert plain_writes and writes == plain_writes  # the same writes, in the same order
+    assert decisions == plain_decisions and texts == plain_texts
+    assert len(render.asked) >= 5  # it did run, all day

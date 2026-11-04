@@ -2,8 +2,9 @@
 
 ``Agent(settings).run()`` opens the BACnet client, starts the dashboard publisher, the
 complaint server, the heartbeat, the step clock, the building loop, the complaint loop and,
-with ``--vrf``, the meeting room's VRF loop, and runs until ``stop()``, a cancel (Ctrl+C) or a
-crash of any of them. Whatever ends it, the ``finally`` stops the loops first, so nothing
+with ``--vrf``, the meeting room's VRF loop and, with ``--render``, the privacy renders (a
+background task apart: its end or its failure never stops the agent), and runs until
+``stop()``, a cancel (Ctrl+C) or a crash of any of them. Whatever ends it, the ``finally`` stops the loops first, so nothing
 writes after the release, then releases every slot the agent holds on the VRF gateway and on
 the BMS while they still answer (``Actuator.stop``), the BMS's heartbeat last, then sends the
 last events and closes the rest. The run log goes to stderr; nothing is written to a file.
@@ -21,21 +22,25 @@ from spotcool_agent.domain.louvers import CameraPose
 from spotcool_agent.loops.building import BuildingLoop
 from spotcool_agent.loops.complaints import ComplaintLoop
 from spotcool_agent.loops.narration import Narrator
+from spotcool_agent.loops.render import RenderLoop
 from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.loops.vrf import VrfLoop
 from spotcool_agent.observers.metrics import StageMetrics, ledger_summary
 from spotcool_agent.processors.policy import AgentPolicy
 from spotcool_agent.services.fake.blob import BlobVision
 from spotcool_agent.services.fake.llm import FakeLLM
+from spotcool_agent.services.fake.render import FakeRender
 from spotcool_agent.services.fake.scene import FakeScene
 from spotcool_agent.services.fake.scripted import ScriptedVision
 from spotcool_agent.services.fake.stt import FakeSTT
 from spotcool_agent.services.llm import LLMService
 from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.meta.llm import MetaLLM
+from spotcool_agent.services.meta.render import MuseImageRender
 from spotcool_agent.services.meta.scene import SparkScene
 from spotcool_agent.services.meta.stt import MetaSTT
 from spotcool_agent.services.meta.vision import SamVision
+from spotcool_agent.services.render import RenderService
 from spotcool_agent.services.scene import SceneService
 from spotcool_agent.services.stt import STTService
 from spotcool_agent.services.vision import VisionService
@@ -55,6 +60,7 @@ from spotcool_agent.transports.server import (
     dashboard_origins,
 )
 from spotcool_agent.transports.world_http import WorldHttp
+from spotcool_contracts import ZONES, Zone
 
 VRF_CONCURRENCY = 2
 VRF_TRACE_EVERY = 10
@@ -179,6 +185,24 @@ def create_scene(settings: AgentSettings) -> tuple[SceneService | None, MetaClie
     return SparkScene(client, model=settings.scene_model), client
 
 
+def create_render(settings: AgentSettings) -> tuple[RenderService | None, MetaClient | None]:
+    """The settings' privacy renderer, and the Meta budget behind it if it has one.
+
+    Its budget is its own (1 at once, ``render_call_cap``).
+
+    Raises:
+        ValueError: If ``meta`` is chosen without a key.
+    """
+    if settings.render == "off":
+        return None, None
+    if settings.render == "fake":
+        return FakeRender(), None
+    client = meta_client(
+        settings, "--render meta", concurrency=1, call_cap=settings.render_call_cap
+    )
+    return MuseImageRender(client, model=settings.render_model), client
+
+
 def local_address(world_host: str) -> str:
     """This machine's IPv4 address on the route to ``world_host`` (no packet is sent)."""
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
@@ -219,10 +243,24 @@ class Agent:
         self.publisher = DashboardPublisher(agent_url(host, settings.dashboard_port))
         self.world = WorldHttp(f"http://{host}:{settings.http_port}")
         self.complaints: asyncio.Queue[Complaint] = asyncio.Queue(QUEUE_SIZE)
-        origins = dashboard_origins(host, settings.dashboard_port)
-        self.server = AgentServer(
-            create_app(self.complaints, origins=origins), settings.listen_host, settings.listen_port
+        self.render, self._render_meta = create_render(settings)
+        self.renders = (
+            RenderLoop(
+                self.render,
+                self.world,
+                cameras=[*(ZONES[zone].camera_id for zone in Zone), settings.vrf_camera],
+                every_s=settings.render_every_s,
+            )
+            if self.render is not None
+            else None
         )
+        origins = dashboard_origins(host, settings.dashboard_port)
+        app = create_app(
+            self.complaints,
+            origins=origins,
+            renders=self.renders.latest if self.renders is not None else None,
+        )
+        self.server = AgentServer(app, settings.listen_host, settings.listen_port)
         self.metrics = StageMetrics()
         self.actuator = Actuator(
             self.bacnet, self.publisher.publish, heartbeat_s=settings.heartbeat_s
@@ -315,8 +353,10 @@ class Agent:
         """
         llm = self.llm.name if self.llm else "off"
         scene = self.scene.name if self.scene else "off"
+        render = self.render.name if self.render else "off"
         logger.info(
-            f"agent: vision {self.vision.name}, STT {self.stt.name}, LLM {llm}, scene {scene}, BMS "
+            f"agent: vision {self.vision.name}, STT {self.stt.name}, LLM {llm}, scene {scene}, "
+            f"render {render}, BMS "
             f"{self.bacnet.device}, cameras {self.world.base_url}, dashboard {self.publisher.url}"
         )
         if self.vrf is not None and self.vrf_bacnet is not None:
@@ -327,6 +367,7 @@ class Agent:
                     "agent: --stt fake hears nothing: voice complaints are asked to type"
                 )
         loops: list[asyncio.Task[None]] = []
+        background: list[asyncio.Task[None]] = []  # display only: never ends the run
         try:
             await self.bacnet.open()
             if self.vrf_bacnet is not None:
@@ -342,6 +383,8 @@ class Agent:
             if self.vrf is not None:
                 jobs.append(self.vrf.run())
             loops = [asyncio.create_task(job) for job in jobs]
+            if self.renders is not None:
+                background.append(asyncio.create_task(self.renders.run(), name="renders"))
             stopped = asyncio.create_task(self._stop.wait())
             try:
                 done, _ = await asyncio.wait([stopped, *loops], return_when=asyncio.FIRST_COMPLETED)
@@ -353,9 +396,9 @@ class Agent:
                     logger.error(f"agent: a loop failed: {type(error).__name__}: {error}")
                     raise error  # type: ignore[misc]
         finally:
-            for task in loops:  # the loops stop before the release, so nothing writes after it
+            for task in [*loops, *background]:  # they stop before the release: no write after
                 task.cancel()
-            await asyncio.gather(*loops, return_exceptions=True)
+            await asyncio.gather(*loops, *background, return_exceptions=True)
             try:
                 await self.actuator.stop()  # the BMS first: its zones, then the heartbeat last
             finally:
@@ -386,11 +429,14 @@ class Agent:
         await self.stt.close()
         if self.scene is not None:
             await self.scene.close()
+        if self.render is not None:
+            await self.render.close()
         budgets = {
             "building": self._meta,
             "VRF": self._vrf_meta,
             "language": self._language,
             "scene": self._scene_meta,
+            "render": self._render_meta,
         }
         for client in budgets.values():
             if client is not None:
