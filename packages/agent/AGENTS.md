@@ -314,7 +314,7 @@ Muse Image's, the frame's and the render's sizes, never the image or its base64.
   decisions and explanations identical with and without the scene notes and narration**
   (`test_building_loop.py`); Spark in the audit-hook test.
 - AG9: `MuseImageRender` on a fake client (A's prompt, the trace's sizes, no base64, a PNG
-  kept as a JPEG; no image, bad base64, not an image, late), the render loop's order, skips, retries
+  kept as a JPEG; no image, bad base64, not an image, late), the render loop's order, skips, retries, one warning per failure type, new runs
   and call cap, `/privacy` (404, the latest, `no-store`, CORS), `--render` off by default
   (`test_render.py`); **the BMS writes identical with and without the render loop**
   (`test_building_loop.py`); the renders through the real world's cameras and `/privacy` in
@@ -344,7 +344,9 @@ Muse Image's, the frame's and the render's sizes, never the image or its base64.
   of about 40 writing steps uses about 40 of it.
 - **The renders are slow and few**: about 24 s each, so a round of six cameras takes about 2.5
   minutes, and the 60-call cap lasts about 30 minutes. A render is an illustration, never
-  evidence, and SAM's boxes drawn over it are the raw frame's, so they may not match it exactly.
-- **Not verified live**: `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0` and `muse-image-1.0` through the agent,
+  evidence. SAM's boxes and counts over it are live and the raw frame's, and the render can be
+  up to about 180 s old, so they may not match it. The prompt asks for faceless figures; nothing
+  verifies a render has none. A new run clears the renders until the next round.
+- **Not verified live**: `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0` and `muse-image-1.0`'s render loop and privacy view through the agent (its service call ran live on Nov 5),
   the real phone in the room, and the louvers on another brand than the one the world
   emulates; the tests use fakes and the world's own gateway.

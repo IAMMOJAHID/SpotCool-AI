@@ -1,8 +1,9 @@
 """RenderService: the base every privacy renderer implements (Meta's ``muse-image-1.0``, a fake).
 
-A provider redraws one camera snapshot, held in memory only, as a flat, faceless illustration,
-so an operator can follow the building without seeing anyone's face. The render is an
-illustration, never evidence: it is for display only, and nothing the agent decides reads it.
+A provider redraws one camera snapshot, held in memory only, as a flat illustration, asked to
+make people faceless, so an operator can follow the building without watching the raw feed.
+Nothing verifies that a render has no faces. The render is an illustration, never evidence: it
+is for display only, and nothing the agent decides reads it.
 Any failure (an error, a timeout, an answer without an image) raises ``RenderError``; a used-up
 call cap raises ``CallCapReached``.
 """

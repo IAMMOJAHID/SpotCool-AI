@@ -14,7 +14,7 @@ from PIL import Image
 from pydantic import SecretStr
 
 from spotcool_agent.loops.render import RenderLoop
-from spotcool_agent.runner.agent import create_render
+from spotcool_agent.runner.agent import Agent, create_render
 from spotcool_agent.services.fake.render import FakeRender, solid_jpeg
 from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.meta.render import PRIVACY_RENDER_PROMPT, MuseImageRender
@@ -143,6 +143,21 @@ class FakeWorld:
 
 
 @pytest.mark.asyncio
+async def test_a_truncated_image_is_refused_and_a_webp_is_kept_as_a_jpeg() -> None:
+    whole = solid_jpeg((640, 360))
+    truncated = base64.b64encode(whole[: len(whole) // 2]).decode()
+    with pytest.raises(RenderError, match="not an image"):
+        await muse(FakeImages(truncated)).render(solid_jpeg(), 5.0, camera_id="c")
+    buffer = io.BytesIO()
+    Image.new("RGB", (32, 18), (20, 40, 60)).save(buffer, format="WEBP")  # as Meta answered live
+    render = await muse(FakeImages(base64.b64encode(buffer.getvalue()).decode())).render(
+        solid_jpeg(), 5.0, camera_id="c"
+    )
+    with Image.open(io.BytesIO(render)) as kept:
+        assert (kept.format, kept.size) == ("JPEG", (32, 18))
+
+
+@pytest.mark.asyncio
 async def test_a_round_renders_each_camera_once_in_order_from_a_fresh_snapshot() -> None:
     world = FakeWorld([c for c in CAMERAS if c != "cam-nor"], broken="cam-eas")
     render = FakeRender()
@@ -155,19 +170,25 @@ async def test_a_round_renders_each_camera_once_in_order_from_a_fresh_snapshot()
     assert world.snapshots == [c for c in CAMERAS if c != "cam-nor"]
 
 
+class NoFrames(FakeWorld):
+    """The agent starts first: the first ``failing`` snapshots find no frame yet."""
+
+    def __init__(self, listed: list[str], failing: int = 2) -> None:
+        super().__init__(listed)
+        self.failing = failing
+
+    async def snapshot(self, url: str, timeout_s: float = 5.0) -> bytes:
+        self.snapshots.append(url)
+        if len(self.snapshots) <= self.failing:
+            raise WorldHttpError("HTTP 503")
+        return solid_jpeg()
+
+
 @pytest.mark.asyncio
 async def test_a_round_that_sent_nothing_retries_soon_and_a_failed_call_waits_the_full_round(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("spotcool_agent.loops.render.RETRY_S", 0.01)
-
-    class NoFrames(FakeWorld):  # the agent starts first: no camera has a frame yet
-        async def snapshot(self, url: str, timeout_s: float = 5.0) -> bytes:
-            self.snapshots.append(url)
-            if len(self.snapshots) <= 2:
-                raise WorldHttpError("HTTP 503")
-            return solid_jpeg()
-
     render = FakeRender()
     loop = RenderLoop(
         render, cast(WorldHttp, NoFrames(["cam-sou"])), cameras=["cam-sou"], every_s=60
@@ -186,6 +207,58 @@ async def test_a_round_that_sent_nothing_retries_soon_and_a_failed_call_waits_th
     assert len(images.requests) == 1 and loop.latest == {}
     running.cancel()
     await asyncio.gather(running, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_failures_are_logged_once_per_type_and_a_providers_text_never() -> None:
+    class Buggy(FakeRender):
+        async def render(self, jpeg: bytes, timeout_s: float, *, camera_id: str) -> bytes:
+            raise ValueError("the frame's secret")
+
+    logged: list[str] = []
+    sink = logger.add(lambda message: logged.append(message.record["message"]), level="WARNING")
+    try:
+        down = RenderLoop(
+            FakeRender(), cast(WorldHttp, NoFrames(CAMERAS, failing=100)), cameras=CAMERAS
+        )
+        assert await down.round() and await down.round()  # six 503s, twice over
+        assert len(logged) == 1 and "HTTP 503" in logged[0]
+        logged.clear()
+        buggy = RenderLoop(Buggy(), cast(WorldHttp, FakeWorld(CAMERAS)), cameras=CAMERAS)
+        assert await buggy.round()
+        assert len(logged) == 1 and logged[0].endswith("cam-cor: ValueError")
+    finally:
+        logger.remove(sink)
+    assert not any("secret" in line for line in logged)
+
+
+@pytest.mark.asyncio
+async def test_a_new_run_forgets_the_renders_and_drops_one_under_way() -> None:
+    render = FakeRender()
+    loop = RenderLoop(render, cast(WorldHttp, FakeWorld(["cam-sou"])), cameras=["cam-sou"])
+    assert await loop.round()
+    held = loop.latest  # what the server holds
+    assert list(held) == ["cam-sou"]
+    loop.new_run()
+    assert held == {} and loop.latest is held
+
+    render.delay_s = 0.05
+    under_way = asyncio.create_task(loop.round())
+    await asyncio.sleep(0.01)
+    loop.new_run()
+    assert await under_way
+    assert held == {}  # the old day's frame never lands in the new one
+
+
+def test_the_agents_new_run_reaches_the_render_loop() -> None:
+    settings = AgentSettings(
+        world_host="127.0.0.1", bacnet_address="127.0.0.1", vision="blob", render="fake"
+    )
+    agent = Agent(settings)
+    assert agent.renders is not None
+    agent.renders.latest["cam-sou"] = solid_jpeg()
+    agent.loop._on_new_run()  # type: ignore[misc]
+    assert agent.renders.latest == {}
 
 
 @pytest.mark.asyncio

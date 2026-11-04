@@ -81,6 +81,7 @@ describe('readConfig', () => {
     const alone = readConfig('?privacy=on', page, prod);
     expect(alone.privacy).toBe(true);
     expect(alone.problems).toEqual(['?privacy=on needs ?agent=; no camera feed is shown']);
+    expect(readConfig('?privacy=ON&agent=http://127.0.0.1:8002', page, prod).privacy).toBe(true);
     expect(readConfig('?privacy=yes', page, prod).privacy).toBe(false);
   });
 

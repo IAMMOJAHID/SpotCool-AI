@@ -21,8 +21,10 @@ export const CameraWall = memo(function CameraWall(props: {
   video: boolean;
   /** Draw SAM's boxes and the counts; off for the raw feeds (`?masks=off`). */
   showMasks: boolean;
-  /** Show the agent's privacy renders, never the raw feeds (`?privacy=on`); null for the feeds. */
-  privacy: { agentUrl: string | null } | null;
+  /** Show the agent's privacy renders, never the raw feeds (`?privacy=on`). */
+  privacy: boolean;
+  /** The agent's base URL, where the renders are; null when none is configured. */
+  agentUrl: string | null;
 }) {
   const { catalog, video, showMasks } = props;
   // Zone cameras always; the live phone only when the catalog lists it.
@@ -41,6 +43,7 @@ export const CameraWall = memo(function CameraWall(props: {
               label={video && camera.zone ? zoneName(camera.zone) : camera.name}
               camerasUrl={props.camerasUrl}
               privacy={props.privacy}
+              agentUrl={props.agentUrl}
               people={camera.zone && showMasks ? props.people[camera.zone] : undefined}
               masks={showMasks ? props.masks[camera.id] : undefined}
               script={
@@ -65,12 +68,13 @@ function CameraTile(props: {
   camera: CameraInfo;
   label: string;
   camerasUrl: string;
-  privacy: { agentUrl: string | null } | null;
+  privacy: boolean;
+  agentUrl: string | null;
   people: { people: number; stub: boolean } | undefined;
   masks: Masks | undefined;
   script: { scene: string | null; people: number | null } | null;
 }) {
-  const { camera, people, masks, script, privacy } = props;
+  const { camera, people, masks, script, privacy, agentUrl } = props;
   // MJPEG first (an <img> needs no CORS); if the stream fails, a snapshot every second. A frame
   // that failed is hidden behind "no signal" (a broken image would show its alt text) until the
   // next one loads.
@@ -101,9 +105,9 @@ function CameraTile(props: {
     return (
       <figure className="tile" data-camera={camera.id}>
         <div className="frame">
-          {privacy.agentUrl && (
+          {agentUrl && (
             <img
-              src={privacyUrl(privacy.agentUrl, camera.id, frame)}
+              src={privacyUrl(agentUrl, camera.id, frame)}
               alt={`${camera.name} camera, Muse Image render`}
               decoding="async"
               className={rendered ? undefined : 'lost'}
@@ -115,8 +119,10 @@ function CameraTile(props: {
               }}
             />
           )}
-          {!rendered && <span className="cam-lost">{privacy.agentUrl ? 'rendering…' : 'no agent'}</span>}
+          {!rendered && <span className="cam-lost">{agentUrl ? 'rendering…' : 'no agent'}</span>}
           <Overlay camera={camera} masks={masks} people={people} />
+          {/* Over the frame: a second caption line doesn't fit the video mode's tiles. The boxes and the count are live, the render minutes behind. */}
+          {rendered && <span className="cam-age">up to ~180 s old</span>}
         </div>
         <figcaption>
           <span className="cam-name" title={camera.name}>

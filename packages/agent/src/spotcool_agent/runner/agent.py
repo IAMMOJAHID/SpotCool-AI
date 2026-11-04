@@ -275,7 +275,7 @@ class Agent:
             publish=self.publisher.publish,
             metrics=self.metrics,
             settle_s=settings.settle_s,
-            on_new_run=self._meta.new_run if self._meta is not None else None,
+            on_new_run=self._new_run,
             notes=(
                 SceneNotes(
                     self.scene, self.publisher.publish, every_steps=settings.scene_every_steps
@@ -339,6 +339,13 @@ class Agent:
             counts=lambda: self.loop.counts,
         )
         self._stop = asyncio.Event()
+
+    def _new_run(self) -> None:
+        """A new run: the building's call cap starts afresh and the old day's renders go."""
+        if self._meta is not None:
+            self._meta.new_run()
+        if self.renders is not None:
+            self.renders.new_run()
 
     def stop(self) -> None:
         """Ask ``run()`` to release everything and return."""

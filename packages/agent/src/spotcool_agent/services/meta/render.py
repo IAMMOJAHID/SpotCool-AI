@@ -1,10 +1,11 @@
-"""MuseImageRender: a camera snapshot redrawn by ``muse-image-1.0`` as a faceless illustration.
+"""MuseImageRender: a camera snapshot redrawn by ``muse-image-1.0``, asked for faceless figures.
 
 The request is Person A's (``render_privacy_snapshot`` in the MVP's ``app/spotcool/media.py``
 on branch ``third_level_improvement``): ``images.edit`` with the frame as ``frame.jpg``, A's
 ``PRIVACY_RENDER_PROMPT`` and ``n=1``. The lead's probe (Nov 4) took 24 s and answered with a
-280 KB ``b64_json`` and no URL. The image that comes back is checked and kept as a JPEG,
-in memory only.
+280 KB ``b64_json`` and no URL; a live call through this class (Nov 5) took 25.16 s and answered
+WEBP 2048x1152. The image that comes back is fully decoded, so a truncated one is refused, and
+kept as a JPEG, in memory only. Nothing checks that it has no faces.
 
 One request, a timeout of ``TIMEOUT_S``, no retries: the next round renders again. Each call
 takes a turn of the renders' own ``MetaClient`` (1 at a time, ``--render-call-cap``). The trace
@@ -43,6 +44,7 @@ def as_jpeg(image: bytes) -> tuple[bytes, str]:
     try:
         with Image.open(io.BytesIO(image)) as picture:
             came = f"{picture.format} {picture.width}x{picture.height}"
+            picture.load()  # open() reads the header alone: this finds a truncated image
             if picture.format == "JPEG":
                 return image, came
             buffer = io.BytesIO()

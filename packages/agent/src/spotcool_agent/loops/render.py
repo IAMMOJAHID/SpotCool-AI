@@ -5,7 +5,8 @@ then the meeting room's, each from a fresh snapshot held in memory, and keeps on
 render of each camera, in memory (``latest``), for the agent's server to show at
 ``GET /privacy/{camera_id}.jpg``. A camera the catalog doesn't list is skipped; a render that
 fails keeps the camera's last one. A round that sent nothing is tried again after ``RETRY_S``,
-because the agent starts before the world. When the renders' call cap is used up, the loop logs it once
+because the agent starts before the world. A new run forgets the renders (``new_run``): its
+cameras show another day. Tiles then wait for the next round. When the renders' call cap is used up, the loop logs it once
 and ends; it never stops the agent.
 
 **It is never on an actuation path**: it never touches the BMS, the VRF, the policy or a step's
@@ -53,10 +54,16 @@ class RenderLoop:
         self._world = world
         self._cameras = list(dict.fromkeys(cameras))
         self._every_s = every_s
-        self._failing: str | None = None  # the last failure, logged once
+        self._failing: str | None = None  # the last failure's type, logged once
+        self._run = 0  # new_run's count: a render under way at a new run is dropped
         self._sent = 0  # renders asked for, so a failed call waits the full round: it costs budget
         self.latest: dict[str, bytes] = {}
         """The latest render of each camera, JPEG bytes in memory."""
+
+    def new_run(self) -> None:
+        """Forget the renders, in place: the server holds ``latest``."""
+        self._run += 1
+        self.latest.clear()
 
     async def run(self) -> None:
         """Render a round every ``every_s`` until the call cap is used up or a cancel."""
@@ -72,29 +79,36 @@ class RenderLoop:
         try:
             catalog = await self._world.cameras()
         except WorldHttpError as exc:
-            self._failed(f"the catalog: {exc}")
+            self._failed(exc, f"the catalog: {exc}")
             return True
         urls = {camera.id: camera.snapshot_url for camera in catalog.cameras}
         for camera in self._cameras:
             if camera not in urls:
                 continue
+            run = self._run
             try:
                 jpeg = await self._world.snapshot(urls[camera])
                 self._sent += 1
-                self.latest[camera] = await self._render.render(jpeg, TIMEOUT_S, camera_id=camera)
+                image = await self._render.render(jpeg, TIMEOUT_S, camera_id=camera)
             except CallCapReached as exc:
                 logger.warning(f"privacy renders: {exc}; the last renders stay on show")
                 return False
             except (WorldHttpError, RenderError) as exc:
-                self._failed(f"{camera}: {exc}")
+                self._failed(exc, f"{camera}: {exc}")
                 continue
-            except Exception as exc:  # a provider's bug: this render is lost, the loop goes on
-                self._failed(f"{camera}: {type(exc).__name__}: {exc}")
+            except (
+                Exception
+            ) as exc:  # a provider's bug: lost, the loop goes on; its text may hold anything
+                self._failed(exc, f"{camera}: {type(exc).__name__}")
                 continue
+            if run == self._run:
+                self.latest[camera] = image
             self._failing = None
         return True
 
-    def _failed(self, why: str) -> None:
-        if self._failing != why:
+    def _failed(self, exc: Exception, why: str) -> None:
+        """Log a failure once per type: six cameras answering 503 are one warning."""
+        kind = type(exc).__name__
+        if self._failing != kind:
             logger.warning(f"privacy renders: {self._render.name}: {why}")
-        self._failing = why
+        self._failing = kind

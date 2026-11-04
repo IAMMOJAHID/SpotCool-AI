@@ -1,15 +1,16 @@
 # How SpotCool uses Meta's models
 
-SpotCool uses four Meta models, each with one job:
+SpotCool uses five Meta models, each with one job:
 
 - **SAM 3.1** sees the people.
 - **muse-spark-1.3** reads the scene: what the people wear and do, and whether doors are open.
 - **muse-voice-transcribe-1.0** hears a spoken complaint.
 - **muse-wonder-1.0** works out what a complaint means, answers it, and narrates the agent's decisions.
+- **muse-image-1.0** redraws the cameras as illustrations for a privacy view of the dashboard, asked to make people faceless.
 
 The decisions around them are deterministic code: **the models perceive, and the code decides.** No language model ever writes to the building's BMS.
 
-All four are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probes: SAM 3.1's is AG0's (recorded in [`agent/HANDOFF.md`](agent/HANDOFF.md)), and Muse Spark's is the lead's of Nov 4 (recorded in [`agent/workpackages/AG8-meta-models.md`](agent/workpackages/AG8-meta-models.md)).
+All five are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probes: SAM 3.1's is AG0's (recorded in [`agent/HANDOFF.md`](agent/HANDOFF.md)), and Muse Spark's and Muse Image's are the lead's (recorded in [`agent/workpackages/AG8-meta-models.md`](agent/workpackages/AG8-meta-models.md) and in section 5 below).
 
 ```text
  CCTV snapshot ──► SAM 3.1 ──► boxes ──► occupied / empty ──► policy ──► BACnet writes (BMS)
@@ -20,6 +21,7 @@ All four are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [
  phone camera  ──► muse-spark ──► clothing, activity ──► PMV physics ──► comfort setpoint (meeting-room AC)
  zone snapshot ──► muse-spark ──► scene note (explanation only; the policy keeps SAM 3.1's count)
  step's writes ──► muse-wonder ──► one-sentence narration (explanation only)
+ camera snapshot ─► muse-image ──► illustration (the dashboard's ?privacy=on; display only)
 ```
 
 ## 1. SAM 3.1: the eyes
@@ -135,9 +137,10 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 
 **The render loop** (`--render meta`; `off` by default, whatever `--vision` says, because each render takes about 24 s):
 1. Every 180 s of wall time, it renders the five zone cameras one at a time, then the meeting room's, each from a fresh snapshot. Until the world's cameras answer, it looks again every 5 s, and sends nothing.
-2. Only the latest render of each camera is kept, in memory. A failed render keeps the camera's last one.
+2. Only the latest render of each camera is kept, in memory. A failed render keeps the camera's last one. A new run clears them all, so tiles say "rendering…" until the next round.
 3. The agent's server answers `GET /privacy/<camera>.jpg` with it (`Cache-Control: no-store`), or 404 before the first.
 4. The dashboard's `?privacy=on` (with `?agent=`) shows the renders in the camera tiles, refreshed every 10 s, in place of the raw feeds, with SAM 3.1's boxes on top and the label "Muse Image render". Until a render exists, a tile says "rendering…".
+   - **A render lags what's over it.** The boxes and counts are live, and the render under them can be up to about 180 s old, a little more with the render's own time, and older still after a failed render. The tile says "up to ~180 s old", over the frame.
 5. At the call cap, the loop stops; the last renders stay on show. The agent goes on.
 
 **A render is an illustration, never evidence.** It's for display only. The policy, the BMS, the VRF and every step's deadline never see it. A test runs a building day with and without the render loop and requires the same BMS writes, in the same order.
@@ -146,22 +149,22 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 - The snapshots still go to the Meta AI API, as they do for SAM 3.1.
 - The prompt asks for faceless figures; nothing checks that a render has none.
 - `?privacy=on` chooses what this page shows. The world's camera server still serves the raw feeds.
-- It hasn't been verified live through the agent; the tests use fakes.
+- Only the service call has been verified live (below). The render loop, the server and the dashboard's view have run on fakes.
 
-**The latency probe** (the lead's, Nov 4, recorded in [`agent/workpackages/AG9-muse-image.md`](agent/workpackages/AG9-muse-image.md)): `images.edit` with A's prompt on one MEVA frame took 24 s and answered with a 280 KB `b64_json`, and no URL.
+**The latency probes** (the lead's): on Nov 4, `images.edit` with A's prompt on one MEVA frame took 24 s and answered with a 280 KB `b64_json`, and no URL (recorded in [`agent/workpackages/AG9-muse-image.md`](agent/workpackages/AG9-muse-image.md)). On Nov 5, a call through `MuseImageRender` took 25.16 s; Meta answered WEBP 2048x1152, and it was converted to a valid JPEG (request-id `959b6201-3b36-481c-b7d7-e9d1d8d2cfc8`).
 
 ## Why it's built this way
 
 - **The models perceive, and code decides.** The building's actions come from a small, tested policy, so every write can be audited, and a model's mistake can't become an arbitrary command.
 - **Every model call has a deadline, a budget and a fallback.**
-  - **Budgets:** 600 SAM calls a run for the building, 3,000 for the louvers, 200 for the voice and language models, and 300 for muse-spark.
+  - **Budgets:** 600 SAM calls a run for the building, 3,000 for the louvers, 200 for the voice and language models, 300 for muse-spark, and 60 for muse-image.
   - **Fallbacks:** each one returns control to the building or to a template.
 - **Privacy:**
   - **Nothing on disk.** Frames and audio stay in memory, and the agent writes no file; an audit-hook test checks it.
   - **What the API sees.** With the Meta providers, the snapshots, recordings and complaint text go to the Meta AI API.
-  - **What the dashboard sees.** It gets counts, boxes, decisions and explanations.
-- **What the logs see.** Muse-spark's trace gives the people, a clothing tally and the doors; the narration's, its length.
-- **Offline fakes.** Each model sits behind a provider interface with an offline fake: a colour-blob counter, and scripted speech, language and scene models. CI and the evals therefore run with no key and no network.
+  - **What the dashboard sees.** It gets counts, boxes, decisions and explanations; with `?privacy=on`, muse-image's renders in place of the raw feeds. Nothing verifies that a render has no faces.
+- **What the logs see.** Muse-spark's trace gives the people, a clothing tally and the doors; the narration's, its length; muse-image's, the frame's and the render's sizes, never the image or its base64.
+- **Offline fakes.** Each model sits behind a provider interface with an offline fake: a colour-blob counter, scripted speech, language and scene models, and a solid-colour render. CI and the evals therefore run with no key and no network.
 
 ## Seeing it live: the `META` trace
 
@@ -205,5 +208,6 @@ META <- muse-spark-1.3 | 200 in 16.66 s | request-id c90c2150-35ef-47e3-96d1-498
 **What we don't claim:**
 - The louvers, complaints, comfort setpoint, scene notes and narration are a live demo, not part of the 19.94 %. With `--vision blob`, as in the evals, none of muse-spark or the narration runs.
 - The comfort setpoint's effect on comfort isn't measured. Muse Spark and the narration did run live through the agent on Nov 5 (the run above, and three frames read for the latency probe); the tests use fakes.
+- Muse-image's renders are illustrations for display, not evidence of who was there, and play no part in any decision. The prompt asks for faceless figures; nothing verifies a render has none. Its service call ran live on Nov 5; the render loop and the dashboard's view have run on fakes only.
 - The cameras played public MEVA dataset clips.
 - BOPTEST's occupant heat follows its own schedule, not the cameras.

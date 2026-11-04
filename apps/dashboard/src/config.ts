@@ -114,7 +114,7 @@ export function readConfig(
   const secure = page.protocol === 'https:';
   const agentValue = query.get('agent') ?? env.agentUrl;
   const agent = agentValue ? agentParam(agentValue, page.hostname) : null;
-  const privacy = query.get('privacy') === 'on';
+  const privacy = query.get('privacy')?.toLowerCase() === 'on';
   if (privacy && !(agent && 'url' in agent)) problems.push('?privacy=on needs ?agent=; no camera feed is shown');
   return {
     world,

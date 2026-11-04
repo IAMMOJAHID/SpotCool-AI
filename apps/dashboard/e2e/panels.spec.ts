@@ -110,9 +110,34 @@ test("privacy=on: the tiles show the agent's Muse Image renders with SAM's boxes
   await expect(sou.locator('img')).toBeVisible();
   await expect(sou.locator('img')).toHaveAttribute('src', `${agent}/privacy/cam-sou.jpg?n=0`);
   await expect(sou.locator('.cam-note')).toHaveText('Muse Image render');
+  await expect(sou.locator('.cam-age')).toHaveText('up to ~180 s old');
   await expect(page.locator('[data-camera=cam-nor] .cam-lost')).toHaveText('rendering…');
   await expect(page.locator('.tile svg.masks').first()).toBeAttached();
   await expect(page.getByTestId('camera-count').first()).toBeVisible();
   expect(feeds).toEqual([]);
   expect(await overflowing(page)).toEqual([]);
+});
+
+test('privacy=on: a tile takes a new render every 10 s while events keep flowing', async ({ page }) => {
+  const agent = 'http://127.0.0.1:41799';
+  await page.route(`${agent}/privacy/*`, (route) =>
+    route.fulfill({ status: 200, contentType: 'image/png', body: RENDER, headers: { 'cache-control': 'no-store' } }),
+  );
+  const envelopes = fixture();
+  const perception = envelopes.find((e) => e.type === 'perception');
+  let feed: { send: (message: string) => void } | undefined;
+  await page.clock.install();
+  await page.routeWebSocket(EVENTS, (ws) => {
+    feed = ws;
+    for (const envelope of envelopes) ws.send(JSON.stringify(envelope));
+  });
+  await page.goto(`${dashboard('video', agent)}&panels=cameras&privacy=on`);
+  const image = page.locator('[data-camera=cam-sou] img');
+  await expect(image).toHaveAttribute('src', `${agent}/privacy/cam-sou.jpg?n=0`);
+  // An event batch every 2 s: a live run's pace. Each one renders the App again.
+  for (let second = 2; second <= 12; second += 2) {
+    feed?.send(JSON.stringify({ ...perception, t_ms: (perception?.t_ms ?? 0) + second * 1000 }));
+    await page.clock.runFor(2000);
+  }
+  await expect(image).toHaveAttribute('src', `${agent}/privacy/cam-sou.jpg?n=1`);
 });

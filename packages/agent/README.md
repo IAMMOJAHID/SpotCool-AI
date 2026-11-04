@@ -48,12 +48,14 @@ budget is its own, `--scene-call-cap` (300). None of it changes a BMS write.
 
 `--render meta|fake|off` chooses the privacy renderer (`muse-image-1.0`). It is `off` by
 default, whatever `--vision` says: each render takes about 24 s. With it on, every 180 s the
-agent redraws the five zone cameras and the meeting room's, one at a time, as faceless
-illustrations (Person A's prompt), keeps the latest of each in memory and serves it at
-`GET /privacy/<camera>.jpg` on its own server (404 before the first). The dashboard shows them
+agent redraws the five zone cameras and the meeting room's, one at a time, as illustrations
+(Person A's prompt asks for faceless figures; nothing verifies a render has none), keeps the
+latest of each in memory and serves it at `GET /privacy/<camera>.jpg` on its own server (404
+before the first; a new run clears them). The dashboard shows them
 with `?privacy=on&agent=http://127.0.0.1:8002`. Its budget is its own, `--render-call-cap`
 (60); at the cap it stops and the last renders stay. A render is an illustration, display
-only: nothing the agent decides reads it, and it never changes a BMS or VRF write.
+only: nothing the agent decides reads it, and it never changes a BMS or VRF write. It can be
+up to about 180 s old, under live boxes and counts.
 
 Every Meta request logs a `META ->` line as it is sent and a `META <-` (answered) or `META x`
 (failed) line as it ends, for the demo's terminal: the model, the endpoint, the request id, the

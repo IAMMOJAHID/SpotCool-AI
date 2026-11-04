@@ -248,12 +248,16 @@ async def test_the_scene_notes_and_narration_never_change_a_bms_write() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_privacy_renders_never_change_a_bms_write() -> None:
+@pytest.mark.parametrize(
+    ("delay_s", "at_least"),
+    [(0.0, 5), (30.0, 1)],  # the slow one is still rendering when the day ends
+)
+async def test_the_privacy_renders_never_change_a_bms_write(delay_s: float, at_least: int) -> None:
     from spotcool_agent.services.fake.render import FakeRender
 
     plain_writes, plain_decisions, plain_texts = await a_day()
-    render = FakeRender()
+    render = FakeRender(delay_s=delay_s)
     writes, decisions, texts = await a_day(render)
     assert plain_writes and writes == plain_writes  # the same writes, in the same order
     assert decisions == plain_decisions and texts == plain_texts
-    assert len(render.asked) >= 5  # it did run, all day
+    assert len(render.asked) >= at_least  # it did run
