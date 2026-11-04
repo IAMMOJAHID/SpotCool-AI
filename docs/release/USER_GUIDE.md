@@ -1,4 +1,4 @@
-# Your guide to the submission (Nov 4, by 21:00 IST)
+# Your guide to the submission (the morning of Nov 5, IST)
 
 **For:** you, the person doing the last, hands-on steps. **Written:** Nov 4, about 03:00 IST, after every engineering work package was merged into `agent/main`. **Updated:** Nov 5, for the re-cut around the live take (AG10).
 
@@ -167,7 +167,7 @@ Use `video/QA.md` ("Watch it"). The essentials:
 
 ---
 
-## Step H. Upload and submit (about 30 minutes; **before 21:00 IST**)
+## Step H. Upload and submit (about 30 minutes; **before the morning cut-off**)
 
 1. **YouTube:** upload `video/renders/spotcool.mp4` as **Unlisted**.
    - **Title:** "SpotCool: cooling that follows people (Meta AI hackathon)".
@@ -204,14 +204,13 @@ Use `video/QA.md` ("Watch it"). The essentials:
 | The live or louvers beat shows the wrong moment | Its `in_s` is off: tell Claude the right time (Step D). |
 | Anything else | Copy the exact output and ask Claude. Each step's runbook is in `docs/runbooks/` and `video/README.md`. |
 
-**Time plan,** if you start at 09:00:
+**Time plan,** counted from when you start take 2 (about 25 minutes of work for you, plus Claude's build time):
 
-| Time | Step |
+| After | Step |
 |---|---|
-| 09:00 | setup |
-| 09:30 | B (narration) |
-| 10:15 | C and D (the live take in place) |
-| 10:30 | E (music) |
-| 10:45 | F (final cut) |
-| 11:15 | G (watch) |
-| 11:45 | H (upload and form) |
+| 0 min | The live take (about 20 min, Step C) |
+| 20 min | Your narration (Step B; about 20 min, including a second try) |
+| 40 min | Claude builds the final cut and runs QA (about 15 min) |
+| 55 min | You watch it once (Step G) |
+| 65 min | The upload, the README's link, `main`, and the form (Step H) |
+

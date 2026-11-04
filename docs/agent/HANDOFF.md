@@ -1,6 +1,6 @@
 # Agent lane handoff: SpotCool's real agent (from Person A's MVP)
 
-**Last updated:** 2026-11-04, about 05:15 IST (AG6: `dev` integrated), by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). It's written so that a `/compact` or a fresh session can resume safely.
+**Last updated:** 2026-11-05, about 02:40 IST, by the lead Claude Code session (`441270a4-d753-4379-ba6d-7751619bd543`). It's written so that a `/compact` or a fresh session can resume safely.
 
 **Audience:** the next Claude Code session, or a person, continuing SpotCool. **This file is the project's live status.**
 - `docs/status/HANDOFF.md` (Person B's world) and `docs/integration/PERSON_A_HANDOFF.md` (Person A) defer to it.
@@ -10,16 +10,30 @@
 
 ## State in one breath
 
-- **The trunk is `agent/main`.** Everything is merged there: the world, the agent and the video, with CI green. Work lands through `ag/*`, `fix/*` or `docs/*` branches merged `--no-ff`, never through PRs. `world/main` is frozen as the record of the world.
-- **`dev` is integrated and submission-ready** (AG6, below). After AG6, `agent/main` and `dev` are the same commit. **The judges see `main`, the default branch, which is still "Initial commit"; updating it is the user's call** (USER_GUIDE step H5).
-- **SpotCool's own figure is done and quotable: 19.94 % HVAC energy saved** (`runs/ag3-boptest-agent-s60`).
-  - The setup: SpotCool's agent, perceiving with Meta's SAM 3.1 on MEVA CCTV clips, drove the world's BACnet BMS on a paced BOPTEST run.
-  - The proof: agreement 240/240 zone-steps, all 30 writes one step after their decision, 40 accepted agent writes, no heartbeat-timeout release.
-  - The cost: comfort where people were, 2.13 against 0.33 K·h.
-  - The control day `all_hands_day` saves 5.68 % (`runs/ag3-boptest-allhands-s60`).
-- **The video shows that run.** The draft passes `qa.py`, pending the user's narration and three takes.
-- **What's left is the user's AG5 material,** by Nov 4, 21:00 IST: the narration, the takes, the final cut, the upload and the form (`docs/release/USER_GUIDE.md`). There's also an optional engineering backlog ("Remaining", below).
-- **Person A isn't working on it.** We built, reviewed and ran the agent end to end from A's MVP (`origin/third_level_improvement` `b653cbf`, frozen).
+**Nov 5, about 02:40 IST. The deadline moved: the user says "till morning, as per IST", with no exact time yet (ask). Check the real time with `curl -sI https://api.github.com | grep -i '^date'`, then add 5:30. The lead's own time estimates were wrong once already.**
+
+- **The trunk is `agent/main`, and `dev` is the same commit** (`git merge --ff-only agent/main` on `dev` after each merge). Work lands through `ag/*`, `fix/*` or `docs/*` branches merged `--no-ff`, never through PRs. `world/main` is frozen. **The judges see `main`, the default branch, still "Initial commit"; updating it is the user's call** (USER_GUIDE step H5; it's a fast-forward).
+- **Merged tonight:**
+  - AG7: the `META` trace, the dashboard's `?panels=` and `?masks=off`, the OBS `Quad` scene, no RC figures on screen;
+  - AG8: Muse Spark (the meeting room's comfort setpoint, the zones' scene notes), Person A's PMV physics, and the Muse Wonder narration;
+  - `scripts/footage/clip_camera.py`;
+  - the comfort band of 23-26 degC;
+  - AG10: the video re-cut.
+- **Quotable: 19.94 % HVAC energy saved,** twice:
+  - `runs/ag3-boptest-agent-s60`, the scored run: 240/240, with SAM 3.1;
+  - `runs/live-quad-boptest-s60`, live on Nov 5 with all four models and the louvers: 239/239 of what it perceived, 239 of 240 perceived, all 30 writes one step later, no heartbeat-timeout release.
+
+  Both are 230.4 against 287.8 kWh, comfort 2.13 against 0.33 K h. The control day `all_hands_day` saves 5.68 %.
+- **The video** (`video/storyboard.yaml`, 176 s) now has 10 beats built around one hand-recorded OBS take, `video/takes/live_quad.mkv`. YABE and the live phone are dropped. The draft assembles and passes `qa.py`, with slates where material is missing.
+- **What's left, in order:**
+  1. the user's take 2;
+  2. the lead sets the `in_s` values;
+  3. the user records the narration;
+  4. the final cut and QA;
+  5. the upload, the README's video link, `main` (the user's OK) and the form;
+  6. stop the Codespace; the user rotates the keys.
+- **Building in the background:** AG9, the Muse Image privacy view, on `ag/ag9-muse-image`. It's optional, and the video doesn't depend on it.
+- **Person A isn't working on it.** A's MVP `origin/third_level_improvement` `b653cbf` is frozen.
 
 ## Dev integration (AG6, Nov 4: done)
 
@@ -52,23 +66,65 @@
 
 ## Resume here (a fresh session or after `/compact`)
 
-1. **Read this file. Don't re-plan.** The plan's P0 is done; what's left is below.
-2. **Check what's running:**
-   - `git -C C:/Users/hussa/dev/SpotCool-AI status -sb`. The main checkout is on `agent/main`.
-   - `git worktree list`. Clean, merged worktrees can stay.
-   - `gh codespace list`: `spotcool-boptest-qxxjjj94x672rp` should be `Shutdown`. **Never delete it.**
-   - No agent or world process should be running: `curl -s -m 2 http://127.0.0.1:8081/cameras` should fail.
-3. **To help the user,** follow `docs/release/USER_GUIDE.md`, step by step.
-   - The likely asks are: debug a take, "drop the louvers beat", add the music's `CREDITS.md` row, rebuild the final cut, and the upload text.
-   - **Dropping the louvers beat** means:
-     1. remove the `louvers` beat from `video/storyboard.yaml`, and shift the later beats' `start` and `end` by its 17 s;
-     2. remove the `## louvers` section from `video/narration.md`;
-     3. update `video/README.md`'s table;
-     4. run `storyboard_check.py`, `render_motion.py`, `assemble.py` and `qa.py`.
-   - Do it **before** the user records the narration.
-4. **For new engineering work** (the backlog below), follow the gate in "Workflow": a brief in `docs/agent/workpackages/`, one builder, the lead's checks, a reviewer for anything that actuates or quotes, one fix round, then merge and CI. Builder ids from this session can't be messaged from a fresh session.
-5. **The key** is `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY`), outside the repo. A folder under `packages/` would break the uv workspace.
+1. **Read this block. Don't re-plan.** The next step is **take 2**.
+2. **Check what's running.** The forward and the clip camera ran as the old session's background shells, so a fresh session must check them and restart any that's down:
+   ```bash
+   git -C C:/Users/hussa/dev/SpotCool-AI status -sb      # the main checkout: agent/main
+   gh codespace list                                     # spotcool-boptest-qxxjjj94x672rp: Available while we work. NEVER delete it
+   curl -s -m 5 http://127.0.0.1:8000/version            # BOPTEST through the forward: 1.0.0-dev
+   curl -s -m 3 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8099/shot.jpg   # the clip camera: 200
+   curl -s -m 2 http://127.0.0.1:8081/cameras            # the world: should FAIL between takes
+   ```
+   - **The Codespace stops on idle.** To restart its stack, run this until `web running` shows (a first "permission denied" or "Cannot connect" just means Docker is still starting):
+     ```bash
+     gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision; docker compose ps --format "{{.Service}} {{.State}}"'
+     ```
+   - **The forward, in the background:** `while :; do gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp; sleep 3; done`
+   - **The clip camera, in the background:** `uv run --no-sync python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk_30.mp4 --port 8099`. The clip is the user's own 24 s walk across a room, with the audio and metadata stripped, outside the repo; SAM found the person in it at every moment checked.
+3. **Take 2** (about 20 minutes; the user is panicked and wants simple words, one step at a time):
+   1. **OBS checks** (the user has the `SpotCool video` collection imported, recording to `video/takes`, mkv):
+      - `Quad dashboard`'s URL is `http://127.0.0.1:8090/?mode=video&panels=floorplan,energy,agent&agent=http://127.0.0.1:8002`;
+      - the `Dashboard` scene's browser source has "Shutdown source when not visible" and "Refresh browser when scene becomes active" ticked. Otherwise it takes the browser's 6 connections per host, and the SAM pane's tiles go black, as they did in take 1;
+      - the `Agent terminal` source captures `[WindowsTerminal.exe]`, method Modern (WGC), Multi-adapter Compatibility on, match "title, otherwise same executable".
+   2. **The user** pastes this in their Windows Terminal tab (font 20, a smaller window):
+      ```bash
+      cd /c/Users/hussa/dev/SpotCool-AI && export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai && /c/Users/hussa/.local/bin/uv run --no-sync spotcool-agent run --world-host 127.0.0.1 --vision meta --stt meta --llm meta --scene meta --vrf --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env 2>&1 | grep --line-buffered "META"
+      ```
+   3. **The user** clicks `Quad`, then Start Recording, and says "started".
+   4. **The lead** starts the world in the background:
+      ```bash
+      cd /c/Users/hussa/dev/SpotCool-AI
+      export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai SPOTCOOL_WORLD_RUN_DIR=C:/Users/hussa/dev/SpotCool-AI/runs SPOTCOOL_WORLD_FOOTAGE_DIR=C:/Users/hussa/dev/footage
+      export SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi
+      uv run --no-sync spotcool-world run --plant boptest-local --speed 60 --run-id live-quad-boptest-s60-b
+      ```
+      If the browser panes stay black after a minute, the user selects each one and clicks Refresh: they loaded before the dashboard was up.
+   5. **At 14:00 on the dashboard's clock,** the user clicks the `Dashboard` scene for about 30 s (the louvers, the KPIs), then `Quad` again.
+   6. **When the world prints its verdict** (about 13 minutes), the user clicks Stop Recording, then presses Ctrl+C once in the terminal.
+   - **The fallback:** take 1 is `video/takes/2026-11-05_00-58-54.mkv`, about 9 minutes of the first live run. Its terminal text is small and scrolls fast, and its SAM pane goes black partway.
+4. **After take 2:**
+   1. Run `spotcool-world report live-quad-boptest-s60-b`.
+   2. **If it's `Quotable`,** point the `results` beat's `run_id` and `video/sources.yaml`'s `run-agent` at it, add its row to `docs/release/numbers.md`, and re-run `scripts/video/results_card.py`. **If it isn't,** keep `live-quad-boptest-s60`.
+   3. Rename the recording to `video/takes/live_quad.mkv`.
+   4. Set the `in_s` of the `live` beat (08:15 on the sim clock, about 75 s after the world's first step, is the best minute: the 08:30 arrivals) and the `louvers` beat (just after the switch to `Dashboard`). Both are `0` placeholders.
+   5. Run `storyboard_check.py`.
+   6. **Stop the Codespace:** `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
+5. **The rest,** in `docs/release/USER_GUIDE.md`:
+   1. the user reads `video/narration.md` into `video/raw/` (any format; the lead converts it with ffmpeg to `narration.wav`);
+   2. `render_motion.py` (the `meta_models` slide's text changed after its last render), `assemble.py --final --output video/renders/spotcool.mp4`, `qa.py --final`;
+   3. the watch-through and the YouTube upload (unlisted);
+   4. the README's `Video: <YouTube link>` line, on a `docs/*` branch;
+   5. **ask the user** before updating `main` from `dev`;
+   6. the form;
+   7. the user rotates the keys.
+6. **AG9, Muse Image,** on `ag/ag9-muse-image` (`wt/ag9-muse-image`, brief in its `docs/agent/workpackages/`).
+   - **If it's unfinished, it's uncommitted work in that worktree.** Its builder can be resumed only from this session; a fresh session starts a new builder on that branch.
+   - **Before merging:** the lead's checks, one live call, a reviewer, a sync with `agent/main`.
+   - **The video doesn't need it.** Drop it if time is short.
+7. **For new engineering work,** follow the gate in "Workflow". The user asked for development to stay in background subagents, and not to stop.
+8. **The key** is `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY`), outside the repo.
    - Never print it, commit it, or copy it into the repo.
+   - A folder under `packages/` would break the uv workspace.
    - It was copied from Person A's leaked commit without ever being displayed.
    - The user rotates it after submitting.
 
@@ -87,6 +143,9 @@
 | AG5 | The video | The results card, narration, dashboard replay and sources point at the agent's run (`4de4264`). The YABE take is re-planned for the real agent, and that flow was rehearsed (the Nov 4 docs commit). The draft passes `qa.py` |
 | AG6 | `dev` integrated | Cleanup, the judges' README, `dev` = `agent/main` (see "Dev integration") |
 | AG7 | The live demo screen | **`META` call trace** in the agent's log: the model, the endpoint, the `x-request-id`, the response id, the rate limit, and what went in and came out as sizes, boxes and labels, never content (a live call was checked). The dashboard's `?panels=` and `?masks=off`, for OBS's new **`Quad`** scene. **RC runs show no saving, kWh or comfort figure.** Reviewer: no P0 or P1. Left open as P2s: the mock fixture now reads as BOPTEST (20.6 %, never record it), and a `--plant replay` of an RC run shows its figures |
+| AG8 | Muse Spark and Muse Wonder narration | `muse-spark-1.3` reads a frame as strict JSON: clothing, activity, doors. Person A's PMV physics, ported, sets the meeting room's setpoint every 60 s, within 23-26 degC (the operator, then a complaint, then comfort). Zones get scene notes, explanations only, with A's SAM/Spark cross-check. Muse Wonder writes one sentence per step that wrote; a sentence naming a figure the step doesn't hold is dropped, capped at 60 calls. A test proves the BMS writes are identical with and without them, and the live run confirmed it. Merged `526ca65`. Reviewer's P1 fixed |
+| AG9 | Muse Image privacy view | Building on `ag/ag9-muse-image`; optional. `muse-image-1.0` redraws a camera as a faceless illustration (24 s a call), and the dashboard's `?privacy=on` shows it. Display only |
+| AG10 | The video re-cut | 10 beats, 176 s, around the one take `live_quad`, with a new `meta_models` slide. The results card comes from `live-quad-boptest-s60`. Reviewer's P1s fixed (Meta's calls are sampled, not "every call"; "no language model decides a BMS write"; "in simulation" is spoken with the figure). Merged `c8d7641` |
 
 ### Key decisions, with the reasons
 
@@ -136,23 +195,26 @@
 
 ## Remaining
 
-### P0, the user's (see `docs/release/USER_GUIDE.md`)
+### P0, the user's (see `docs/release/USER_GUIDE.md`, and "Resume here" above)
 
 | Step | What | Note |
 |---|---|---|
-| A | Live louvers take | Needs the phone and the user. Finish by 16:00 IST, or drop the beat (Resume step 3) |
-| B | Narration recording | After A, so the script is final |
-| C | YABE take | The real agent on loopback. Hold Core at 23 °C at priority 8 between 08:30 and 17:45; the back-off shows at 18:15 |
-| D | Dashboard replay take | Hands off |
-| E | Music | Optional; one `CREDITS.md` row |
-| F, G | Final cut, `qa.py --final`, the watch-through | |
-| H | Upload (unlisted) and the form | Before 21:00 IST. The description text is in the guide |
-| I | Rotate the Meta and Baseten keys | After submitting |
+| 1 | Take 2 | About 20 min. YABE and the live phone were dropped on Nov 5 (the lead's decision): the terminal and dashboard show the writes and back-offs, and the override is tested in code |
+| 2 | Narration recording | `video/narration.md`, after take 2. Any format in `video/raw/` |
+| 3 | Music | Optional; one `CREDITS.md` row |
+| 4 | Final cut, `qa.py --final`, the watch-through | The lead runs the build; the user watches |
+| 5 | Upload (unlisted), the README's link, the form | The description text is in the guide |
+| 6 | Rotate the Meta and Baseten keys | After submitting |
 
 **Open user decisions:**
-- confirm the closing slide's repo, `github.com/IAMMOJAHID/SpotCool-AI`;
-- merge `agent/main` into `dev`/`main`, which replaces the repo front page's old single-AC design;
-- the root README for judges (backlog 0).
+- the exact morning cut-off;
+- updating `main` from `dev`, or making `dev` the default branch; the judges see the default branch;
+- confirm the closing slide's repo, `github.com/IAMMOJAHID/SpotCool-AI`.
+
+**Open small points:**
+- the mock fixture reads as BOPTEST (20.6 %), so never record `npm run mock`;
+- `--plant replay` of an RC recording shows its figures;
+- the stale files only PR reviews use, listed in "Dev integration".
 
 ### The optional engineering backlog, in value order
 
@@ -161,14 +223,14 @@ Each item is a gated WP. Builders run one at a time; nothing needs BOPTEST excep
 | # | What | Why it helps win | Size |
 |---|---|---|---|
 | 0 | **A root README for the judges.** What SpotCool is, the architecture (world plus agent), Meta's models used (SAM 3.1, muse-wonder, muse-voice), the 19.94 % result with its label and caveats, how to run it, the credits. **Done in AG6** ("Dev integration", above): it replaces the stale single-AC README, with the user's OK (Nov 4) | Judges read the repo first | Done |
-| 1 | **LLM-written explanations** (muse-wonder) for each decision, beside the templates, then **re-run the scored BOPTEST run** so the dashboard replay shows them | Shows Meta's LLM reasoning live in the video. The figure stays 19.94 %, because the policy is unchanged | ~2 h build plus a 25 min BOPTEST run, the storyboard's `run_id`, and a re-render |
-| 2 | **VRF comfort grounding:** muse-spark clothing and activity → clo and met → A's PMV `comfort_setpoint` → `IDU-SP`, every 60 s, for the meeting room only | Uses A's physics and Meta's vision model on screen in the louvers take | ~2–3 h |
+| 1 | **Done in AG8 (the narration).** **LLM-written explanations** (muse-wonder) for each decision, beside the templates, then **re-run the scored BOPTEST run** so the dashboard replay shows them | Shows Meta's LLM reasoning live in the video. The figure stays 19.94 %, because the policy is unchanged | ~2 h build plus a 25 min BOPTEST run, the storyboard's `run_id`, and a re-render |
+| 2 | **Done in AG8.** **VRF comfort grounding:** muse-spark clothing and activity → clo and met → A's PMV `comfort_setpoint` → `IDU-SP`, every 60 s, for the meeting room only | Uses A's physics and Meta's vision model on screen in the louvers take | ~2–3 h |
 | 3 | **A's supervisor for the VRF:** muse-wonder proposes a VRF plan through A's `simulate_plan`, governed by A's `govern` | Shows A's "agentic" core | ~3 h |
 | 4 | **Agent evals in CI** for `all_hands_day` and `empty_friday` (blob fake) | Robustness | ~1 h |
-| 5 | **Open-door anomaly:** SAM's door concept on West's camera, at 10:00–10:45, gives an explanation event | A visible extra in the replay, if 1 is re-run | ~1 h |
+| 5 | **Partly done in AG8 (Muse Spark's door notes).** **Open-door anomaly:** SAM's door concept on West's camera, at 10:00–10:45, gives an explanation event | A visible extra in the replay, if 1 is re-run | ~1 h |
 | 6 | Docker and compose for agent plus world; RabbitMQ scale-out; `packages/core`; Haystack | Production story | P2 |
 
-**Recommendation:** 0 (with the user's OK), then 1, then 2, as time allows. Stop engineering by about 15:00 IST, so the user's final cut isn't rushed.
+**Recommendation:** nothing here before the submission. Finish take 2 and the final cut first.
 
 ## Where things are
 
