@@ -6,6 +6,13 @@
 
 ## 0. Nov 4: your agent was built into the world, and it scored
 
+**Update, Nov 5, 02:40 IST.**
+- More of your MVP is now in the agent: your Muse Spark scene reading and your PMV physics set the meeting room's comfort setpoint, and Muse Spark adds scene notes.
+- Muse Wonder also narrates decisions.
+- A live BOPTEST run with all of that on was Quotable again at 19.94 %.
+- The video was re-cut around a live four-pane screen. The deadline moved to the morning of Nov 5, IST.
+- See `docs/META_MODELS.md` and `docs/agent/HANDOFF.md`.
+
 While you were away, Person B's lead session built your MVP (`third_level_improvement` at `b653cbf`, left untouched) into SpotCool's agent, `packages/agent` on `agent/main`. It was integrated end to end with this world. The live status is `docs/agent/HANDOFF.md`.
 
 **The result.** On a paced BOPTEST run of `hybrid_tuesday` (`runs/ag3-boptest-agent-s60`), the agent saved **19.94 % HVAC energy** against the baseline. The report says **Quotable**.

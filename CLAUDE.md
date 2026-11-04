@@ -4,7 +4,7 @@
 
 ## What SpotCool is
 
-An agent for an office building's existing CCTV and BACnet BMS, built for the Meta Global AI Developer Hackathon (due Nov 4, 2026, 21:00 IST). It sees which zones have people in them with Meta's SAM 3.1 and drives the BMS at priority 10: empty zones go to Unoccupied at a 28 °C cooling setpoint, occupied zones are released, booked rooms are pre-cooled. With `--vrf`, the meeting room's VRF louvers follow a person on a live camera, and text or voice complaints adjust that unit (`muse-voice-transcribe-1.0`, `muse-wonder-1.0`).
+An agent for an office building's existing CCTV and BACnet BMS, built for the Meta Global AI Developer Hackathon (due the morning of Nov 5, 2026, IST). It sees which zones have people in them with Meta's SAM 3.1 and drives the BMS at priority 10: empty zones go to Unoccupied at a 28 °C cooling setpoint, occupied zones are released, booked rooms are pre-cooled. With `--vrf`, the meeting room's VRF louvers follow a person on a camera, Muse Spark and Person A's PMV physics set that unit's comfort setpoint (`muse-spark-1.3`), and text or voice complaints adjust it (`muse-voice-transcribe-1.0`, `muse-wonder-1.0`). `docs/META_MODELS.md` explains every model's use.
 
 - `packages/agent`: the agent. `packages/world`: the simulated building it runs against (BOPTEST or RC plant, BMS, VRF gateway, cameras, calendar, occupants, recorder, report, stub agent). `packages/contracts`: the only code both share.
 - `apps/dashboard`: the judges' dashboard. `scripts/video` and `video/`: the demo video, built from code.
