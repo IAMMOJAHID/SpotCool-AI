@@ -257,7 +257,10 @@ def _log_to_stderr(level: str) -> int:
     A console paused by QuickEdit then holds up the log thread, never the event loop.
     """
     logger.remove()
-    return logger.add(sys.stderr, level=level, diagnose=False, backtrace=False, enqueue=True)
+    fmt = "<green>{time:HH:mm:ss}</green> <level>{level: <7}</level> {message}"  # short: the demo's pane
+    return logger.add(
+        sys.stderr, level=level, format=fmt, diagnose=False, backtrace=False, enqueue=True
+    )
 
 
 if __name__ == "__main__":

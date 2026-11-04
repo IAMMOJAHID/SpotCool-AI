@@ -97,6 +97,7 @@ class MetaClient:
         max_concurrency: Requests in flight at once, across every service.
         call_cap: Requests the run may make in all; ``None`` for no cap.
         trace: Log the ``META`` lines (see the module docstring).
+        trace_every: Trace only every Nth call (the first, then every Nth); 1 traces all.
         make_openai: Builds the underlying client; tests pass a fake.
     """
 
@@ -108,6 +109,7 @@ class MetaClient:
         max_concurrency: int = 5,
         call_cap: int | None = None,
         trace: bool = True,
+        trace_every: int = 1,
         make_openai: Callable[[], AsyncOpenAI] | None = None,
     ) -> None:
         self._api_key = api_key
@@ -115,6 +117,7 @@ class MetaClient:
         self._max_concurrency = max_concurrency
         self._call_cap = call_cap
         self._trace = trace
+        self._trace_every = max(trace_every, 1)
         self._make_openai = make_openai or self._default_openai
         self._openai: AsyncOpenAI | None = None
         self._limiter: asyncio.Semaphore | None = None
@@ -209,15 +212,17 @@ class MetaClient:
                 raise CallCapReached(f"the run's cap of {self._call_cap} Meta calls is reached")
             self._calls += 1
             trace = Trace()
-            if self._trace:
-                logger.info(f"META -> {model} | POST {url} | {purpose} | in: {sent or '-'}")
+            traced = self._trace and (self._calls - 1) % self._trace_every == 0
+            shown = f" (1 in {self._trace_every} shown)" if self._trace_every > 1 else ""
+            if traced:
+                logger.info(f"META -> {model}{shown} | POST {url} | {purpose} | in: {sent or '-'}")
             started, ok = time.perf_counter(), False
             try:
                 yield trace
                 ok = True
             except BaseException as exc:
                 trace.request_id = trace.request_id or getattr(exc, "request_id", None)
-                if self._trace:
+                if traced:
                     now = time.perf_counter()
                     why = failure(exc, now - started, now - entered, timeout_s, trace)
                     rid = f" | request-id {trace.request_id}" if trace.request_id else ""
@@ -226,7 +231,7 @@ class MetaClient:
             finally:
                 latency_s = round(time.perf_counter() - started, 3)
                 self.ledger.append(Call(model, purpose, latency_s, ok, trace.request_id))
-            if self._trace:
+            if traced:
                 logger.info(f"META <- {model} | {answered(trace, latency_s)}")
 
     async def close(self) -> None:

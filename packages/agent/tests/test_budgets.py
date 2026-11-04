@@ -160,3 +160,24 @@ async def test_an_exhausted_building_cap_leaves_the_vrf_loop_aiming() -> None:
     assert not loop.capped
     await loop.stop()
     assert room.vanes() == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_trace_every_logs_the_first_call_then_every_nth() -> None:
+    from loguru import logger
+    from pydantic import SecretStr
+
+    from spotcool_agent.services.meta.client import MetaClient
+
+    lines: list[str] = []
+    sink = logger.add(lines.append, format="{message}")
+    try:
+        client = MetaClient(SecretStr("k"), base_url="http://x", trace_every=3)
+        for _ in range(7):
+            async with client.call("sam-3.1", "count humans on cam-meeting-live"):
+                pass
+    finally:
+        logger.remove(sink)
+    sent = [line for line in lines if line.startswith("META ->")]
+    assert len(sent) == 3 and all("(1 in 3 shown)" in line for line in sent)  # calls 1, 4, 7
+    assert len(client.ledger) == 7  # the ledger keeps every call

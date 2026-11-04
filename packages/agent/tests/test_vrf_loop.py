@@ -488,7 +488,7 @@ async def test_the_comfort_setpoint_is_clamped_and_an_invalid_scene_writes_nothi
     loop.seen(at((0.0, 3.0)), 10**6)
     await loop.tick()
     await settle()
-    assert loop.comfort_c == 16.0  # under 16 degC at PMV 0: the unit's lowest
+    assert loop.comfort_c == 23.0  # under 23 degC at PMV 0: the comfort band's lowest
     assert _setpoint(31.2) == 30.0 and _setpoint(24.26) == 24.5
 
     for failing in (FakeScene(None), None):  # Spark's answer was invalid; --no-comfort
