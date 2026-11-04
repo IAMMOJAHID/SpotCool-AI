@@ -54,6 +54,13 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_argument("--env-file", type=Path, help="a dotenv file, such as the key file")
         sub.add_argument("--sam-call-cap", type=int, help="the building's SAM calls (600)")
         sub.add_argument("--llm-call-cap", type=int, help="the STT and LLM calls (200)")
+        sub.add_argument(
+            "--no-meta-trace",
+            dest="meta_trace",
+            action="store_false",
+            default=None,
+            help="no META line per Meta call",
+        )
     run.add_argument("--bms-port", type=int, help="the BMS's BACnet/IP port (47808)")
     run.add_argument("--dashboard-port", type=int, help="the dashboard's port (8090)")
     run.add_argument("--listen", help="where to serve /chat and /voice (127.0.0.1:8002)")
@@ -87,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
         "llm": args.llm,
         "sam_call_cap": args.sam_call_cap,
         "llm_call_cap": args.llm_call_cap,
+        "meta_trace": args.meta_trace,
     }
     if args.command == "run":
         flags |= {

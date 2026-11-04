@@ -36,6 +36,8 @@ class AgentSettings(BaseSettings):
         sam_min_confidence: Boxes below this confidence are dropped.
         sam_call_cap: Meta calls the run may make in all; then everything is released.
         sam_concurrency: Meta calls in flight at once.
+        meta_trace: Log a ``META`` line as each Meta request is sent and as it ends: the
+            model, the endpoint, the request id, and sizes, boxes and labels, never content.
         settle_s: Wall seconds from a step's change to its snapshots.
         bacnet_address: The agent's own BACnet IPv4 address; by default the one that reaches
             ``world_host``.
@@ -88,6 +90,7 @@ class AgentSettings(BaseSettings):
     sam_min_confidence: float = Field(default=0.3, ge=0, le=1)
     sam_call_cap: int = Field(default=600, ge=0)
     sam_concurrency: int = Field(default=5, ge=1)
+    meta_trace: bool = True
     settle_s: float = Field(default=1.0, ge=0)
     bacnet_address: str | None = None
     bacnet_port: int = Field(default=47820, ge=0, le=65535)
