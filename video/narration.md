@@ -23,7 +23,7 @@ We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST run
 
 ## live
 
-This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, every call: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
+This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each zone camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
 
 ## louvers
 
@@ -31,11 +31,11 @@ In the meeting room, SAM finds the person in the camera. Here, the camera plays 
 
 ## meta_models
 
-Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model writes to the building.
+Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model decides a BMS write.
 
 ## results
 
-SpotCool's agent used 19.94 % less HVAC energy than the baseline, and got occupancy right at every step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
+In simulation, SpotCool's agent used 19.94 % less HVAC energy than the baseline, from SAM's occupancy alone, right at every zone-step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
 
 ## rollout
 

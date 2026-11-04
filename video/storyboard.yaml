@@ -105,7 +105,7 @@ beats:
         - "Follow docs/runbooks/video-takes.md, The live quad take: SpotCool's agent with the Meta models and --vrf, then the world on BOPTEST at speed 60. Recorded by hand in OBS; save it as video/takes/live_quad.mkv."
     narration_id: live
     on_screen_text:
-      label: "Live: SpotCool's agent on BOPTEST. Every Meta call is in the terminal. The cameras play MEVA dataset clips"
+      label: "Live: SpotCool's agent on BOPTEST. Meta's calls are logged in the terminal. The cameras play MEVA dataset clips"
     sources: [meta-models, meva]
 
   - id: louvers
@@ -135,13 +135,13 @@ beats:
       sam_body: Sees the people in every camera, from a one-word prompt. The building's occupied or empty, and the person the meeting room's louvers follow
       spark_title: Muse Spark
       spark_id: muse-spark-1.3
-      spark_body: "Reads the scene: clothing, activity, open doors. The meeting room's comfort setpoint (PMV), and notes for each zone"
+      spark_body: "Reads the scene: clothing, activity, open doors. The meeting room's comfort setpoint (PMV), and notes on occupied zones"
       voice_title: Muse Voice
       voice_id: muse-voice-transcribe-1.0
       voice_body: Turns a spoken complaint into text
       wonder_title: Muse Wonder
       wonder_id: muse-wonder-1.0
-      wonder_body: Works out what a complaint means and answers it. One plain sentence for each step's decisions
+      wonder_body: Works out what a complaint means when keywords can't, and answers it. One plain sentence for each step's decisions
       footer: Models perceive. Code decides. No language model writes to the BMS.
     sources: [meta-models]
 
