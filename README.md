@@ -24,9 +24,10 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
   - **a booked room** is pre-cooled from 30 minutes before its booking;
   - **at 19:00** everything is released;
   - **an operator** writing at priority 8 always wins: the agent reads each point's priority array first, and backs off from any slot 1 to 9.
-- **The meeting room.** The VRF unit's louvers follow a person seen on a live camera (a phone, in the demo). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled).
+- **The meeting room.** The VRF unit's louvers follow a person on the room's camera (in the demo, a recorded clip played as that camera; SAM 3.1 and the louvers run live on its frames). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled). Every 60 s, Meta's **`muse-spark-1.3`** reads what the people wear and do, and Person A's PMV comfort physics turns that into the unit's setpoint, within 23-26 °C. A complaint or an operator comes first.
 - **Complaints.** An occupant types or says "it's too cold in here". Voice is transcribed by Meta's **`muse-voice-transcribe-1.0`**. Keywords, then **`muse-wonder-1.0`**, work out the intent (cold, hot, draft, stuffy). The agent adjusts the meeting room's unit (setpoint, fan or vane), and muse-wonder answers in plain words, with a template as the fallback. Complaints never touch the BMS zones.
-- **Outside the measured result.** The louvers and complaints are a live demo, not part of the 19.94 %, and the VRF unit's power enters no saving.
+- **Explanations and the privacy view.** Muse Spark adds scene notes on occupied zones, **`muse-wonder-1.0`** sums up each step's decisions in one sentence, and **`muse-image-1.0`** can redraw each camera as an illustration for the dashboard. All of them are display only: they never write to the BMS or delay a building step.
+- **Outside the measured result.** The louvers, complaints, comfort setpoint, scene notes, narration and privacy view are a live demo, not part of the 19.94 %, and the VRF unit's power enters no saving.
 - **Privacy.** Frames and audio are held in memory, and the agent writes no file. With the Meta providers, each snapshot, each voice recording and each complaint's text go to the Meta AI API; the offline providers send nothing. To the dashboard the agent publishes counts, people's boxes, decisions, explanations and chat replies. Logs hold a complaint's length and intent, never its words. A test with an audit hook checks that no file is opened for writing.
 
 ## The result
@@ -44,6 +45,7 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
 - **Perception.** Occupancy was right on **240 of 240** zone-steps.
 - **The cost, said plainly.** Comfort where people were got worse: 2.13 against 0.33 K·h.
 - **Cost about -20 %, emissions about -20 %; peak demand unchanged** (BOPTEST's `cost_tot`, `emis_tot` and `pele_tot`, same run).
+- **Again, live, with the other Meta models on.** The run `live-quad-boptest-s60` (Nov 5) repeated the day with Muse Spark, Muse Wonder and the louvers running. Its report also says `Quotable`, with the same energy and comfort figures: occupancy agreed on 239 of the 239 zone-steps it perceived (239 of 240), and all 30 writes landed one step after their decision. That's the run the video shows.
 - **The control day.** On `all_hands_day`, with everyone in from 08:30 to 18:00, the same agent saved **5.68 %** (`ag3-boptest-allhands-s60`, also `Quotable`; comfort 2.99 against 0.56 K·h; occupancy right on 239 of 240 zone-steps, the one miss a single person SAM didn't see). The saving comes almost entirely from the empty hours before 08:30 and after 18:00. The agent saves little when the building is full.
 - **It matches the perfect-perception upper bound.** The stub agent, which reads the scenario's script instead of the cameras, also saves 19.94 % on the same day, plant and speed: the "upper bound with perfect perception (stub agent, in simulation)". They match because the policy is the same and SAM's occupancy was right on every step.
 
@@ -185,7 +187,7 @@ The algorithms around each model, step by step: [`docs/META_MODELS.md`](docs/MET
 
 ## Team and credits
 
-- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, comfort physics. Its SAM perception and louver geometry were ported; its comfort physics wasn't. The MVP stays as it was on branch `third_level_improvement`.
+- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, Muse Spark scene reading, PMV comfort physics, the privacy render. All of these were ported; A's plan search and supervisor weren't. The MVP stays as it was on branch `third_level_improvement`.
 - **Person B** built the world, the dashboard and the video, and integrated A's MVP into `packages/agent`.
 - The repo is owned by [IAMMOJAHID](https://github.com/IAMMOJAHID).
 

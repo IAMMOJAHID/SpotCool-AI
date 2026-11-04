@@ -18,7 +18,8 @@
   - AG8: Muse Spark (the meeting room's comfort setpoint, the zones' scene notes), Person A's PMV physics, and the Muse Wonder narration;
   - `scripts/footage/clip_camera.py`;
   - the comfort band of 23-26 degC;
-  - AG10: the video re-cut.
+  - AG10: the video re-cut;
+  - AG9: Muse Image.
 - **Quotable: 19.94 % HVAC energy saved,** twice:
   - `runs/ag3-boptest-agent-s60`, the scored run: 240/240, with SAM 3.1;
   - `runs/live-quad-boptest-s60`, live on Nov 5 with all four models and the louvers: 239/239 of what it perceived, 239 of 240 perceived, all 30 writes one step later, no heartbeat-timeout release.
@@ -32,7 +33,7 @@
   4. the final cut and QA;
   5. the upload, the README's video link, `main` (the user's OK) and the form;
   6. stop the Codespace; the user rotates the keys.
-- **Building in the background:** AG9, the Muse Image privacy view, on `ag/ag9-muse-image`. It's optional, and the video doesn't depend on it.
+- **AG9, the Muse Image privacy view, is merged:** `--render meta` and the dashboard's `?privacy=on`. The service call ran live (25 s); the render loop and the view ran on fakes. The video doesn't use it, and its slide names four models.
 - **Person A isn't working on it.** A's MVP `origin/third_level_improvement` `b653cbf` is frozen.
 
 ## Dev integration (AG6, Nov 4: done)
@@ -117,10 +118,7 @@
    5. **ask the user** before updating `main` from `dev`;
    6. the form;
    7. the user rotates the keys.
-6. **AG9, Muse Image,** on `ag/ag9-muse-image` (`wt/ag9-muse-image`, brief in its `docs/agent/workpackages/`).
-   - **If it's unfinished, it's uncommitted work in that worktree.** Its builder can be resumed only from this session; a fresh session starts a new builder on that branch.
-   - **Before merging:** the lead's checks, one live call, a reviewer, a sync with `agent/main`.
-   - **The video doesn't need it.** Drop it if time is short.
+6. **The main checkout may lag.** AG9 and the last docs were pushed from a worktree while the user's agent was running: after the take, run `git -C C:/Users/hussa/dev/SpotCool-AI pull --ff-only`, rebuild the dashboard (`npm run build` in `apps/dashboard`), and `uv sync --all-packages --all-extras`.
 7. **For new engineering work,** follow the gate in "Workflow". The user asked for development to stay in background subagents, and not to stop.
 8. **The key** is `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY`), outside the repo.
    - Never print it, commit it, or copy it into the repo.
@@ -144,7 +142,7 @@
 | AG6 | `dev` integrated | Cleanup, the judges' README, `dev` = `agent/main` (see "Dev integration") |
 | AG7 | The live demo screen | **`META` call trace** in the agent's log: the model, the endpoint, the `x-request-id`, the response id, the rate limit, and what went in and came out as sizes, boxes and labels, never content (a live call was checked). The dashboard's `?panels=` and `?masks=off`, for OBS's new **`Quad`** scene. **RC runs show no saving, kWh or comfort figure.** Reviewer: no P0 or P1. Left open as P2s: the mock fixture now reads as BOPTEST (20.6 %, never record it), and a `--plant replay` of an RC run shows its figures |
 | AG8 | Muse Spark and Muse Wonder narration | `muse-spark-1.3` reads a frame as strict JSON: clothing, activity, doors. Person A's PMV physics, ported, sets the meeting room's setpoint every 60 s, within 23-26 degC (the operator, then a complaint, then comfort). Zones get scene notes, explanations only, with A's SAM/Spark cross-check. Muse Wonder writes one sentence per step that wrote; a sentence naming a figure the step doesn't hold is dropped, capped at 60 calls. A test proves the BMS writes are identical with and without them, and the live run confirmed it. Merged `526ca65`. Reviewer's P1 fixed |
-| AG9 | Muse Image privacy view | Building on `ag/ag9-muse-image`; optional. `muse-image-1.0` redraws a camera as a faceless illustration (24 s a call), and the dashboard's `?privacy=on` shows it. Display only |
+| AG9 | Muse Image privacy view | `muse-image-1.0` redraws a camera as an illustration (25 s a call, live-checked), held in memory, served at the agent's `/privacy/<id>.jpg`, and shown by the dashboard's `?privacy=on`, with `--render meta` (off by default). Display only; it can't reach an actuation path, and a test proves the BMS writes are identical. The prompt asks for faceless figures, and nothing verifies a render has none. Reviewer's P0 (tiles never refreshed live) fixed |
 | AG10 | The video re-cut | 10 beats, 176 s, around the one take `live_quad`, with a new `meta_models` slide. The results card comes from `live-quad-boptest-s60`. Reviewer's P1s fixed (Meta's calls are sampled, not "every call"; "no language model decides a BMS write"; "in simulation" is spoken with the figure). Merged `c8d7641` |
 
 ### Key decisions, with the reasons
