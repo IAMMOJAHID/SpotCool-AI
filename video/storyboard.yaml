@@ -37,7 +37,7 @@ beats:
 
   - id: hook
     start: 4
-    end: 39
+    end: 26
     type: motion
     source: {composition: hook_stats}
     narration_id: hook
@@ -51,17 +51,11 @@ beats:
       hvac_value: About 55 %
       hvac_label: of a typical commercial building's energy in India goes to HVAC
       hvac_source: "Source: Bureau of Energy Efficiency, Building Code and Rating in India"
-      counting_value: 17.8 %
-      counting_label: of whole-building energy saved with sensors that count occupants
-      presence_value: 5.9 %
-      presence_label: with sensors that detect presence only
-      counting_scope: In simulations of a large US office, a national average
-      counting_source: "Source: PNNL-22072"
-    sources: [kastle, bee-hvac-share, pnnl-22072]
+    sources: [kastle, bee-hvac-share]
 
   - id: plugs_in
-    start: 39
-    end: 56
+    start: 26
+    end: 40
     type: motion
     source: {composition: three_connections}
     narration_id: plugs_in
@@ -69,7 +63,7 @@ beats:
       headline: Three connections the building already has
       hub: SpotCool
       cctv_title: CCTV cameras
-      cctv_body: count the people in each zone
+      cctv_body: see who is in each zone
       bms_title: Building management system
       bms_body: eases the cooling where nobody is
       complaints_title: Complaints
@@ -78,8 +72,8 @@ beats:
     sources: []
 
   - id: world
-    start: 56
-    end: 72
+    start: 40
+    end: 52
     type: motion
     source: {composition: architecture}
     narration_id: world
@@ -96,98 +90,88 @@ beats:
       footer: Same weather, same building, same BMS. Only one run gets SpotCool's writes.
     sources: [boptest]
 
-  - id: bms_yabe
-    start: 72
-    end: 92
+  # The live take, recorded by hand in OBS (docs/runbooks/video-takes.md, The live quad take):
+  # one file feeds two beats, each from its own in_s. The lead sets both in_s after recording.
+  - id: live
+    start: 52
+    end: 112
     type: screen
     source:
-      take: yabe_override
-      in_s: 2
+      take: live_quad
+      in_s: 0  # placeholder: the lead sets it, the second the Quad segment starts
       scenes:
-        - {at: 0, scene: YABE}
-        - {at: 10, scene: Dashboard}
-        - {at: 16, scene: YABE}
+        - {at: 0, scene: Quad}
       before:
-        - "Follow docs/runbooks/yabe.md, The operator override for the video, steps 1-3: SpotCool's agent, then the world on loopback (BMS on 47809), and Present Value 23 written at priority 8 on ANALOG_VALUE:201 between 08:30 and 17:45 sim time."
-        - "Wait until the dashboard's agent panel shows the back-off (the 18:15 step), then start this take."
-      cues:
-        - {at: 0, say: "YABE: show ZN-COR-CLG-SP's Priority Array, 23 at 8 and slot 10 empty"}
-        - {at: 10, say: "(Dashboard) the agent panel shows the back-off"}
-        - {at: 16, say: "YABE: at priority 8, clear Present Value and press Enter to release; the agent writes 28 at the next step"}
-    narration_id: bms_yabe
+        - "Follow docs/runbooks/video-takes.md, The live quad take: SpotCool's agent with the Meta models and --vrf, then the world on BOPTEST at speed 60. Recorded by hand in OBS; save it as video/takes/live_quad.mkv."
+    narration_id: live
     on_screen_text:
-      label: "The BMS in YABE: an operator override at priority 8 (SpotCool's agent)"
-    sources: [bacnet-priorities]
-
-  - id: dashboard
-    start: 92
-    end: 113
-    type: screen
-    source:
-      take: dashboard_replay
-      in_s: 2
-      replay: {run_id: ag3-boptest-agent-s60, speed: 2700}
-      dashboard_url: http://127.0.0.1:8090/?mode=video
-      scenes:
-        - {at: 0, scene: Dashboard}
-      before:
-        - "The footage is found and the dashboard is built (docs/runbooks/video-takes.md, Before any take)."
-      cues:
-        - {at: 0, say: "The dashboard loads now and the replay starts: 07:00 to 19:00 in 16 s. Hands off."}
-    narration_id: dashboard
-    on_screen_text:
-      label: "The hybrid Tuesday, replayed from the saved run (SpotCool's agent, in simulation)"
-    sources: [run-agent, meva]
+      label: "Live: SpotCool's agent on BOPTEST. Every Meta call is in the terminal. The cameras play MEVA dataset clips"
+    sources: [meta-models, meva]
 
   - id: louvers
-    start: 113
-    end: 130
-    type: phone
+    start: 112
+    end: 124
+    type: screen
     source:
-      take: phone_vrf
-      in_s: 2
-      dashboard_url: http://127.0.0.1:8090/?mode=video
+      take: live_quad
+      in_s: 0  # placeholder: the lead sets it, the second the Dashboard segment (about 14:00) starts
       scenes:
-        - {at: 0, scene: PhoneCam}
-        - {at: 7, scene: Dashboard+Camera}
-      before:
-        - "Follow docs/runbooks/video-takes.md, The VRF segment: the phone camera, SpotCool's agent with --vrf, then the world at speed 1 with the Mitsubishi profile, settled for 6 minutes."
-        - "Pass --agent http://127.0.0.1:8002, so the Dashboard browser source opens with &agent=."
-      cues:
-        - {at: 0, say: "A enters at the left edge and walks right"}
-        - {at: 7, say: "A sits on the far chair for 5 s, then walks back toward the camera"}
+        - {at: 0, scene: Dashboard}
     narration_id: louvers
     on_screen_text:
-      label: "Live: the meeting room's VRF louvers follow a person"
+      label: "The meeting room's louvers follow a person (the camera plays a recorded clip)"
     sources: []
 
-  - id: results
-    start: 130
-    end: 157
+  - id: meta_models
+    start: 124
+    end: 144
     type: motion
-    source: {composition: results_card, run_id: ag3-boptest-agent-s60}
+    source: {composition: meta_models}
+    narration_id: meta_models
+    on_screen_text:
+      headline: Four Meta models, one job each
+      sam_title: SAM 3.1
+      sam_id: sam-3.1
+      sam_body: Sees the people in every camera, from a one-word prompt. The building's occupied or empty, and the person the meeting room's louvers follow
+      spark_title: Muse Spark
+      spark_id: muse-spark-1.3
+      spark_body: "Reads the scene: clothing, activity, open doors. The meeting room's comfort setpoint (PMV), and notes for each zone"
+      voice_title: Muse Voice
+      voice_id: muse-voice-transcribe-1.0
+      voice_body: Turns a spoken complaint into text
+      wonder_title: Muse Wonder
+      wonder_id: muse-wonder-1.0
+      wonder_body: Works out what a complaint means and answers it. One plain sentence for each step's decisions
+      footer: Models perceive. Code decides. No language model writes to the BMS.
+    sources: [meta-models]
+
+  - id: results
+    start: 144
+    end: 164
+    type: motion
+    source: {composition: results_card, run_id: live-quad-boptest-s60}
     narration_id: results
     on_screen_text:
       title: "BOPTEST: SpotCool's policy against the baseline"
-    sources: [run-agent, boptest]
+    sources: [run-live-quad, boptest]
 
   - id: rollout
-    start: 157
-    end: 170
+    start: 164
+    end: 172
     type: motion
     source: {composition: rollout_privacy}
     narration_id: rollout
     on_screen_text:
       rollout_title: Rollout
       rollout_1: No new hardware. It runs on the cameras and the BMS already there.
-      rollout_2: Swap our world for a real building, and the agent's code does not change.
+      rollout_2: A real BMS needs the same BACnet points and occupied-standby.
       privacy_title: Privacy
-      privacy_1: Frames stay in memory.
+      privacy_1: SpotCool never stores a frame.
       privacy_2: The record keeps counts and decisions, never images.
     sources: []
 
   - id: close
-    start: 170
+    start: 172
     end: 176
     type: title
     source: {composition: close}
