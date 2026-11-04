@@ -119,3 +119,16 @@ The three browser sources are 960x540 views of the dashboard (`?panels=` and `?m
 4. **In OBS**, point the `Dashboard browser` source at a blank page (Properties > URL `about:blank`), so it takes none of the camera connections, close the dashboard in Edge, and switch to the `Quad` scene. Check that all four panes show.
 5. **Record from sim 08:15:** start when the agent's terminal logs `step 08:00: people ...` (the step that ends at 08:15; the quad has no clock), about 75 s after the world starts (at speed 60 a 15-minute step takes 15 s). The 08:30 arrivals then show: the boxes appear, the zones flip, and the writes go out in the agent's feed and terminal. Record about 70 s, then stop the recording.
 6. Press Ctrl+C in the agent's window (it releases its slots), then in the world's. Set the `Dashboard browser` URL back to `http://127.0.0.1:8090/?mode=video`.
+
+## The meeting room from a recorded clip (no live phone needed)
+
+The world polls the meeting room's camera for one JPEG at a time. `scripts/footage/clip_camera.py` answers those polls from a recorded clip, looped on the wall clock, so the louvers can follow a person without a live phone. SAM 3.1 and the louvers still run live on the frames; only the camera's source is a recording. Say so on screen: "The meeting room's camera plays a recorded clip".
+
+1. **Film the clip.** On the phone, hold it landscape and still, on a shelf at about head height. Film 30 seconds: walk in from the left edge, cross slowly to the right, sit for 5 s, then walk back. Copy it to `C:\Users\hussa\dev\footage\raw\meeting_walk.mp4`, outside the repo.
+
+   The dataset clips barely move sideways: in `admin2_one` the person stays at the right edge, and in `hall_quiet` the people stay near the centre.
+2. **Serve it**, in its own terminal:
+   ```bash
+   uv run python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk.mp4 --port 8099
+   ```
+3. **Start the agent with `--vrf`.** Then start the world with `SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg` and `SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi`. The louvers' angle points follow the person in the clip; the dashboard's AC unit panel shows them.
