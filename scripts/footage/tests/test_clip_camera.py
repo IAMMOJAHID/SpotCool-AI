@@ -51,3 +51,12 @@ def test_serves_shot_jpg(tmp_path: Path) -> None:
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_a_second_camera_cannot_share_the_port(tmp_path: Path) -> None:
+    first = serve(ClipPlayer(make_clip(tmp_path / "c.avi")), 0)
+    try:
+        with pytest.raises(OSError):
+            serve(ClipPlayer(make_clip(tmp_path / "d.avi")), first.server_address[1])
+    finally:
+        first.server_close()

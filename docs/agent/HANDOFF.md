@@ -27,7 +27,7 @@
   Both are 230.4 against 287.8 kWh, comfort 2.13 against 0.33 K h. The control day `all_hands_day` saves 5.68 %.
 - **The video** (`video/storyboard.yaml`, 176 s) now has 10 beats built around one hand-recorded OBS take, `video/takes/live_quad.mkv`. YABE and the live phone are dropped. The draft assembles and passes `qa.py`, with slates where material is missing.
 - **What's left, in order:**
-  1. the user's take 2;
+  1. the user's take 3;
   2. the lead sets the `in_s` values;
   3. the user records the narration;
   4. the final cut and QA;
@@ -67,7 +67,8 @@
 
 ## Resume here (a fresh session or after `/compact`)
 
-1. **Read this block. Don't re-plan.** The next step is **take 2**.
+1. **Read this block. Don't re-plan.** The next step is **take 3**.
+   - **Why not take 2:** takes 1 and 2 show the wrong clip on the meeting-room tile. A test clip camera from 00:18 (`meva_admin2_one.mp4`, a stairwell) was still running when the real one started at 00:54. Windows let both bind port 8099 (`SO_REUSEADDR`), and the old one kept answering. The tile said "Meeting room" over a MEVA stairwell, and the person stays at the edge of that clip, so the louvers barely followed. Both runs are still valid for energy (`live-quad-boptest-s60-b` is Quotable at 19.94 %), but neither shows the user's clip. The clip camera now refuses a shared port. **Always look at a frame from `/shot.jpg` before a take; a 200 proves nothing.**
 2. **Check what's running.** The forward and the clip camera ran as the old session's background shells, so a fresh session must check them and restart any that's down:
    ```bash
    git -C C:/Users/hussa/dev/SpotCool-AI status -sb      # the main checkout: agent/main
@@ -81,8 +82,8 @@
      gh codespace ssh -c spotcool-boptest-qxxjjj94x672rp -- 'cd /workspaces/project1-boptest && docker compose up -d --scale worker=2 web worker provision; docker compose ps --format "{{.Service}} {{.State}}"'
      ```
    - **The forward, in the background:** `while :; do gh codespace ports forward 8000:8000 -c spotcool-boptest-qxxjjj94x672rp; sleep 3; done`
-   - **The clip camera, in the background:** `uv run --no-sync python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk_30.mp4 --port 8099`. The clip is the user's own 24 s walk across a room, with the audio and metadata stripped, outside the repo; SAM found the person in it at every moment checked.
-3. **Take 2** (about 20 minutes; the user is panicked and wants simple words, one step at a time):
+   - **The clip camera, in the background:** `uv run --no-sync python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk_30.mp4 --port 8099`. The clip is the user's own 24 s walk across a room, with the audio and metadata stripped, outside the repo; SAM 3.1 found the person in all 7 frames checked (Nov 5, confidence 0.95-0.98), and their box centre moves from 374 to 1006 of 1280 pixels.
+3. **Take 3** (about 20 minutes; the user is panicked and wants simple words, one step at a time):
    1. **OBS checks** (the user has the `SpotCool video` collection imported, recording to `video/takes`, mkv):
       - `Quad dashboard`'s URL is `http://127.0.0.1:8090/?mode=video&panels=floorplan,energy,agent&agent=http://127.0.0.1:8002`;
       - the `Dashboard` scene's browser source has "Shutdown source when not visible" and "Refresh browser when scene becomes active" ticked. Otherwise it takes the browser's 6 connections per host, and the SAM pane's tiles go black, as they did in take 1;
@@ -91,20 +92,20 @@
       ```bash
       cd /c/Users/hussa/dev/SpotCool-AI && export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai && /c/Users/hussa/.local/bin/uv run --no-sync spotcool-agent run --world-host 127.0.0.1 --vision meta --stt meta --llm meta --scene meta --vrf --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env 2>&1 | grep --line-buffered "META"
       ```
-   3. **The user** clicks `Quad`, then Start Recording, and says "started".
+   3. **The user** says "agent running".
    4. **The lead** starts the world in the background:
       ```bash
       cd /c/Users/hussa/dev/SpotCool-AI
       export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai SPOTCOOL_WORLD_RUN_DIR=C:/Users/hussa/dev/SpotCool-AI/runs SPOTCOOL_WORLD_FOOTAGE_DIR=C:/Users/hussa/dev/footage
       export SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi
-      uv run --no-sync spotcool-world run --plant boptest-local --speed 60 --run-id live-quad-boptest-s60-b
+      uv run --no-sync spotcool-world run --plant boptest-local --speed 60 --run-id live-quad-boptest-s60-c
       ```
-      If the browser panes stay black after a minute, the user selects each one and clicks Refresh: they loaded before the dashboard was up.
+      About 30 s later the user refreshes `Quad dashboard`, `Quad raw feeds` and `Quad SAM boxes`, and confirms their own room is on the meeting-room tiles. The lead checks the louver events, says "record", and the user clicks `Quad`, then Start Recording. BOPTEST takes about 100 s to reach 07:00, so nothing is missed, and nobody refreshes a pane mid-take.
    5. **At 14:00 on the dashboard's clock,** the user clicks the `Dashboard` scene for about 30 s (the louvers, the KPIs), then `Quad` again.
    6. **When the world prints its verdict** (about 13 minutes), the user clicks Stop Recording, then presses Ctrl+C once in the terminal.
    - **The fallback:** take 1 is `video/takes/2026-11-05_00-58-54.mkv`, about 9 minutes of the first live run. Its terminal text is small and scrolls fast, and its SAM pane goes black partway.
-4. **After take 2:**
-   1. Run `spotcool-world report live-quad-boptest-s60-b`.
+4. **After take 3:**
+   1. Run `spotcool-world report live-quad-boptest-s60-c`.
    2. **If it's `Quotable`,** point the `results` beat's `run_id` and `video/sources.yaml`'s `run-agent` at it, add its row to `docs/release/numbers.md`, and re-run `scripts/video/results_card.py`. **If it isn't,** keep `live-quad-boptest-s60`.
    3. Rename the recording to `video/takes/live_quad.mkv`.
    4. Set the `in_s` of the `live` beat (08:15 on the sim clock, about 75 s after the world's first step, is the best minute: the 08:30 arrivals) and the `louvers` beat (just after the switch to `Dashboard`). Both are `0` placeholders.
@@ -197,8 +198,8 @@
 
 | Step | What | Note |
 |---|---|---|
-| 1 | Take 2 | About 20 min. YABE and the live phone were dropped on Nov 5 (the lead's decision): the terminal and dashboard show the writes and back-offs, and the override is tested in code |
-| 2 | Narration recording | `video/narration.md`, after take 2. Any format in `video/raw/` |
+| 1 | Take 3 | About 20 min. YABE and the live phone were dropped on Nov 5 (the lead's decision): the terminal and dashboard show the writes and back-offs, and the override is tested in code |
+| 2 | Narration recording | `video/narration.md`, after take 3. Any format in `video/raw/` |
 | 3 | Music | Optional; one `CREDITS.md` row |
 | 4 | Final cut, `qa.py --final`, the watch-through | The lead runs the build; the user watches |
 | 5 | Upload (unlisted), the README's link, the form | The description text is in the guide |
@@ -228,7 +229,7 @@ Each item is a gated WP. Builders run one at a time; nothing needs BOPTEST excep
 | 5 | **Partly done in AG8 (Muse Spark's door notes).** **Open-door anomaly:** SAM's door concept on West's camera, at 10:00–10:45, gives an explanation event | A visible extra in the replay, if 1 is re-run | ~1 h |
 | 6 | Docker and compose for agent plus world; RabbitMQ scale-out; `packages/core`; Haystack | Production story | P2 |
 
-**Recommendation:** nothing here before the submission. Finish take 2 and the final cut first.
+**Recommendation:** nothing here before the submission. Finish take 3 and the final cut first.
 
 ## Where things are
 

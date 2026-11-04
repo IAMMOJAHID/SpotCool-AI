@@ -13,6 +13,7 @@ Needs the world's extras (OpenCV).
 """
 
 import argparse
+import os
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -82,7 +83,12 @@ def serve(player: ClipPlayer, port: int) -> ThreadingHTTPServer:
         def log_message(self, *args: object) -> None:  # quiet: the world polls twice a second
             pass
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    class Server(ThreadingHTTPServer):
+        # On Windows, SO_REUSEADDR lets a second camera share a port while the first keeps
+        # answering, so a forgotten one silently plays the wrong clip. Refuse to start instead.
+        allow_reuse_address = os.name != "nt"
+
+    return Server(("127.0.0.1", port), Handler)
 
 
 def main() -> None:
