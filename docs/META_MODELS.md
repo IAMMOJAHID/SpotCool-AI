@@ -124,6 +124,32 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 
 **The latency probes** (the lead's, Nov 4): a short prompt on one MEVA cafe frame took 10.4 s; the full scene prompt took 16.6–18.7 s on three frames (the cafe, the meeting-room clip and the entrance), each valid JSON, with 6, 1 and 3 people, as many as the clips show. That's why muse-spark runs in the background with a 30 s timeout, and never on a building step's deadline.
 
+## 5. muse-image-1.0: the privacy view
+
+`services/meta/render.py`, `loops/render.py`, `transports/server.py`
+
+**The call** (Person A's `render_privacy_snapshot`, from the MVP's `app/spotcool/media.py`):
+- **Input:** one snapshot, in memory, sent to `images.edit` as `frame.jpg` with A's `PRIVACY_RENDER_PROMPT`: redraw the scene as a flat isometric illustration, keep the layout and each person's position, posture and clothing colours, make people faceless, add or remove nothing, add no text. `n=1`, a 45 s timeout, no retries.
+- **Output:** one image as `b64_json`. It's checked, kept as a JPEG, and held in memory only. The trace gives the frame's and the render's sizes, never the image or its base64.
+- **Budget:** its own, `--render-call-cap` (60), one call at a time. It never takes a call from another model's.
+
+**The render loop** (`--render meta`; `off` by default, whatever `--vision` says, because each render takes about 24 s):
+1. Every 180 s of wall time, it renders the five zone cameras one at a time, then the meeting room's, each from a fresh snapshot. Until the world's cameras answer, it looks again every 5 s, and sends nothing.
+2. Only the latest render of each camera is kept, in memory. A failed render keeps the camera's last one.
+3. The agent's server answers `GET /privacy/<camera>.jpg` with it (`Cache-Control: no-store`), or 404 before the first.
+4. The dashboard's `?privacy=on` (with `?agent=`) shows the renders in the camera tiles, refreshed every 10 s, in place of the raw feeds, with SAM 3.1's boxes on top and the label "Muse Image render". Until a render exists, a tile says "rendering…".
+5. At the call cap, the loop stops; the last renders stay on show. The agent goes on.
+
+**A render is an illustration, never evidence.** It's for display only. The policy, the BMS, the VRF and every step's deadline never see it. A test runs a building day with and without the render loop and requires the same BMS writes, in the same order.
+
+**What it doesn't do:**
+- The snapshots still go to the Meta AI API, as they do for SAM 3.1.
+- The prompt asks for faceless figures; nothing checks that a render has none.
+- `?privacy=on` chooses what this page shows. The world's camera server still serves the raw feeds.
+- It hasn't been verified live through the agent; the tests use fakes.
+
+**The latency probe** (the lead's, Nov 4, recorded in [`agent/workpackages/AG9-muse-image.md`](agent/workpackages/AG9-muse-image.md)): `images.edit` with A's prompt on one MEVA frame took 24 s and answered with a 280 KB `b64_json`, and no URL.
+
 ## Why it's built this way
 
 - **The models perceive, and code decides.** The building's actions come from a small, tested policy, so every write can be audited, and a model's mistake can't become an arbitrary command.
