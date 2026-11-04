@@ -12,7 +12,7 @@
 
 **Nov 5, about 02:40 IST. The deadline moved: the user says "till morning, as per IST", with no exact time yet (ask). Check the real time with `curl -sI https://api.github.com | grep -i '^date'`, then add 5:30. The lead's own time estimates were wrong once already.**
 
-- **The trunk is `agent/main`, and `dev` is the same commit** (`git merge --ff-only agent/main` on `dev` after each merge). Work lands through `ag/*`, `fix/*` or `docs/*` branches merged `--no-ff`, never through PRs. `world/main` is frozen. **The judges see `main`, the default branch, still "Initial commit"; updating it is the user's call** (USER_GUIDE step H5; it's a fast-forward).
+- **The trunk is `agent/main`, and `dev` is the same commit** (`git merge --ff-only agent/main` on `dev` after each merge). Work lands through `ag/*`, `fix/*` or `docs/*` branches merged `--no-ff`, never through PRs. `world/main` is frozen. **The judges see `main`, the default branch, still "Initial commit"; updating it is the user's call** (USER_GUIDE Step 10; it's a fast-forward).
 - **Merged tonight:**
   - AG7: the `META` trace, the dashboard's `?panels=` and `?masks=off`, the OBS `Quad` scene, no RC figures on screen;
   - AG8: Muse Spark (the meeting room's comfort setpoint, the zones' scene notes), Person A's PMV physics, and the Muse Wonder narration;
@@ -61,8 +61,8 @@
   - `claude-security-review.yml` and `evals/code_review_evals.json` still describe the old single-AC twin;
   - `docs/release/README-world-section.md`, a superseded draft, has root-relative links.
 - **Still to do:**
-  - the README's `Video: <YouTube link>` line, after the upload (USER_GUIDE step H4);
-  - updating `main` from `dev` (step H5, the user's call).
+  - the README's `Video: <YouTube link>` line, after the upload (USER_GUIDE Step 10);
+  - updating `main` from `dev` (USER_GUIDE Step 10, the user's call).
 
 ## Resume here (a fresh session or after `/compact`)
 
