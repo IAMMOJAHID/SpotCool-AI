@@ -97,6 +97,6 @@ def tally(scene: Scene) -> str:
     worn = Counter(p.clothing_ensemble for p in scene.people)
     clothing = ", ".join(f"{name} {n}" for name, n in worn.most_common())
     return (
-        f"{len(scene.people)} people ({clothing or '-'}), doors open {scene.doors_open}, "
+        f"{len(scene.people)} {'person' if len(scene.people) == 1 else 'people'} ({clothing or '-'}), doors open {scene.doors_open}, "
         f"windows open {scene.windows_open}, sunlight {scene.sunlight}, {scene.space_type}"
     )

@@ -27,7 +27,7 @@ from spotcool_contracts.events import EventType
 
 EVERY_STEPS = 4
 """Steps between two readings of one zone, at least."""
-TIMEOUT_S = 20.0
+TIMEOUT_S = 30.0
 """The longest one reading may take."""
 
 

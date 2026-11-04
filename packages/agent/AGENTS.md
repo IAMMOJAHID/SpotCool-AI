@@ -177,7 +177,7 @@ The world never waits for the agent, so each round fits in the step it starts in
    then pairs each decision with the write the BMS took one step later.
 6. Only then, in the background and never awaited by the step: with a scene reader,
    `SceneNotes` (`loops/scene.py`) reads each occupied zone's snapshot of that step at most
-   every `scene_every_steps` (4), skipping a zone still being read (20 s each), and publishes
+   every `scene_every_steps` (4), skipping a zone still being read (30 s each), and publishes
    "Muse Spark, West: 1 person, typical office clothing; a door is open", plus A's cross-check
    ("SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's") when |Spark - SAM| > max(2, 0.3 *
    max). With `--llm meta`, `Narrator` (`loops/narration.py`) makes one call (8 s, one at a
@@ -217,7 +217,7 @@ step with no count at all, or the model-call cap used up, releases everything.
 | `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` on the language services' `MetaClient`; 8 s |
 | `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`, `narrate`), for tests and `--llm fake` |
 | `SceneService` | `services/scene.py` | the base: `assess(jpeg, sam_count, timeout_s, *, camera_id)` -> `Scene` (`domain/scene.py`, A's enums, extra keys forbidden), or `SceneError` |
-| `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: A's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 20 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
+| `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: A's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 30 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
 | `FakeScene` | `services/fake/scene.py` | a scripted scene (one seated office worker by default); `None` fails |
 
 No service logs what was said, asked or answered, only lengths. Each Meta request logs a

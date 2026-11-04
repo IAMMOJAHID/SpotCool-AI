@@ -122,7 +122,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 - **Cross-check (Person A's rule):** when muse-spark's count differs from SAM 3.1's by more than 2, or 30 % of the larger, a second note says "SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's".
 - The notes never change the policy's input. A test runs the building loop with and without the scene notes and narration and requires the same BMS writes, in the same order.
 
-**The latency probe** (the lead's, Nov 4): one MEVA cafe frame took 10.4 s and came back as valid JSON. That's why muse-spark runs in the background and never on a building step's deadline.
+**The latency probes** (the lead's, Nov 4): a short prompt on one MEVA cafe frame took 10.4 s; the full scene prompt took 16.6–18.7 s on three frames (the cafe, the meeting-room clip and the entrance), each valid JSON, with 6, 1 and 3 people, as many as the clips show. That's why muse-spark runs in the background with a 30 s timeout, and never on a building step's deadline.
 
 ## Why it's built this way
 

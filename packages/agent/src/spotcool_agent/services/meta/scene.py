@@ -20,7 +20,7 @@ from spotcool_agent.services.scene import SceneError, SceneService
 from spotcool_agent.services.vision import CallCapReached, VisionError, image_size
 
 SCENE_MODEL = "muse-spark-1.3"
-TIMEOUT_S = 20.0
+TIMEOUT_S = 30.0
 """The longest one reading may take (the lead's probe took 10.4 s)."""
 
 INSTRUCTIONS = """You are the perception module of an autonomous HVAC agent for a commercial building.

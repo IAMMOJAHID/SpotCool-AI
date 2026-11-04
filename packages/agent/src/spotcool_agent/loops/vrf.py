@@ -109,7 +109,7 @@ FAN_STEPS = ("Low", "Mid", "High")
 """The fan speeds a complaint steps through; Auto runs as Mid."""
 COMFORT_EVERY_S = 60.0
 """Wall seconds between two comfort readings, at least."""
-SCENE_TIMEOUT_S = 20.0
+SCENE_TIMEOUT_S = 30.0
 """The longest one comfort reading may take."""
 COMFORT_REASON = "comfort: PMV 0 for the people seen"
 CONCEPT = "humans"
