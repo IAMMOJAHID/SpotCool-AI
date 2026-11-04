@@ -112,7 +112,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 **The meeting room's comfort setpoint** (`loops/vrf.py`, with `--vrf`; `--no-comfort` turns it off):
 1. Every 60 s while people are seen, muse-spark reads the live camera's frame.
 2. Person A's ISO 7730 physics, ported near verbatim, turns each person into clo (the ensemble's, plus 0.1 seated) and met (the activity's), and finds the air temperature at PMV 0 for them, in still air at 50 % RH (the gateway has no humidity point).
-3. The result goes on the setpoint's 0.5 °C grid, within 16–30 °C, and is written to `IDU-SP` at priority 10 on a change only.
+3. The result goes on the setpoint's 0.5 °C grid, within a **comfort band of 23–26 °C**, and is written to `IDU-SP` at priority 10 on a change only. The band came from the first live take (Nov 5): a person walking through the clip reads as high activity, and their PMV-0 temperature fell to 16 °C, far colder than a meeting needs.
 4. **Precedence:** the operator first (the agent backs off from slots 1 to 9), then a complaint's override, then the comfort setpoint. With nobody seen, it's released, and the unit goes back to its default.
 5. The explanation reads like "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort setpoint 24.5 degC (PMV 0)".
 
@@ -137,6 +137,26 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 - **What the logs see.** Muse-spark's trace gives the people, a clothing tally and the doors; the narration's, its length.
 - **Offline fakes.** Each model sits behind a provider interface with an offline fake: a colour-blob counter, and scripted speech, language and scene models. CI and the evals therefore run with no key and no network.
 
+## Seeing it live: the `META` trace
+
+Every Meta call prints two lines in the agent's terminal: one when it's sent (`META ->`) and one when it ends (`META <-`, or `META x` for a failure). Each line shows:
+- the model and the full endpoint;
+- Meta's `x-request-id` and the response id;
+- the time taken and the rate limit left;
+- what went in and what came out, as sizes, boxes, tallies and labels. Never the content: no image bytes, no audio, no complaint words, no prompt or reply text.
+
+Two lines from the live calls on Nov 5:
+
+```text
+META -> sam-3.1 | POST https://api.meta.ai/v1/responses | count humans on cam-cor | in: JPEG 1280x720, 49 KB + text "humans" (include_confidence)
+META <- sam-3.1 | 200 in 3.49 s | request-id e14d4e54-c8b1-4917-9b7c-d351e795f675 | response resp_6aeb7638872e469cc333419a | out: 6 boxes [(785,376)-(905,691) c=0.93, ...] -> kept 6 (c >= 0.30) | rate limit 3000/3000 left
+META <- muse-spark-1.3 | 200 in 16.66 s | request-id c90c2150-35ef-47e3-96d1-49882a84b270 | response resp_6aeb81bc1b60482fde4542e6 | out: 6 people (winter_outerwear 3, trousers_long_sleeve 2, trousers_short_sleeve 1), doors open 0, windows open 0, sunlight partial, lobby
+```
+
+- **The meeting room's SAM calls are sampled.** That loop asks SAM about twice a second, so its trace shows 1 call in 10, marked `(1 in 10 shown)`. The building's, Muse Spark's, Muse Wonder's and Muse Voice's calls are all shown. The ledger keeps every call either way.
+- **To show only the Meta calls** (the demo's terminal pane), append `2>&1 | grep --line-buffered META` to the agent's command.
+- **`--no-meta-trace`** turns the trace off.
+
 ## What the models make possible
 
 - **Cameras as occupancy sensors.** Occupancy-based control needs to know which zones have people, and most zones have no occupancy sensor. The usual answers are to install sensors or train a detector for each site. SAM 3.1 turns the cameras already in the building into that sensor, from a one-word prompt.
@@ -150,8 +170,14 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
   - It equals the perfect-perception upper bound, because perception never missed.
   - The cost: discomfort where people were rose from 0.33 to 2.13 K·h.
 
+**Again live, with all four models on** (`runs/live-quad-boptest-s60`, Nov 5): the same day, plant and speed. SAM 3.1 drove the building, Muse Spark read the meeting room and the zones, and Muse Wonder narrated. The meeting room's louvers followed a person in a recorded clip.
+- The report says **Quotable: 19.94 % saved**: 230.4 against 287.8 kWh, and comfort 2.13 against 0.33 K·h, the same as the scored run.
+- Occupancy agreement was 100 % (239 of the 239 zone-steps the agent perceived; it perceived 239 of 240).
+- All 30 decisions were written one step later, and there were no heartbeat-timeout releases.
+- Adding Muse Spark, Muse Wonder and the louvers changed nothing in the building's control, as the tests require.
+
 **What we don't claim:**
 - The louvers, complaints, comfort setpoint, scene notes and narration are a live demo, not part of the 19.94 %. With `--vision blob`, as in the evals, none of muse-spark or the narration runs.
-- The comfort setpoint's effect on comfort isn't measured, and muse-spark and the narration haven't been verified live through the agent; the tests use fakes.
+- The comfort setpoint's effect on comfort isn't measured. Muse Spark and the narration did run live through the agent on Nov 5 (the run above, and three frames read for the latency probe); the tests use fakes.
 - The cameras played public MEVA dataset clips.
 - BOPTEST's occupant heat follows its own schedule, not the cameras.
