@@ -4,6 +4,7 @@ An index of `docs/`. The project's live status is [`agent/HANDOFF.md`](agent/HAN
 
 | Folder | What it holds |
 |---|---|
+| [`META_MODELS.md`](META_MODELS.md) | How SpotCool uses Meta's models (SAM 3.1, muse-voice-transcribe, muse-wonder): the algorithms around each, step by step |
 | [`agent/`](agent/) | [`HANDOFF.md`](agent/HANDOFF.md), the live status of the whole project: what's done, the key decisions and why, what's left. [`workpackages/`](agent/workpackages/README.md) has the agent lane's briefs (AG1, AG4, AG6) |
 | [`status/`](status/) | [`HANDOFF.md`](status/HANDOFF.md), the record of Person B's world build. It defers to `agent/HANDOFF.md` |
 | [`integration/`](integration/) | [`PERSON_A_HANDOFF.md`](integration/PERSON_A_HANDOFF.md): every interface the world gives the agent (addresses, BACnet points, priorities, the heartbeat, cameras, the calendar, complaints, the event shapes) |

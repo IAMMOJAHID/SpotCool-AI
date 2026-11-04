@@ -175,6 +175,12 @@ All three are called through the Meta AI API at `api.meta.ai/v1`.
 | `muse-wonder-1.0` | Chat: the intent of a complaint the keywords can't settle, and the plain-words reply |
 | `muse-voice-transcribe-1.0` | Voice complaints: the occupant's recording, transcribed in memory |
 
+- **Models perceive, and code decides.** SAM 3.1's boxes become occupied or empty for each zone, and a fixed, tested policy turns that into BACnet writes. No language model ever writes to the BMS.
+- **Every model call has a deadline, a budget and a fallback,** and each fallback returns control to the building.
+- **Cameras as occupancy sensors.** SAM 3.1 finds people from the one-word prompt `humans`, with no training on our building. That turns the cameras a building already has into its occupancy sensors. Most zones don't have one.
+
+The algorithms around each model, step by step: [`docs/META_MODELS.md`](docs/META_MODELS.md).
+
 ## Team and credits
 
 - **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, comfort physics. Its SAM perception and louver geometry were ported; its comfort physics wasn't. The MVP stays as it was on branch `third_level_improvement`.
