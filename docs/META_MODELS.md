@@ -199,7 +199,7 @@ META <- muse-spark-1.3 | 200 in 16.66 s | request-id c90c2150-35ef-47e3-96d1-498
   - It equals the perfect-perception upper bound, because perception never missed.
   - The cost: discomfort where people were rose from 0.33 to 2.13 K·h.
 
-**Again live, with all four models on** (`runs/live-quad-boptest-s60`, Nov 5): the same day, plant and speed. SAM 3.1 drove the building, Muse Spark read the meeting room and the zones, and Muse Wonder narrated. The meeting room's louvers followed a person in a recorded clip.
+**Again live, with all four models on** (`runs/live-quad-boptest-s60-c`, Nov 5): the same day, plant and speed. SAM 3.1 drove the building, Muse Spark read the meeting room and the zones, and Muse Wonder narrated. The meeting room's louvers followed a person in a recorded clip.
 - The report says **Quotable: 19.94 % saved**: 230.4 against 287.8 kWh, and comfort 2.13 against 0.33 K·h, the same as the scored run.
 - Occupancy agreement was 100 % (239 of the 239 zone-steps the agent perceived; it perceived 239 of 240).
 - All 30 decisions were written one step later, and there were no heartbeat-timeout releases.

@@ -67,7 +67,7 @@
 
 ## Resume here (a fresh session or after `/compact`)
 
-1. **Read this block. Don't re-plan.** The next step is **take 3**.
+1. **Read this block. Don't re-plan.** **Take 3 is recorded and cut in:** `video/takes/live_quad.mkv` (git-ignored), run `live-quad-boptest-s60-c`, Quotable, 19.94 %, occupancy 240 of 240, 417 louver writes following the user's clip. Dashboard segments at 104.5-175 and 390.5-427 s; `live` starts at 44 s, `louvers` at 405 s, which covers the Results panel's mid-day figures and "No agent configured". The Codespace is stopped. The next step is the user's narration, then the final cut.
    - **Why not take 2:** takes 1 and 2 show the wrong clip on the meeting-room tile. A test clip camera from 00:18 (`meva_admin2_one.mp4`, a stairwell) was still running when the real one started at 00:54. Windows let both bind port 8099 (`SO_REUSEADDR`), and the old one kept answering. The tile said "Meeting room" over a MEVA stairwell, and the person stays at the edge of that clip, so the louvers barely followed. Both runs are still valid for energy (`live-quad-boptest-s60-b` is Quotable at 19.94 %), but neither shows the user's clip. The clip camera now refuses a shared port. **Always look at a frame from `/shot.jpg` before a take; a 200 proves nothing.**
 2. **Check what's running.** The forward and the clip camera ran as the old session's background shells, so a fresh session must check them and restart any that's down:
    ```bash

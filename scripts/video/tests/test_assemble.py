@@ -36,6 +36,18 @@ def test_one_take_feeds_two_beats_each_from_its_own_in_s(tiny_board, takes):
     assert args[:2] == ["-ss", "1"] and args[6:8] == ["-ss", "30"]
 
 
+def test_a_beat_can_cover_part_of_its_take(tiny_board, takes):
+    (takes / "intro_take.mkv").write_bytes(b"")
+    board = tiny_board(
+        **{
+            "take: outro_take,": "take: intro_take, cover: [{x: 1, y: 2, w: 3, h: 4, color: '0x040809'}],"
+        }
+    )
+    _, chains = assemble.video_inputs(board, assemble.resolve(board))
+    assert "drawbox=x=1:y=2:w=3:h=4:color=0x040809:t=fill," in chains[1]
+    assert "drawbox" not in chains[0]
+
+
 def test_the_overlay_has_slates_labels_and_captions(tiny_board, takes):
     board = tiny_board()
     (takes / "outro_take.mkv").write_bytes(b"")
