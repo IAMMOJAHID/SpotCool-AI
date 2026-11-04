@@ -6,7 +6,7 @@
     {"id": "headline", "type": "string", "label": "Headline", "default": "Three connections the building already has"},
     {"id": "hub", "type": "string", "label": "Hub", "default": "SpotCool"},
     {"id": "cctv_title", "type": "string", "label": "CCTV title", "default": "CCTV cameras"},
-    {"id": "cctv_body", "type": "string", "label": "CCTV body", "default": "count the people in each zone"},
+    {"id": "cctv_body", "type": "string", "label": "CCTV body", "default": "see who is in each zone"},
     {"id": "bms_title", "type": "string", "label": "BMS title", "default": "Building management system"},
     {"id": "bms_body", "type": "string", "label": "BMS body", "default": "eases the cooling where nobody is"},
     {"id": "complaints_title", "type": "string", "label": "Complaints title", "default": "Complaints"},
@@ -199,8 +199,8 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="three_connections" data-start="0" data-duration="17" data-width="1920" data-height="1080">
-      <div id="conn-scene" class="clip" data-start="0" data-duration="17" data-track-index="1">
+    <div id="root" data-composition-id="three_connections" data-start="0" data-duration="14" data-width="1920" data-height="1080">
+      <div id="conn-scene" class="clip" data-start="0" data-duration="14" data-track-index="1">
         <div id="conn-bg"></div>
         <div id="conn-headline" data-var-text="headline">Three connections the building already has</div>
 
@@ -211,7 +211,7 @@
         <div class="conn-card" id="conn-cctv">
           <div class="conn-icon"><i></i><b></b></div>
           <div class="conn-title" data-var-text="cctv_title">CCTV cameras</div>
-          <div class="conn-body" data-var-text="cctv_body">count the people in each zone</div>
+          <div class="conn-body" data-var-text="cctv_body">see who is in each zone</div>
         </div>
         <div class="conn-card" id="conn-bms">
           <div class="conn-icon"><i></i><i></i><i></i></div>
@@ -239,10 +239,10 @@
       };
       tl.fromTo("#conn-hub", { opacity: 0, y: 24, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, 0.4);
       tl.fromTo("#conn-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.4, ease: "power4.out" }, 1.2);
-      tl.fromTo("#conn-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 2.7);
-      card("cctv", 5.6);
-      card("bms", 9.0);
-      card("complaints", 12.4);
+      tl.fromTo("#conn-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 2.2);
+      card("cctv", 6.0);
+      card("bms", 7.4);
+      card("complaints", 8.8);
       window.__timelines["three_connections"] = tl;
     </script>
   </body>
