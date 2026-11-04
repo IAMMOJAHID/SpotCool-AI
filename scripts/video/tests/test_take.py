@@ -8,12 +8,64 @@ from typing import Any
 import pytest
 import pytest_asyncio
 import take
-from storyboard import load_storyboard
+from storyboard import Storyboard, load_storyboard
 from websockets.asyncio.server import serve
 
 SALT = "lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI="
 CHALLENGE = "+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY="
 SCENES = ("Dashboard", "Dashboard+Camera", "YABE", "PhoneCam")
+# The video's own takes are recorded by hand now (AG10), so these tests keep the three kinds of
+# take that take.py records: scene switches, a replay, and the phone camera.
+TAKES_BOARD = """
+video: {title: Takes, fps: 30, width: 1920, height: 1080, max_s: 178}
+beats:
+  - id: bms_yabe
+    start: 0
+    end: 20
+    type: screen
+    source:
+      take: yabe_override
+      in_s: 2
+      scenes: [{at: 0, scene: YABE}, {at: 10, scene: Dashboard}, {at: 16, scene: YABE}]
+    narration_id: null
+    on_screen_text: {}
+    sources: []
+  - id: dashboard
+    start: 20
+    end: 41
+    type: screen
+    source:
+      take: dashboard_replay
+      in_s: 2
+      replay: {run_id: ag3-boptest-agent-s60, speed: 2700}
+      dashboard_url: http://127.0.0.1:8090/?mode=video
+      scenes: [{at: 0, scene: Dashboard}]
+    narration_id: null
+    on_screen_text: {}
+    sources: []
+  - id: louvers
+    start: 41
+    end: 58
+    type: phone
+    source:
+      take: phone_vrf
+      in_s: 2
+      dashboard_url: http://127.0.0.1:8090/?mode=video
+      scenes: [{at: 0, scene: PhoneCam}, {at: 7, scene: Dashboard+Camera}]
+    narration_id: null
+    on_screen_text: {}
+    sources: []
+"""
+
+
+@pytest.fixture(autouse=True)
+def board(tmp_path_factory, monkeypatch) -> Storyboard:
+    """The takes above, which take.py reads in place of the video's storyboard."""
+    path = tmp_path_factory.mktemp("board") / "storyboard.yaml"
+    path.write_text(TAKES_BOARD, "utf-8")
+    loaded = load_storyboard(path)
+    monkeypatch.setattr(take, "load_storyboard", lambda: loaded)
+    return loaded
 
 
 def test_authentication_matches_the_protocols_example():
@@ -173,7 +225,9 @@ def hooks(clock: Clock) -> tuple[take.Hooks, Process, list, list]:
 async def record(obs, take_id, out_dir, client_class=take.ObsClient, timeout_s=10.0, **kwargs):
     client = await client_class.connect(obs.url, "pw", timeout_s=timeout_s)
     try:
-        return await take.record(client, load_storyboard().take_beat(take_id), out_dir, **kwargs)
+        return await take.record(
+            client, take.load_storyboard().take_beat(take_id), out_dir, **kwargs
+        )
     finally:
         await client.close()
 
@@ -184,8 +238,8 @@ def no_phone(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_take_switches_scenes_on_time_and_keeps_the_recording(obs, tmp_path):
-    beat = load_storyboard().take_beat("yabe_override")
+async def test_a_take_switches_scenes_on_time_and_keeps_the_recording(obs, tmp_path, board):
+    beat = board.take_beat("yabe_override")
     clock = Clock()
     hook, _, launched, ready = hooks(clock)
     path = await record(obs, "yabe_override", tmp_path / "takes", hooks=hook)
@@ -236,8 +290,8 @@ async def test_a_silent_obs_times_out(obs, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_a_replay_take_loads_the_dashboard_as_its_beat_starts(obs, tmp_path):
-    beat = load_storyboard().take_beat("dashboard_replay")
+async def test_a_replay_take_loads_the_dashboard_as_its_beat_starts(obs, tmp_path, board):
+    beat = board.take_beat("dashboard_replay")
     replay = beat.source.replay
     clock = Clock()
     hook, process, launched, ready = hooks(clock)

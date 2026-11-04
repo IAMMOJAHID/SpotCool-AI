@@ -230,8 +230,8 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="architecture" data-start="0" data-duration="16" data-width="1920" data-height="1080">
-      <div id="arch-scene" class="clip" data-start="0" data-duration="16" data-track-index="1">
+    <div id="root" data-composition-id="architecture" data-start="0" data-duration="12" data-width="1920" data-height="1080">
+      <div id="arch-scene" class="clip" data-start="0" data-duration="12" data-track-index="1">
         <div id="arch-bg"></div>
         <div id="arch-headline" data-var-text="headline">A building to test it on</div>
         <div id="arch-agent" data-var-text="agent">SpotCool agent</div>
@@ -266,23 +266,23 @@
       const IN = { opacity: 1, filter: "blur(0px)", y: 0, duration: 0.5, ease: "power4.out" };
       const enter = (sel, at, extra = {}) => tl.fromTo(sel, { opacity: 0, filter: "blur(8px)", y: 16, ...extra }, IN, at);
 
-      // "To test it without a real building, we built one":
+      // "To test it, we built a building":
       enter("#arch-headline", 0.3);
-      enter("#arch-agent", 0.8);
-      tl.fromTo("#arch-world", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 1.6);
-      tl.fromTo("#arch-link-line", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: "inset(0% 0.01% 0% 0%)", duration: 0.5, ease: "power3.inOut" }, 2.3);
-      // "a BACnet BMS, a VRF unit, cameras and complaints":
-      enter("#arch-bms", 4.0);
-      enter("#arch-vrf", 4.7);
-      enter("#arch-cameras", 5.4);
-      enter("#arch-complaints", 6.1);
-      // "Behind them, one BOPTEST office runs twice":
-      tl.fromTo("#arch-stem-line", { clipPath: "inset(0% 0% 100% 0%)" }, { clipPath: "inset(0% 0% 0.01% 0%)", duration: 0.4, ease: "power2.inOut" }, 7.6);
-      tl.fromTo("#arch-bar-line", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: "inset(0% 0.01% 0% 0%)", duration: 0.6, ease: "power2.inOut" }, 7.8);
-      tl.fromTo("#arch-drop-line", { clipPath: "inset(0% 0% 100% 0%)" }, { clipPath: "inset(0% 0% 0.01% 0%)", duration: 0.25, ease: "power2.out" }, 8.4);
-      enter("#arch-plant-spotcool", 8.3);
-      enter("#arch-plant-baseline", 9.6);
-      enter("#arch-footer", 11.4);
+      enter("#arch-agent", 0.7);
+      tl.fromTo("#arch-world", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 1.2);
+      tl.fromTo("#arch-link-line", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: "inset(0% 0.01% 0% 0%)", duration: 0.5, ease: "power3.inOut" }, 1.7);
+      // "a BACnet BMS, cameras and occupants":
+      enter("#arch-bms", 2.2);
+      enter("#arch-vrf", 2.7);
+      enter("#arch-cameras", 3.2);
+      enter("#arch-complaints", 3.7);
+      // "Behind it, BOPTEST runs one office twice":
+      tl.fromTo("#arch-stem-line", { clipPath: "inset(0% 0% 100% 0%)" }, { clipPath: "inset(0% 0% 0.01% 0%)", duration: 0.4, ease: "power2.inOut" }, 5.2);
+      tl.fromTo("#arch-bar-line", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: "inset(0% 0.01% 0% 0%)", duration: 0.6, ease: "power2.inOut" }, 5.4);
+      tl.fromTo("#arch-drop-line", { clipPath: "inset(0% 0% 100% 0%)" }, { clipPath: "inset(0% 0% 0.01% 0%)", duration: 0.25, ease: "power2.out" }, 6.0);
+      enter("#arch-plant-spotcool", 5.9);
+      enter("#arch-plant-baseline", 7.2);
+      enter("#arch-footer", 9.0);
       window.__timelines["architecture"] = tl;
     </script>
   </body>

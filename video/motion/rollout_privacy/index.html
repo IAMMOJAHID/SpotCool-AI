@@ -5,9 +5,9 @@
   data-composition-variables='[
     {"id": "rollout_title", "type": "string", "label": "Rollout title", "default": "Rollout"},
     {"id": "rollout_1", "type": "string", "label": "Rollout, first line", "default": "No new hardware."},
-    {"id": "rollout_2", "type": "string", "label": "Rollout, second line", "default": "The agent’s code does not change."},
+    {"id": "rollout_2", "type": "string", "label": "Rollout, second line", "default": "A real BMS needs the same points."},
     {"id": "privacy_title", "type": "string", "label": "Privacy title", "default": "Privacy"},
-    {"id": "privacy_1", "type": "string", "label": "Privacy, first line", "default": "Frames stay in memory."},
+    {"id": "privacy_1", "type": "string", "label": "Privacy, first line", "default": "No frame is stored."},
     {"id": "privacy_2", "type": "string", "label": "Privacy, second line", "default": "The record keeps counts and decisions, never images."}
   ]'
 >
@@ -134,19 +134,19 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="rollout_privacy" data-start="0" data-duration="13" data-width="1920" data-height="1080">
-      <div id="roll-scene" class="clip" data-start="0" data-duration="13" data-track-index="1">
+    <div id="root" data-composition-id="rollout_privacy" data-start="0" data-duration="8" data-width="1920" data-height="1080">
+      <div id="roll-scene" class="clip" data-start="0" data-duration="8" data-track-index="1">
         <div id="roll-bg"></div>
         <div class="roll-panel" id="roll-rollout">
           <div class="roll-icon"><i></i><i></i><b></b></div>
           <div class="roll-title" id="roll-rollout-title" data-var-text="rollout_title">Rollout</div>
           <div class="roll-line" id="roll-rollout-1" data-var-text="rollout_1">No new hardware.</div>
-          <div class="roll-line" id="roll-rollout-2" data-var-text="rollout_2">The agent's code does not change.</div>
+          <div class="roll-line" id="roll-rollout-2" data-var-text="rollout_2">A real BMS needs the same points.</div>
         </div>
         <div class="roll-panel" id="roll-privacy">
           <div class="roll-icon"><i></i><b></b></div>
           <div class="roll-title" id="roll-privacy-title" data-var-text="privacy_title">Privacy</div>
-          <div class="roll-line" id="roll-privacy-1" data-var-text="privacy_1">Frames stay in memory.</div>
+          <div class="roll-line" id="roll-privacy-1" data-var-text="privacy_1">No frame is stored.</div>
           <div class="roll-line" id="roll-privacy-2" data-var-text="privacy_2">The record keeps counts and decisions, never images.</div>
         </div>
       </div>
@@ -157,12 +157,12 @@
       const IN = { opacity: 1, filter: "blur(0px)", x: 0, duration: 0.5, ease: "power4.out" };
       const enter = (sel, at) => tl.fromTo(sel, { opacity: 0, filter: "blur(8px)", x: -20 }, IN, at);
       tl.fromTo("#roll-rollout", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, 0.2);
-      enter("#roll-rollout-1", 0.8);
-      enter("#roll-rollout-2", 3.0);
-      // "Frames stay in memory. The record keeps counts and decisions, never images."
-      tl.fromTo("#roll-privacy", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, 5.6);
-      enter("#roll-privacy-1", 6.0);
-      enter("#roll-privacy-2", 7.9);
+      enter("#roll-rollout-1", 0.6);
+      enter("#roll-rollout-2", 1.6);
+      // "never stores a frame":
+      tl.fromTo("#roll-privacy", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, 2.8);
+      enter("#roll-privacy-1", 3.1);
+      enter("#roll-privacy-2", 4.2);
       window.__timelines["rollout_privacy"] = tl;
     </script>
   </body>

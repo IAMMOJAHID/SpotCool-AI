@@ -1,8 +1,8 @@
 # Video takes
 
-The video has three screen parts: the BMS in YABE (an operator override), the building (a recorded run, replayed for the camera) and the meeting room's VRF unit (filmed live with the phone).
+The video has one take since the Nov 5 re-cut: [the live quad take](#the-live-quad-take), recorded by hand, which feeds the `live` and `louvers` beats. The three scripted takes below it (the BMS in YABE, the building replayed, the VRF filmed live with the phone) are kept for reference; the storyboard no longer shows them, so `take.py` finds their beats only once one is put back in it.
 
-**The takes are scripted.** `scripts/video/take.py <take>` drives OBS over obs-websocket from `video/storyboard.yaml`:
+**The other takes are scripted.** `scripts/video/take.py <take>` drives OBS over obs-websocket from `video/storyboard.yaml`:
 
 - it starts and stops the recording;
 - it switches the scenes and prints the cues at the beat's times;
@@ -92,7 +92,9 @@ The louvers are filmed live, never replayed: a replay plays the VRF back once a 
 
 ## The live quad take
 
-Four panes at once, from OBS's `Quad` scene: the dashboard (floor plan, energy and the agent's feed) top left, the raw MEVA feeds top right, the same feeds with the boxes SAM 3.1 found bottom left, and the agent's terminal bottom right, with a `META` line for every Meta call. The world runs on RC, so the dashboard shows the RC note, never a saving: RC figures are never quoted ([numbers.md](../release/numbers.md)). It is recorded by hand; `take.py` has no take for it yet.
+**This is the video's take since the Nov 5 re-cut (AG10).** One recording feeds two beats of `video/storyboard.yaml`: `live` (60 s of the `Quad` scene) and `louvers` (12 s of the `Dashboard` scene around 14:00). It was recorded this way on Nov 5, as run `live-quad-boptest-s60` (`Quotable`, [numbers.md](../release/numbers.md)). The YABE, replay and phone takes above are kept for reference; the video no longer uses them.
+
+Four panes at once, from OBS's `Quad` scene: the dashboard (floor plan, energy and the agent's feed) top left, the raw MEVA feeds top right, the same feeds with the boxes SAM 3.1 found bottom left, and the agent's terminal bottom right, with the `META` lines for Meta's calls (the meeting room's SAM calls are sampled, 1 in 10). It is recorded by hand in OBS; `take.py` doesn't record it.
 
 The three browser sources are 960x540 views of the dashboard (`?panels=` and `?masks=off`, [apps/dashboard/README.md](../../apps/dashboard/README.md)). They shut down when the `Quad` scene is not shown, so they never take camera connections from the other takes. The raw feeds load the cameras from `localhost:8081` and the boxes pane from `127.0.0.1:8081`: Edge counts its six connections per host, and each pane needs six.
 
@@ -102,23 +104,28 @@ The three browser sources are 960x540 views of the dashboard (`?panels=` and `?m
    echo -ne "\033]0;SpotCool agent\007"
    ```
 
-2. **Start the agent first**, in that terminal, on loopback:
+2. **The meeting room's camera:** serve the recorded walking clip ([below](#the-meeting-room-from-a-recorded-clip-no-live-phone-needed), steps 1 and 2) on port 8099.
+3. **Start the agent first**, in that terminal, on loopback, with all four Meta models and the louvers:
 
    ```bash
-   uv run spotcool-agent run --vision meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env --world-host 127.0.0.1
+   uv run spotcool-agent run --vrf --vision meta --stt meta --llm meta --scene meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env --world-host 127.0.0.1 2>&1 | grep --line-buffered META
    ```
 
    Each SAM call logs two lines, `META -> sam-3.1 | POST https://api.meta.ai/v1/responses | count humans on cam-cor | ...` as it goes out and `META <- sam-3.1 | 200 in 1.87 s | request-id ... | out: 2 boxes [...]` as it comes back (`META x` if it failed). They never hold an image or words.
 
-3. **Then start the world** in another window, on RC, with the MEVA footage (`SPOTCOOL_WORLD_FOOTAGE_DIR`, [Before any take](#before-any-take), step 2) and on loopback, at speed 60:
+4. **Then start the world** in another window, on BOPTEST ([boptest-codespace.md](boptest-codespace.md)), with the MEVA footage (`SPOTCOOL_WORLD_FOOTAGE_DIR`, [Before any take](#before-any-take), step 2), the clip as the meeting room's camera, and on loopback, at speed 60:
 
    ```bash
-   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 uv run spotcool-world run --plant rc --speed 60
+   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 \
+   SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi \
+   uv run spotcool-world run --plant boptest-local --speed 60 --run-id <run id>
    ```
 
-4. **In OBS**, point the `Dashboard browser` source at a blank page (Properties > URL `about:blank`), so it takes none of the camera connections, close the dashboard in Edge, and switch to the `Quad` scene. Check that all four panes show.
-5. **Record from sim 08:15:** start when the agent's terminal logs `step 08:00: people ...` (the step that ends at 08:15; the quad has no clock), about 75 s after the world starts (at speed 60 a 15-minute step takes 15 s). The 08:30 arrivals then show: the boxes appear, the zones flip, and the writes go out in the agent's feed and terminal. Record about 70 s, then stop the recording.
-6. Press Ctrl+C in the agent's window (it releases its slots), then in the world's. Set the `Dashboard browser` URL back to `http://127.0.0.1:8090/?mode=video`.
+5. **In OBS**, point the `Dashboard browser` source at a blank page (Properties > URL `about:blank`), so it takes none of the camera connections, close the dashboard in Edge, and switch to the `Quad` scene. Check that all four panes show.
+6. **Record from sim 08:15:** start when the agent's terminal logs `step 08:00: people ...` (the step that ends at 08:15; the quad has no clock), about 75 s after the world starts (at speed 60 a 15-minute step takes 15 s). The 08:30 arrivals then show: the boxes appear, the zones flip, and the writes go out in the agent's feed and terminal. Keep recording through the `live` beat's 60 s and more.
+7. **The louvers:** around sim 14:00, set the `Dashboard browser` URL back to `http://127.0.0.1:8090/?mode=video&agent=http://127.0.0.1:8002`, switch to the `Dashboard` scene for about 30 s while the AC unit panel follows the person in the clip, then stop the recording.
+8. Press Ctrl+C in the agent's window (it releases its slots), then in the world's, then the clip camera's. The run must say `Quotable` in its report before the video quotes it.
+9. **Put it in place:** rename OBS's file (named by date) to `video/takes/live_quad.mkv`. Note the second the `Quad` segment you want starts and the second the `Dashboard` segment starts, and set them as `in_s` of the `live` and `louvers` beats in `video/storyboard.yaml` (both are `0` placeholders until then).
 
 ## The meeting room from a recorded clip (no live phone needed)
 
@@ -129,6 +136,6 @@ The world polls the meeting room's camera for one JPEG at a time. `scripts/foota
    The dataset clips barely move sideways: in `admin2_one` the person stays at the right edge, and in `hall_quiet` the people stay near the centre.
 2. **Serve it**, in its own terminal:
    ```bash
-   uv run python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk.mp4 --port 8099
+   uv run python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk_30.mp4 --port 8099
    ```
 3. **Start the agent with `--vrf`.** Then start the world with `SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg` and `SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi`. The louvers' angle points follow the person in the clip; the dashboard's AC unit panel shows them.

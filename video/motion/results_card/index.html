@@ -209,8 +209,8 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="results_card" data-start="0" data-duration="27" data-width="1920" data-height="1080">
-      <div id="card-scene" class="clip" data-start="0" data-duration="27" data-track-index="1">
+    <div id="root" data-composition-id="results_card" data-start="0" data-duration="20" data-width="1920" data-height="1080">
+      <div id="card-scene" class="clip" data-start="0" data-duration="20" data-track-index="1">
         <div id="card-bg"></div>
         <div id="card-title" data-var-text="title">BOPTEST: SpotCool against the baseline</div>
         <div id="card-label" data-var-text="label">Label</div>
@@ -257,17 +257,17 @@
       enter("#card-title", 0.3);
       enter("#card-label", 0.9);
       // "SpotCool's policy used 19.94 % less HVAC energy than the baseline":
-      tl.fromTo("#card-saved", { opacity: 0, filter: "blur(14px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.7, ease: "expo.out" }, 3.0);
-      enter("#card-saved-caption", 3.5);
-      enter("#card-row-baseline", 4.6);
-      tl.fromTo("#card-bar-baseline", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(baseline), duration: 1.2, ease: "power3.out" }, 4.8);
-      enter("#card-row-spotcool", 5.6);
-      tl.fromTo("#card-bar-spotcool", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(spotcool), duration: 1.2, ease: "power3.out" }, 5.8);
+      tl.fromTo("#card-saved", { opacity: 0, filter: "blur(14px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.7, ease: "expo.out" }, 1.6);
+      enter("#card-saved-caption", 2.1);
+      enter("#card-row-baseline", 3.2);
+      tl.fromTo("#card-bar-baseline", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(baseline), duration: 1.2, ease: "power3.out" }, 3.4);
+      enter("#card-row-spotcool", 4.2);
+      tl.fromTo("#card-bar-spotcool", { clipPath: "inset(0% 100% 0% 0%)" }, { clipPath: open(spotcool), duration: 1.2, ease: "power3.out" }, 4.4);
       // "Discomfort where people were rose":
-      enter("#card-comfort", 10.6);
-      // "Treat it as an upper bound":
-      enter("#card-caveat", 17.8);
-      enter("#card-run", 18.6);
+      enter("#card-comfort", 8.6);
+      // "BOPTEST's occupant heat follows its own schedule":
+      enter("#card-caveat", 13.6);
+      enter("#card-run", 14.4);
       window.__timelines["results_card"] = tl;
     </script>
   </body>

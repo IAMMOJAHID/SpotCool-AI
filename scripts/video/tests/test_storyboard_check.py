@@ -85,15 +85,6 @@ def test_a_replay_must_play_inside_its_beat(tiny_board, monkeypatch):
     assert any("the replay plays 24.0 s" in e and "raise its speed" in e for e in errors)
 
 
-def test_the_storyboards_replay_fits_with_time_to_load():
-    board = load_storyboard()
-    beat = board.take_beat("dashboard_replay")
-    playing = storyboard_check.replay_span_s(beat.source.replay.run_id) / beat.source.replay.speed
-    assert (
-        storyboard_check.REPLAY_LOAD_S + playing + storyboard_check.REPLAY_SPARE_S <= beat.duration
-    )
-
-
 def test_a_source_figure_must_be_in_its_doc(tiny_board):
     wrong = Citation("bacnet", "BMS", "docs/runbooks/yabe.md", ("8", "123456"), "BACnet")
     assert "source bacnet: 123456 is not in docs/runbooks/yabe.md" in check(
