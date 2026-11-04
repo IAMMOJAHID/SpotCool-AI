@@ -11,35 +11,35 @@ How to record it (`video/README.md`, step 3):
 
 ## hook
 
-Kastle's badge data puts US office attendance at 56.1 % of its pre-pandemic level, 66.1 % on the peak day. Yet buildings still cool on a fixed schedule. HVAC is about 55 % of an Indian commercial building's energy, says the Bureau of Energy Efficiency. In PNNL's simulations of a large US office, counting occupants saved 17.8 % of whole-building energy, against 5.9 % for presence sensors.
+Hi. Offices are emptier now. Kastle's badge data puts US attendance at 56.1 % of its pre-pandemic level. Yet the cooling still runs on a fixed schedule, and in a typical Indian commercial building HVAC is about 55 % of the energy, says the Bureau of Energy Efficiency.
 
 ## plugs_in
 
-SpotCool adds no sensors. It uses three things a building already has. Its CCTV cameras count the people in each zone. Its BMS eases the cooling where nobody is. And complaints make sure a cold room is heard.
+Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool uses what's already there: the cameras, the BMS and complaints.
 
 ## world
 
-To test it without a real building, we built one: a BACnet BMS, a VRF unit, cameras and complaints. Behind them, one BOPTEST office runs twice, once with SpotCool and once as the baseline.
+We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST runs one office twice, with SpotCool and without.
 
-## bms_yabe
+## live
 
-Here is that BMS in YABE, a free BACnet explorer. An operator holds the core zone's cooling setpoint at priority 8. SpotCool writes at priority 10, so the operator always wins. The agent sees the hold, backs off, and says so.
-
-## dashboard
-
-This is the hybrid Tuesday, replayed from a saved run. People arrive, go to lunch, and meet in the afternoon. When a zone empties, its cooling setpoint goes up and its airflow shuts off. The booked meeting room is cooled half an hour before the meeting.
+This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each zone camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
 
 ## louvers
 
-In the meeting room, a phone stands in for the CCTV camera. As a person walks across the room, the agent aims the VRF unit's louvers at them, and the louvers turn smoothly to follow.
+In the meeting room, SAM finds the person in the camera. Here, the camera plays a recorded clip. The agent turns the AC's louvers to follow them.
+
+## meta_models
+
+Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model decides a BMS write.
 
 ## results
 
-SpotCool's agent watched every zone through Meta's SAM, and it was right about who was there at every step. On BOPTEST's office model it used 19.94 % less HVAC energy than the baseline. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule, not the cameras.
+In simulation, SpotCool's agent used 19.94 % less HVAC energy than the baseline, from SAM's occupancy alone, right at every zone-step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
 
 ## rollout
 
-Rollout needs no new hardware: on a real building, the agent's code does not change. Frames stay in memory. The record keeps counts and decisions, never images.
+It uses a building's own BMS and cameras, stores no frame, and an operator always wins.
 
 ## close
 

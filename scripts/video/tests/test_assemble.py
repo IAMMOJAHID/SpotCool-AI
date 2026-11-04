@@ -26,6 +26,16 @@ def test_a_missing_take_becomes_a_labelled_slate(tiny_board, takes):
     assert (outro.kind, outro.path) == ("take", takes / "outro_take.mkv")
 
 
+def test_one_take_feeds_two_beats_each_from_its_own_in_s(tiny_board, takes):
+    (takes / "intro_take.mkv").write_bytes(b"")
+    board = tiny_board(**{"take: outro_take,": "take: intro_take, in_s: 30,"})
+    intro, outro = assemble.resolve(board)
+    assert intro.path == outro.path == takes / "intro_take.mkv"
+    assert (intro.in_s, outro.in_s) == (1, 30)
+    args, _ = assemble.video_inputs(board, [intro, outro])
+    assert args[:2] == ["-ss", "1"] and args[6:8] == ["-ss", "30"]
+
+
 def test_the_overlay_has_slates_labels_and_captions(tiny_board, takes):
     board = tiny_board()
     (takes / "outro_take.mkv").write_bytes(b"")

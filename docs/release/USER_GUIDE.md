@@ -1,257 +1,314 @@
-# Your guide to the submission (Nov 4, by 21:00 IST)
+# Your guide to finishing the video and submitting
 
-**For:** you, the person doing the last, hands-on steps. **Written:** Nov 4, about 03:00 IST, after every engineering work package was merged into `agent/main`.
+**Do the steps in order. Do only one step at a time.** Each step says who does it: **You** or **Claude**. When a step says "tell Claude", type that message in the Claude Code panel.
 
-Everything the code can do is done. What's left needs you:
-- your voice;
-- your screen recordings (three "takes");
-- you, standing in front of the phone camera;
-- the upload and the form.
+**What you make:** two recordings. One screen recording in OBS, and your voice reading a script. Claude builds the video from them, so you don't edit anything by hand.
 
-This guide walks through each step from scratch: what to run, what you should see, and what to do when something goes wrong. Do the steps in the order given. The order keeps the most options open if something fails.
+**Total time for you:** about 1 hour 15 minutes.
 
----
+| # | Step | Who | Time |
+|---|---|---|---|
+| 1 | Get the laptop ready | You | 5 min |
+| 2 | Set up OBS | You | 10 min |
+| 3 | Set up the terminal | You | 3 min |
+| 4 | Check everything is running | Claude | 2 min |
+| 5 | Record the live screen | You and Claude | 20 min |
+| 6 | Record your voice | You | 20 min |
+| 7 | Build the final video | Claude | 15 min |
+| 8 | Watch it once | You | 5 min |
+| 9 | Upload to YouTube | You | 15 min |
+| 10 | Update the repo | Claude, on your word | 3 min |
+| 11 | Fill in the form | You | 5 min |
+| 12 | Change the API keys | You | 5 min |
 
-## What exists already (read once)
-
-- **The result.** SpotCool's own agent perceived each room through Meta's SAM 3.1 on public CCTV clips and drove a simulated building's BMS. It saved **19.94 % HVAC energy** against the baseline on BOPTEST, and its report says "Quotable".
-  - It was right about who was in each zone on 240 of 240 zone-steps.
-  - Comfort where people were cost 2.13 against 0.33 K·h. We show that honestly.
-  - The run is `runs/ag3-boptest-agent-s60`, and every figure is in `docs/release/numbers.md`.
-- **The video** is built by code from `video/storyboard.yaml`. A draft cut already builds and passes the automatic QA. Only four things are missing: your narration, and the three takes (YABE, the dashboard replay, the live louvers).
-- **The camera footage** is public MEVA dataset clips (CC BY 4.0), already in `C:\Users\hussa\dev\footage\datasets\meva`. Nothing needs filming except the live phone take.
-
-**Three rules hold throughout:**
-1. **Keep the laptop on one Wi-Fi network for the whole day.** The agent and the world find each other by the laptop's address. If Wi-Fi switches networks, restart both.
-2. **Never show or paste the API key.** It lives only in `C:\Users\hussa\dev\secrets\spotcool-agent.env`.
-3. **Stop programs with Ctrl+C** in their own window, never by closing the window. That's how they release what they hold.
-
----
-
-## Step 0. One-time setup (about 30 minutes)
-
-### 0.1 The terminal and the code
-Use **Git Bash** for every command in this guide, unless it says PowerShell.
-
-```bash
-cd /c/Users/hussa/dev/SpotCool-AI
-git switch agent/main
-git pull
-export UV_PROJECT_ENVIRONMENT="C:/Users/hussa/dev/venvs/spotcool-ai"
-export SPOTCOOL_WORLD_RUN_DIR="C:/Users/hussa/dev/SpotCool-AI/runs"
-export SPOTCOOL_WORLD_FOOTAGE_DIR="C:/Users/hussa/dev/footage"
-uv sync --all-packages --all-extras
-uv run spotcool-world version
-uv run spotcool-agent version
-```
-
-- **Expect:** two version lines, for example `spotcool-agent 0.1.0 (contracts 0.1.1)`.
-- **The `export` lines must be set in every new Git Bash window.** Paste all three each time, or put them in `~/.bashrc`.
-
-### 0.2 The dashboard (once)
-```bash
-cd apps/dashboard && npm ci && npm run build && cd ../..
-```
-**Expect:** it ends without errors and creates `apps/dashboard/dist`.
-
-### 0.3 OBS Studio (installed already)
-1. Open OBS. Go to Scene Collection > Import, choose `C:\Users\hussa\dev\SpotCool-AI\video\obs\scene_collection.json`, then select the "SpotCool video" collection. It has five scenes: Dashboard, Dashboard+Camera, YABE, PhoneCam and Quad.
-2. Go to Tools > WebSocket Server Settings and tick **Enable WebSocket server**. Click "Show Connect Info" and copy the password.
-3. In Git Bash, `export OBS_WS_PASSWORD='<the password>'`. Never commit or paste it anywhere else.
-4. Go to Settings > Output > Recording and set the format to **mkv**, so a recording survives a crash.
-5. Turn on Windows **Do Not Disturb**, and close mail, chat and anything with notifications.
-
-### 0.4 YABE (for take C)
-1. Download "Yet Another BACnet Explorer" from <https://sourceforge.net/projects/yetanotherbacnetexplorer/> and install it.
-2. You only open it during take C. `docs/runbooks/yabe.md` has the details.
-
-### 0.5 The phone (for take A)
-1. On the Android phone, install **IP Webcam** (by Pavel Khlebovich) from Google Play.
-2. In its settings, set Video preferences > Video resolution to **1280x720**.
-3. Put the phone on the **same Wi-Fi** as the laptop. Plug it into a charger.
-
-### 0.6 Network
-In PowerShell, stop the laptop from jumping to other networks:
-```powershell
-netsh wlan show profiles
-netsh wlan set profileparameter name="<each other profile>" connectionmode=manual
-```
+**Three rules, all the way through:**
+1. **Never show, paste or read out the API key.** It lives only in `C:\Users\hussa\dev\secrets\spotcool-agent.env`. Never open that file on screen.
+2. **Stop programs with Ctrl+C, never by closing the window.** That's how they release the building's controls.
+3. **Don't move or resize anything in OBS's preview,** and don't close the terminal during a recording.
 
 ---
 
-## Step A. The live louvers take, first (about 45 minutes; **finish by 16:00 IST**)
+## Step 1. Get the laptop ready (You, 5 min)
 
-This is the only take that needs a person. It goes first, because if it can't be made, the video's script changes before you record the narration (see "If take A fails").
+1. **Plug in the charger.**
+2. **Keep the LAN cable connected.** Don't unplug it until you've submitted.
+3. **Stop the laptop sleeping:** Windows **Settings > System > Power & battery > Screen and sleep**. Set every option to **Never**.
+4. **Stop notifications appearing in the recording:** Windows **Settings > System > Notifications**, and turn on **Do not disturb**.
+5. **Close** mail, chat, and browser windows you don't need. Anything visible on screen could end up in the video.
 
-**What it shows:** you walk across the phone camera's view. The agent sees you through SAM 3.1 and aims the meeting room's simulated air-conditioning louvers at you, so the dashboard's louver angles follow you.
+---
 
-1. **Phone.** Mount it at about head height (around 2.8 m is the default the agent assumes), tilted down a little. It should face the area you'll walk across. In IP Webcam, tap **Start server** and read the address on the phone's screen, for example `http://192.168.0.105:8080`.
-2. **Check it** in a laptop browser: `http://<phone address>/shot.jpg` must show one photo.
-3. **Window 1: the agent first.** In a new Git Bash, run the three exports from 0.1, then:
-   ```bash
-   uv run spotcool-agent run --vrf --vision meta --stt meta --llm meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env
+## Step 2. Set up OBS (You, 10 min)
+
+OBS is the program that records the screen. You already have version 33 installed. If it's ever missing, download it from <https://obsproject.com>.
+
+### 2.1 Open OBS and load our scenes
+
+1. Open **OBS Studio** from the Start menu. If a setup wizard appears, click **Cancel**.
+2. You already imported our scenes, so check the top of the window: the title bar should say **Scenes: SpotCool video 2**.
+3. **Only if it doesn't:**
+   - Click **Scene Collection** in the top menu, then **Import**.
+   - Click **...** next to an empty row, and choose `C:\Users\hussa\dev\SpotCool-AI\video\obs\scene_collection.json`.
+   - Tick it and click **Import**.
+   - Click **Scene Collection** again, and choose the SpotCool one.
+4. In the **Scenes** box at the bottom left you should see: Dashboard, Dashboard+Camera, YABE, PhoneCam, Quad. We only use **Quad** and **Dashboard**. Ignore the rest.
+
+### 2.2 Settings
+
+Click **Settings**, at the bottom right.
+
+1. **Output tab:**
+   - **Output Mode:** Simple.
+   - **Recording Path:** click **Browse**, and choose `C:\Users\hussa\dev\SpotCool-AI\video\takes`.
+   - **Recording Quality:** High Quality, Medium File Size.
+   - **Recording Format:** `mkv` (a recording survives a crash).
+2. **Audio tab:** set **Desktop Audio** and **Mic/Auxiliary Audio** to **Disabled**. Your voice is recorded separately in Step 6, so this keeps room noise out.
+3. **Video tab:**
+   - **Base (Canvas) Resolution:** `1920x1080`.
+   - **Output (Scaled) Resolution:** `1920x1080`.
+   - **Common FPS Values:** `30`.
+4. Click **OK**.
+
+### 2.3 Fix the three sources
+
+You may have done these already. Check each one anyway.
+
+**A. The dashboard pane**
+1. In **Scenes**, click **Quad**.
+2. In **Sources**, double-click **Quad dashboard**.
+3. Click in the **URL** box, press **Ctrl+A**, and paste:
+   ```text
+   http://127.0.0.1:8090/?mode=video&panels=floorplan,energy,agent&agent=http://127.0.0.1:8002
    ```
-   Leave it running. Warnings like "no-response" are normal until the world starts.
-4. **Window 2: the world.** In a new Git Bash, run the three exports, then:
+4. Click **OK**.
+
+**B. The full dashboard**
+1. In **Scenes**, click **Dashboard**.
+2. In **Sources**, double-click **Dashboard browser**.
+3. Scroll down, and tick both **Shutdown source when not visible** and **Refresh browser when scene becomes active**.
+4. Click **OK**.
+5. In **Scenes**, click **Quad** again.
+
+Without this, the camera images in the bottom-left pane go black, as they did in take 1.
+
+**C. The terminal pane** (do Step 3 first if you have no terminal open)
+1. In **Sources**, double-click **Agent terminal**.
+2. **Window:** choose the entry starting `[WindowsTerminal.exe]`.
+3. **Capture Method:** **Modern (WGC)**.
+4. **Window Match Priority:** **Match title, otherwise find window of same executable**.
+5. Tick **Multi-adapter Compatibility**.
+6. Click **OK**.
+
+**What you should see:** the terminal in the bottom-right corner of the preview, and the other three corners black. **Black is correct for now.** They fill in once the program runs.
+
+---
+
+## Step 3. Set up the terminal (You, 3 min)
+
+1. Open **Windows Terminal**. If you have a tab open already, use it.
+2. **Font:** click the **˅** next to the **+**, then **Settings > Git Bash > Appearance > Font size**. Set it to **20**, then click **Save**. Close the Settings tab.
+3. **Make the window about half your screen's width and height,** so the text looks bigger on video.
+4. **From now on,** don't minimize the terminal or close it. Other windows can cover it.
+
+---
+
+## Step 4. Check everything is running (Claude, 2 min)
+
+**Tell Claude:** "check everything for the live take".
+
+Claude checks these three and restarts any that's down:
+- the BOPTEST building simulator in the cloud;
+- the port forward to it;
+- the camera that plays your walking clip.
+
+**Wait for Claude to say "ready".**
+
+---
+
+## Step 5. Record the live screen (You and Claude, 20 min)
+
+Nothing here needs you to be fast. The whole thing runs by itself; you click at three moments.
+
+1. **Start the agent.** Paste this in the terminal and press **Enter**:
    ```bash
-   export SPOTCOOL_WORLD_LIVE_CAMERA_URL="http://<phone address>/shot.jpg"
-   export SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi
-   uv run spotcool-world run --plant rc --speed 1
+   cd /c/Users/hussa/dev/SpotCool-AI && export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai && /c/Users/hussa/.local/bin/uv run --no-sync spotcool-agent run --world-host 127.0.0.1 --vision meta --stt meta --llm meta --scene meta --vrf --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env 2>&1 | grep --line-buffered "META"
    ```
-   It prints its BMS and VRF addresses. **Wait 6 minutes:** the simulated room settles from 30 degC.
-5. **Rehearse.**
-   - Open `http://127.0.0.1:8090/?mode=video&agent=http://127.0.0.1:8002` in a browser.
-   - Walk slowly from the left edge of the phone's view to the right.
-   - In window 1, the agent logs `decision` lines for `IDU-VANE-H`, and the dashboard's VRF panel shows the louver angle moving.
-   - **If left and right are swapped,** stop the agent (Ctrl+C), add `--vrf-mirror` to its command, and start it again.
-6. **Record.** Window 3, with the exports, `OBS_WS_PASSWORD` and `SPOTCOOL_WORLD_LIVE_CAMERA_URL`:
-   ```bash
-   uv run python scripts/video/take.py phone_vrf --dry-run          # prints the schedule; no OBS needed
-   uv run python scripts/video/take.py phone_vrf --agent http://127.0.0.1:8002
+   The terminal stays **empty**. That's correct: it only shows Meta's calls, and there are none until the world starts.
+2. **Start recording.** In OBS: click **Quad** in the Scenes box, then **Start Recording**, at the bottom right. The red timer at the bottom starts counting.
+3. **Tell Claude:** "started". Claude starts the world.
+4. **Within about a minute,** the terminal starts showing `META` lines.
+   - The three other boxes may stay black. If they do, click **Quad dashboard** in Sources, then **Refresh** above the list. Do the same for **Quad raw feeds** and **Quad SAM boxes**.
+5. **The simulated day runs by itself,** from 07:00 to 19:00 in about 12 minutes: one simulated hour per real minute. Don't touch anything.
+6. **About 7 minutes after the first `META` lines appear** (Claude also tells you "switch now"):
+   - **Write down the red timer** shown at the bottom of OBS, for example `00:08:12`.
+   - Click **Dashboard** in the Scenes box.
+   - Wait **30 seconds**. You'll see the full dashboard, with the AC unit and its louvers.
+   - Click **Quad** again.
+7. **Wait for Claude to say "done"** (when the simulated day ends).
+8. Click **Stop Recording** in OBS.
+9. Click into the terminal, press **Ctrl+C once**, and wait for the `$` prompt.
+10. **Tell Claude:** "recorded, I switched at" and the timer you wrote down.
+
+Claude then checks the run's verdict, renames the recording, works out the cut points, and shuts down BOPTEST.
+
+**If something goes wrong partway,** don't panic. Tell Claude what you see. We already have take 1 as a backup, and a new try costs only 15 minutes.
+
+---
+
+## Step 6. Record your voice (You, 20 min)
+
+### 6.1 How to record
+
+1. Use a **quiet room**, with the fan and AC off, and doors closed.
+2. **Use either of these. Both work:**
+   - **Phone:** its voice recorder app. Hold it about a hand's width from your mouth.
+   - **Laptop:** the Windows **Sound Recorder** app (search for it in the Start menu), with a headset if you have one.
+3. **Read calmly,** like explaining it to a colleague. Not fast.
+4. **Stop for 2 full seconds between sections** (count "one, two" in your head). Don't pause that long inside a section. This pause is how the program finds each section.
+5. **If you make a mistake:** pause 2 seconds and read **that whole section again**. Tell Claude which section you repeated, and Claude keeps the last one.
+6. **Do one practice read first,** without recording.
+
+### 6.2 How to say the words
+
+| Written | Say |
+|---|---|
+| 56.1 % | fifty-six point one percent |
+| 55 % | fifty-five percent |
+| 19.94 % | nineteen point nine four percent |
+| 0.33 to 2.13 | zero point three three to two point one three |
+| SAM 3.1 | sam three point one |
+| HVAC | H-V-A-C (each letter) |
+| BMS | B-M-S (each letter) |
+| BACnet | back-net |
+| BOPTEST | bop-test |
+| Kastle | castle |
+
+### 6.3 The script
+
+Read these in this order. The time is how long the section has; it's a guide, not a test.
+
+**1. Hook (22 s)**
+> Hi. Offices are emptier now. Kastle's badge data puts US attendance at 56.1 % of its pre-pandemic level. Yet the cooling still runs on a fixed schedule, and in a typical Indian commercial building HVAC is about 55 % of the energy, says the Bureau of Energy Efficiency.
+
+**2. What it is (14 s)**
+> Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool uses what's already there: the cameras, the BMS and complaints.
+
+**3. The test building (12 s)**
+> We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST runs one office twice, with SpotCool and without.
+
+**4. Live (60 s, the long one)**
+> This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each zone camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
+
+**5. Louvers (12 s)**
+> In the meeting room, SAM finds the person in the camera. Here, the camera plays a recorded clip. The agent turns the AC's louvers to follow them.
+
+**6. Meta's models (20 s)**
+> Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model decides a BMS write.
+
+**7. Result (20 s)**
+> In simulation, SpotCool's agent used 19.94 % less HVAC energy than the baseline, from SAM's occupancy alone, right at every zone-step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
+
+**8. Rollout (8 s)**
+> It uses a building's own BMS and cameras, stores no frame, and an operator always wins.
+
+**9. Close (4 s)**
+> SpotCool. Cooling that follows people.
+
+Please don't change the numbers or the wording of the claims: each one is checked against our records. If a sentence is hard to say, tell Claude and it will reword it honestly.
+
+### 6.4 Hand it over
+
+1. **Phone:** copy the file to the laptop by cable, WhatsApp to yourself, or email.
+2. Put the file in `C:\Users\hussa\dev\SpotCool-AI\video\raw\`. Any format is fine (m4a, mp3, wav).
+3. **Tell Claude:** "voice done", and the file's name.
+
+Claude converts it and checks each section fits. If a section runs long, Claude tells you which one to record again.
+
+---
+
+## Step 7. Build the final video (Claude, 15 min)
+
+**Claude does all of this.** You don't need to do anything.
+- draws the slides;
+- cuts your screen recording and voice together, with captions;
+- runs the automatic quality checks: length, loudness, every number's source.
+
+**Music is optional, and I recommend skipping it,** because it adds licence work and doesn't win anything. If you want it, pick one track from the YouTube Audio Library, give Claude the file and its page link, and Claude adds the credit.
+
+The result is `C:\Users\hussa\dev\SpotCool-AI\video\renders\spotcool.mp4`.
+
+---
+
+## Step 8. Watch it once (You, 5 min)
+
+Double-click `spotcool.mp4`. Watch it all the way through with sound, and check:
+
+1. **Privacy:** no key, email, notification, browser tab or private window in any frame. Pause if you're unsure.
+2. **The four panes** show, and the terminal's `META` lines can be read.
+3. **Your voice** matches what's on screen.
+4. **The result card** says "SpotCool saved (SAM 3.1 perception, in simulation)".
+5. **In the louvers part,** the louvers move, and the tile says "recorded clip".
+6. **The last slide** shows `github.com/IAMMOJAHID/SpotCool-AI`.
+
+If anything's wrong, tell Claude the time in the video and what you saw.
+
+---
+
+## Step 9. Upload to YouTube (You, 15 min)
+
+1. Go to <https://www.youtube.com> and sign in. Click **Create** (the camera icon, top right), then **Upload video**.
+2. Click **Select files**, and choose `C:\Users\hussa\dev\SpotCool-AI\video\renders\spotcool.mp4`.
+3. **Title:**
+   ```text
+   SpotCool: cooling that follows people (Meta AI hackathon)
    ```
-   Press Enter when it asks, and follow the cues it prints:
-   - 0 s: enter at the left edge and walk right;
-   - 7 s: sit on the far chair for 5 s, then walk back toward the camera.
-
-   The file lands in `video/takes/phone_vrf.mkv`.
-7. **Watch it** (double-click the file; Windows' player is fine). Check that the louvers move smoothly and nothing private is on screen. Re-run step 6 to re-shoot.
-8. **Stop:** Ctrl+C in window 1 (the agent) first, then in window 2 (the world).
-
-**If take A fails** (no movement, the phone unreachable, or 16:00 has passed): **tell Claude "drop the louvers beat"** before you record the narration. The storyboard and the narration lose that beat (about 15 minutes of work for Claude), and the video stays complete.
-
----
-
-## Step B. Record the narration (about 40 minutes)
-
-1. Open `C:\Users\hussa\dev\SpotCool-AI\video\narration.md`. Read it top to bottom once, aloud. There's one section per beat; the title beat has none.
-2. **Record in Audacity** (installed), in a quiet room, with the microphone about a hand's width away:
-   - read at about **140 words a minute**, plainly, like explaining it to a colleague;
-   - say every number as written: "nineteen point nine four percent", "zero point three three";
-   - **pause about 2 seconds between sections,** and never that long inside one. The cut uses those pauses to place each section at its beat;
-   - a mistake? Pause 2 s and read that whole section again. Then delete the bad take in Audacity before exporting.
-3. **Export:** File > Export Audio > WAV (16-bit PCM). Then convert and place it:
-   ```bash
-   mkdir -p video/raw
-   ffmpeg -i /c/path/to/your-export.wav -ac 1 -ar 48000 video/raw/narration.wav
+4. **Description:** paste this. Every figure in it is checked:
+   ```text
+   SpotCool's agent watches each zone of an office through Meta's SAM 3.1 and drives the building's BACnet BMS: empty zones get a raised setpoint and their airflow shut off, booked rooms are pre-cooled, and an operator's override always wins. In the meeting room, the AC's louvers follow a person on camera. Muse Spark (muse-spark-1.3) reads what people wear and do, for the room's comfort setpoint; Muse Voice (muse-voice-transcribe-1.0) turns a spoken complaint into text; Muse Wonder (muse-wonder-1.0) works out what it means, answers it, and narrates each step's decisions. The models perceive and code decides: no language model decides a BMS write. In simulation (BOPTEST's multizone office, a hybrid Tuesday), it used 19.94 % less HVAC energy than the baseline, and was right about which zones had people at every step it perceived; discomfort where people were rose from 0.33 to 2.13 K·h. BOPTEST's occupant heat follows its own schedule, not the cameras. Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0. Building model: BOPTEST (IBPSA), BSD-3-Clause.
    ```
-   From a phone recording instead: `ffmpeg -i narration.m4a -ac 1 -ar 48000 video/raw/narration.wav`.
-4. **Check that it fits:**
-   ```bash
-   uv run python scripts/video/captions.py
-   ```
-   - **Expect:** no errors, and `video/renders/spotcool_draft.srt` written.
-   - **If a section runs past its beat,** it names it: read that section again a little faster and re-record.
-   - **If it complains about the pauses,** your breaks weren't clearly longer than the pauses inside sections: re-record with clearer 2 s breaks.
+5. **Audience:** select **No, it's not made for kids**.
+6. Click **Next** three times, until you reach **Visibility**.
+7. Select **Unlisted**, then **Save**. Unlisted means only people with the link can see it, which is what the form needs. If the form asks for a public video, choose **Public**.
+8. **Copy the link** YouTube shows.
+9. **Wait until YouTube finishes processing,** then open the link and watch a few seconds to confirm it plays in HD.
 
 ---
 
-## Step C. The YABE take: an operator overrides the agent (about 30 minutes)
+## Step 10. Update the repo (Claude, on your word, 3 min)
 
-**What it shows:** a building operator holds the core zone's setpoint at a higher BACnet priority. SpotCool's agent sees the hold, backs off, and says so on the dashboard. This was rehearsed on Nov 4 with a scripted operator.
+Judges open the repo's front page, which shows the `main` branch. Right now `main` has almost nothing, and everything is on `dev`.
 
-1. **Window 1: the agent, on loopback:**
-   ```bash
-   uv run spotcool-agent run --world-host 127.0.0.1 --bms-port 47809 --vision meta --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env
-   ```
-2. **Window 2: the world, on loopback:**
-   ```bash
-   SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1 SPOTCOOL_WORLD_BMS_PORT=47809 SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1 uv run spotcool-world run --plant rc --speed 60
-   ```
-   Open `http://127.0.0.1:8090/?mode=video` in a browser.
-3. **Connect YABE** (`docs/runbooks/yabe.md`, "Connect", steps 2–3):
-   - Functions > Add BACnet Channel: "BACnet/IP V4 & V6 over Udp", port 47808, local endpoint `127.0.0.1`, then Start.
-   - Functions > IP Services > Add Remote Bacnet/IP node: `1001 - 127.0.0.1:47809`.
-4. **Hold Core** any time between 08:30 and 17:45 on the dashboard clock. At speed 60 a 15-minute step takes 15 s, so 08:30 comes about 90 s after the world starts.
-   - Press **Ctrl+Alt+8** in YABE. It beeps, and its log says "WritePriority change to level 8".
-   - Open `ANALOG_VALUE:201` (`ZN-COR-CLG-SP`) and write Present Value **23**.
-   - Its Priority Array shows 23 at 8.
-5. **Wait for 18:15** on the dashboard clock, about 10 minutes later. The agent panel shows *"Core: ZN-COR-CLG-SP is held at 23.0 by an operator at priority 8 -> backed off from writing 28.0"*.
-6. **Record** (window 3, with the exports and `OBS_WS_PASSWORD`):
-   ```bash
-   uv run python scripts/video/take.py yabe_override --dry-run
-   uv run python scripts/video/take.py yabe_override
-   ```
-   Follow its cues:
-   - show the Priority Array in YABE;
-   - OBS switches to the dashboard by itself;
-   - at the last cue, in YABE, still at priority 8, clear Present Value and press Enter to release.
+**Tell Claude:** "the video link is" followed by the link, "and update main from dev".
 
-   The agent writes 28 at the next step.
-7. **Stop:** Ctrl+C in window 1, then window 2.
+Claude puts the link in the README and updates `main`.
+
+**Then check it yourself:** open <https://github.com/IAMMOJAHID/SpotCool-AI>. The front page should say "SpotCool: cooling that follows people", with your video link near the top.
 
 ---
 
-## Step D. The dashboard replay take (about 10 minutes, hands off)
+## Step 11. Fill in the form (You, 5 min)
 
-```bash
-uv run python scripts/video/take.py dashboard_replay --dry-run
-uv run python scripts/video/take.py dashboard_replay
-```
+Read the form's own rules first. Our notes say: a video of 3 minutes or less (ours is 2:56), a public repo, contributors listed, built during the event, and third-party licences listed (ours are in `CREDITS.md`).
 
-It starts a replay of the agent's scored run by itself, loads the dashboard and records: 07:00 to 19:00 in 16 seconds. Don't touch anything while it runs. Afterwards, watch `video/takes/dashboard_replay.mkv`.
+Give:
+- **Video:** your YouTube link.
+- **Repo:** `https://github.com/IAMMOJAHID/SpotCool-AI`
+- **Team:** your team's names.
+- **If it asks which Meta models you used:** `sam-3.1`, `muse-spark-1.3`, `muse-voice-transcribe-1.0`, `muse-wonder-1.0`. Add `muse-image-1.0` only if Claude has confirmed it's merged. The full explanation is `docs/META_MODELS.md`, which you can link.
 
----
-
-## Step E. Music (optional, about 15 minutes)
-
-1. Pick one track from the YouTube Audio Library or Pixabay Music, and keep its page URL and licence text.
-2. Save it as `video/raw/music/<file>`.
-3. Add one row to `CREDITS.md` (Media: file, what, URL, licence, attribution, "user"). Claude can do this if you paste the page URL.
+Then **submit**, and take a screenshot of the confirmation page.
 
 ---
 
-## Step F. The final cut and QA (about 20 minutes)
+## Step 12. Change the API keys (You, 5 min)
 
-```bash
-uv run python scripts/video/results_card.py
-uv run python scripts/video/render_motion.py
-uv run python scripts/video/assemble.py --final --output video/renders/spotcool.mp4
-uv run python scripts/video/qa.py video/renders/spotcool.mp4 --final
-```
+Do this **after submitting**, and soon: the repo's history contains old copies of these keys.
 
-- `render_motion.py` takes about 5 minutes, and only needs re-running if something on screen changed.
-- With music, add `--music video/raw/music/<file>` to the `assemble.py` line.
-- **Expect:** `qa: spotcool.mp4 passes`. A `FAIL` line says what's wrong. If you can't fix it, paste the output to Claude.
+1. In Meta's developer console, revoke the current API key and create a new one.
+2. In Baseten's console, do the same.
+3. If you'll use the new Meta key here, open `C:\Users\hussa\dev\secrets\spotcool-agent.env` (not on a shared screen) and replace the value after `META_API_KEY=`.
 
----
-
-## Step G. Watch it once, carefully (about 15 minutes)
-
-Use `video/QA.md` ("Watch it"). The essentials:
-1. **Privacy:** no key, email, notification, browser tab, real name, or private screen in any frame.
-2. **Honesty:** the card says "SpotCool saved (SAM 3.1 perception, in simulation)", and the narration says the occupant-heat caveat once.
-3. **The takes:**
-   - YABE shows 23 at priority 8 and the "backed off" message;
-   - the replay runs the whole day inside its beat;
-   - the louvers slew, they don't jump.
-4. **Captions:** proofread them against your voice.
-5. **The close:** the repo address `github.com/IAMMOJAHID/SpotCool-AI` is right, and the sources slide can be read when paused.
-
----
-
-## Step H. Upload and submit (about 30 minutes; **before 21:00 IST**)
-
-1. **YouTube:** upload `video/renders/spotcool.mp4` as **Unlisted**.
-   - **Title:** "SpotCool: cooling that follows people (Meta AI hackathon)".
-   - **Description:** paste the result line and the credits below.
-   - Attach `video/renders/spotcool.srt` as captions if you like.
-2. **Description text** (safe to paste; every figure is from `docs/release/numbers.md`):
-   > SpotCool's agent watches each zone of an office through Meta's SAM 3.1 and drives the building's BACnet BMS: empty zones get a raised setpoint and their airflow shut off, booked rooms are pre-cooled, and an operator's override always wins. In simulation (BOPTEST's multizone office, a hybrid Tuesday), it used 19.94 % less HVAC energy than the baseline, with occupancy right on every 15-minute step; discomfort where people were rose from 0.33 to 2.13 K·h. Camera footage: MEVA dataset (Kitware Inc. and IARPA), CC BY 4.0. Building model: BOPTEST (IBPSA), BSD-3-Clause.
-3. **Watch the uploaded copy once,** at full quality.
-4. **Put the link in the README.** Tell Claude "the video link is", followed by the URL. Claude replaces the README's `Video: <YouTube link>` line on a `docs/readme-video-link` branch and merges it into `agent/main` and `dev` (and `main`, below). Then open `https://github.com/IAMMOJAHID/SpotCool-AI` and check that the front page shows the new README with the link.
-5. **The judges see `main`.** It's the repo's default branch, and until it's updated it holds only the "Initial commit". The submission-ready repo is `dev` (merged Nov 4, AG6). Before you submit, tell Claude "update main from dev". `main` is an ancestor of `dev`, so it's a fast-forward with nothing to resolve. Or set the default branch to `dev` in GitHub's settings.
-6. **The form.** Confirm its rules on the form itself. Our notes say: a video of 3 minutes or less (ours is 2:56), a public repo, contributors listed, built during the event, and third-party licences listed (`CREDITS.md`). Give:
-   - the YouTube link;
-   - the repo `https://github.com/IAMMOJAHID/SpotCool-AI` (its default branch, once step 5 is done);
-   - the team.
-
----
-
-## Step I. After submitting
-
-1. **Rotate the keys** (urgent, because the repo history holds the old ones): the Meta API key and the Baseten key, in their providers' consoles. Then put the new Meta key in `C:\Users\hussa\dev\secrets\spotcool-agent.env` (`META_API_KEY=...`).
-2. **The BOPTEST Codespace** is already stopped. If you ever start it, stop it after: `gh codespace stop -c spotcool-boptest-qxxjjj94x672rp`.
-3. **The repo** needs nothing more. `dev` holds everything, with the judges' README, and so does `main` once Step H5 is done.
+Claude can't do this for you, and you should never paste a key into chat.
 
 ---
 
@@ -259,28 +316,14 @@ Use `video/QA.md` ("Watch it"). The essentials:
 
 | What you see | What to do |
 |---|---|
-| The agent keeps printing `SIM-CLOCK unanswered` | The world isn't running, or its address differs. Start the world, and check both are on the same Wi-Fi. For YABE (step C), both need the loopback options shown there. |
-| `take.py` says it can't connect to OBS | OBS isn't open, its WebSocket server is off, or `OBS_WS_PASSWORD` isn't set in that window. |
-| `take.py` says a scene is missing | Import `video/obs/scene_collection.json` again (step 0.3). |
-| The phone's `shot.jpg` doesn't open | Phone and laptop are on different networks, or IP Webcam isn't started. The address can change after Wi-Fi reconnects. |
-| The louvers move the wrong way | Restart the agent with `--vrf-mirror`. |
-| The louvers don't move at all | The world must have `SPOTCOOL_WORLD_LIVE_CAMERA_URL` set, and the agent must have `--vrf`. Check the agent's log for SAM errors (rate limits). Try walking slower, closer to the phone. |
-| `captions.py` says a section runs long | Re-record that section a little faster. |
-| `qa.py --final` lists PENDING items | A take or the narration is missing: do that step. |
-| Anything else | Copy the exact output and ask Claude. Each step's runbook is in `docs/runbooks/` and `video/README.md`. |
+| OBS's preview is all black, even the terminal | Redo Step 2.3 C. Check **Modern (WGC)** and **Multi-adapter Compatibility** |
+| The three browser panes stay black during a recording | Click each one in **Sources**, then **Refresh** |
+| The camera tiles in the bottom-left pane go black, with only boxes showing | Redo Step 2.3 B, then **Refresh** Quad SAM boxes |
+| The terminal shows a red error, or says `command not found` | Copy the text and paste it to Claude. Don't start recording |
+| The terminal stays empty for over 2 minutes after "started" | Tell Claude. The world may not have started |
+| OBS says it can't start recording | Check Step 2.2's Recording Path exists, and tell Claude |
+| Your voice is too quiet or noisy | Record again closer to the microphone, in a quieter place |
+| You're running out of time | Tell Claude. Take 1 already exists, so the live take can be skipped, and a phone voice recording is enough |
+| Anything else | Copy what you see, or send a screenshot, and tell Claude |
 
-**Time plan,** if you start at 09:00:
-
-| Time | Step |
-|---|---|
-| 09:00 | setup |
-| 09:30 | A (louvers) |
-| 10:30 | B (narration) |
-| 11:15 | C (YABE) |
-| 11:45 | D (replay) |
-| 12:00 | E (music) |
-| 12:15 | F (final cut) |
-| 12:45 | G (watch) |
-| 13:15 | H (upload and form) |
-
-That leaves 7+ hours of buffer before 21:00.
+**For Claude, or a fresh session:** the exact commands, the world's start command, and how to set the `in_s` cut points are in `docs/agent/HANDOFF.md`, "Resume here".

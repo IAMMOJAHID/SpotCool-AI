@@ -37,17 +37,17 @@ Run through this list before the upload. The items marked **(qa.py)** are checke
   - no screen showing content.
 - [ ] **Consent.** On camera there are only:
   - the MEVA dataset's people (CC BY 4.0, credited in `CREDITS.md` and on the sources slide);
-  - you on the phone take;
+  - the person in the meeting room's recorded walking clip;
   - anyone else who signed the consent form (`docs/footage/consent.md`). The signed forms stay outside the repo.
 - [ ] **Honesty:**
-  - The results beat says the agent saw every zone through Meta's SAM, and says the limitation once: BOPTEST's occupant heat follows its own schedule.
-  - The card says "SpotCool saved (SAM 3.1 perception, in simulation)", and the dashboard take's label says "SpotCool's agent, in simulation".
+  - The results beat says the agent got occupancy right at every step it saw, and says the limitation once: BOPTEST's occupant heat follows its own schedule.
+  - The card says "SpotCool saved (SAM 3.1 perception, in simulation)", and the live take's label says the cameras play MEVA dataset clips.
   - Nothing claims the agent counted people exactly: only occupied or empty is scored.
-- [ ] **The numbers on screen are the narration's.** Nothing on the dashboard take is read out as SpotCool's own saving.
+- [ ] **The numbers on screen are the narration's.** Nothing on the live take's dashboard is read out as a figure; the results card is the only saving quoted.
 - [ ] **The takes:**
-  - The YABE take shows 23 at priority 8 with slot 10 empty, and the dashboard's "backed off from writing 28.0" message.
-  - The replay plays the whole day, 07:00 to 19:00 in 16 s, inside the beat: it starts just after the dashboard appears and ends before the cut.
-  - The louvers slew; they don't jump.
+  - The `live` beat shows all four panes, with the terminal's `META` lines readable, and the 08:30 arrivals: the boxes appear and the zones flip.
+  - The `louvers` beat shows the Dashboard scene, and the louvers slew; they don't jump.
+  - Each beat starts at its own `in_s` into `video/takes/live_quad.mkv`; neither shows a scene switch or OBS itself.
 - [ ] **The sound:**
   - The voice is clear over the music, with no clipping and no clicks at paragraph starts.
   - The music fades out by the close.
