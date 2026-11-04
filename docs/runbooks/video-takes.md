@@ -138,4 +138,5 @@ The world polls the meeting room's camera for one JPEG at a time. `scripts/foota
    ```bash
    uv run python scripts/footage/clip_camera.py C:/Users/hussa/dev/footage/raw/meeting_walk_30.mp4 --port 8099
    ```
+   Then open `http://127.0.0.1:8099/shot.jpg` and **look at the frame**. Two takes went out with a forgotten camera's clip on this tile. The script now refuses a port that's in use.
 3. **Start the agent with `--vrf`.** Then start the world with `SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://127.0.0.1:8099/shot.jpg` and `SPOTCOOL_WORLD_VRF_PROFILE=mitsubishi`. The louvers' angle points follow the person in the clip; the dashboard's AC unit panel shows them.

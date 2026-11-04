@@ -134,10 +134,9 @@ Nothing here needs you to be fast. The whole thing runs by itself; you click at 
    cd /c/Users/hussa/dev/SpotCool-AI && export UV_PROJECT_ENVIRONMENT=C:/Users/hussa/dev/venvs/spotcool-ai && /c/Users/hussa/.local/bin/uv run --no-sync spotcool-agent run --world-host 127.0.0.1 --vision meta --stt meta --llm meta --scene meta --vrf --env-file C:/Users/hussa/dev/secrets/spotcool-agent.env 2>&1 | grep --line-buffered "META"
    ```
    The terminal stays **empty**. That's correct: it only shows Meta's calls, and there are none until the world starts.
-2. **Start recording.** In OBS: click **Quad** in the Scenes box, then **Start Recording**, at the bottom right. The red timer at the bottom starts counting.
-3. **Tell Claude:** "started". Claude starts the world.
-4. **Within about a minute,** the terminal starts showing `META` lines.
-   - The three other boxes may stay black. If they do, click **Quad dashboard** in Sources, then **Refresh** above the list. Do the same for **Quad raw feeds** and **Quad SAM boxes**.
+2. **Tell Claude:** "agent running". Claude starts the world.
+3. **When Claude says "refresh":** click **Quad dashboard** in Sources, then **Refresh** above the list. Do the same for **Quad raw feeds** and **Quad SAM boxes**. Check that **your room** shows on the meeting-room tiles, and tell Claude.
+4. **When Claude says "record":** in OBS, click **Quad** in the Scenes box, then **Start Recording**, at the bottom right. The red timer at the bottom starts counting. Don't refresh anything after this.
 5. **The simulated day runs by itself,** from 07:00 to 19:00 in about 12 minutes: one simulated hour per real minute. Don't touch anything.
 6. **About 7 minutes after the first `META` lines appear** (Claude also tells you "switch now"):
    - **Write down the red timer** shown at the bottom of OBS, for example `00:08:12`.
@@ -151,7 +150,7 @@ Nothing here needs you to be fast. The whole thing runs by itself; you click at 
 
 Claude then checks the run's verdict, renames the recording, works out the cut points, and shuts down BOPTEST.
 
-**If something goes wrong partway,** don't panic. Tell Claude what you see. We already have take 1 as a backup, and a new try costs only 15 minutes.
+**If something goes wrong partway,** don't panic. Tell Claude what you see. We already have an earlier take as a backup, and a new try costs only 15 minutes.
 
 ---
 
