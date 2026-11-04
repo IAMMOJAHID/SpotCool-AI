@@ -155,7 +155,7 @@ function CameraTile(props: {
         />
         {lost && <span className="cam-lost">no signal</span>}
         <Overlay camera={camera} masks={masks} people={people} />
-        {live && <Tag kind="live">live</Tag>}
+        {live && !camera.name.toLowerCase().includes('recorded') && <Tag kind="live">live</Tag>}
       </div>
       <figcaption>
         <span className="cam-name" title={camera.name}>
