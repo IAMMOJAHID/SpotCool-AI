@@ -197,7 +197,7 @@ async def a_day(**features: Any) -> tuple[list[tuple[str, Value]], list[Any], li
         rig.clock.observe(ClockReading(T0 + k * STEP_S))
         assert rig.clock.latest is not None
         await rig.loop.step(rig.clock.latest)
-        await asyncio.sleep(0.01)  # the background readings finish
+        await asyncio.sleep(0.01)  # the background readings and narration finish
     await rig.loop.stop_background()
     decisions = [data for kind, data in rig.events if kind is EventType.DECISION]
     texts = [data["text"] for kind, data in rig.events if kind is EventType.EXPLANATION]
@@ -205,8 +205,10 @@ async def a_day(**features: Any) -> tuple[list[tuple[str, Value]], list[Any], li
 
 
 @pytest.mark.asyncio
-async def test_the_scene_notes_never_change_a_bms_write() -> None:
+async def test_the_scene_notes_and_narration_never_change_a_bms_write() -> None:
+    from spotcool_agent.loops.narration import Narrator
     from spotcool_agent.loops.scene import SceneNotes
+    from spotcool_agent.services.fake.llm import FakeLLM
     from spotcool_agent.services.fake.scene import FakeScene, office
 
     plain_writes, plain_decisions, plain_texts = await a_day()
@@ -217,12 +219,14 @@ async def test_the_scene_notes_never_change_a_bms_write() -> None:
         events.append((kind, data.model_dump()))
 
     scene = FakeScene(office(9, doors_open=1))  # it disagrees with SAM 3.1 everywhere
+    llm = FakeLLM({"narrate": "The agent eased off the empty zones."})
     notes = SceneNotes(scene, publish, every_steps=1)
-    writes, decisions, texts = await a_day(notes=notes)
+    writes, decisions, texts = await a_day(notes=notes, narrator=Narrator(llm, publish))
 
     assert plain_writes and writes == plain_writes  # the same writes, in the same order
     assert decisions == plain_decisions and texts == plain_texts
     said = [data["text"] for _, data in events]
     assert any(t.startswith("Muse Spark, South: 9 people") for t in said)  # they did run
     assert any(t.endswith("the policy keeps SAM's") for t in said)
-    assert scene.asked
+    assert any(t == "Muse Wonder: The agent eased off the empty zones." for t in said)
+    assert scene.asked and all(purpose == "narrate" for purpose, _ in llm.prompts)

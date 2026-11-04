@@ -1,4 +1,4 @@
-"""Muse Spark's scene service and the zones' scene notes, on fakes."""
+"""Muse Spark's scene service, the zones' scene notes and Muse Wonder's narration, on fakes."""
 
 import asyncio
 import io
@@ -13,8 +13,10 @@ from PIL import Image
 from pydantic import BaseModel, SecretStr
 
 from spotcool_agent.domain.scene import parse_scene
+from spotcool_agent.loops.narration import Narrator, narration_prompt
 from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.processors import explain
+from spotcool_agent.services.fake.llm import FakeLLM
 from spotcool_agent.services.fake.scene import FakeScene, office
 from spotcool_agent.services.meta.client import MetaClient
 from spotcool_agent.services.meta.scene import SparkScene
@@ -185,3 +187,23 @@ async def test_notes_read_occupied_zones_every_4_steps_and_skip_a_zone_being_rea
     notes.offer({Zone.SOU: b"j"}, {Zone.SOU: 1}, cameras, 0.0)
     await settle()
     assert len(failing.asked) == 1 and events.texts == []  # a failed reading says nothing
+
+
+@pytest.mark.asyncio
+async def test_wonder_narrates_one_sentence_marked_and_a_failure_says_nothing() -> None:
+    answer = "The agent eased off the empty West zone. It also says more."
+    llm, events = FakeLLM({"narrate": answer}), Events()
+    narrator = Narrator(llm, events)
+    decisions = ["West: 0 people counted; the zone is empty"]
+    narrator.narrate(decisions, 900.0)
+    narrator.narrate(decisions, 900.0)  # one at a time: this one is not narrated
+    await settle()
+    assert events.texts == [("Muse Wonder: The agent eased off the empty West zone.", 900.0)]
+    ((purpose, prompt),) = llm.prompts
+    assert purpose == "narrate" and prompt == narration_prompt(decisions)
+    assert "West: 0 people counted; the zone is empty" in prompt
+
+    silent, events = FakeLLM({"narrate": None}), Events()
+    Narrator(silent, events).narrate(decisions, 0.0)
+    await settle()
+    assert events.texts == []

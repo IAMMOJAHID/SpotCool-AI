@@ -19,7 +19,8 @@ The world never waits for the agent, so each round fits in the step it starts in
    decision with the write the BMS took one step later.
 
 7. Only then, and in the background: Muse Spark's scene notes on the occupied zones
-   (``loops/scene.py``). They are explanations only: they get the step's counts after the
+   (``loops/scene.py``) and Muse Wonder's one-sentence narration of a step that wrote
+   (``loops/narration.py``). They are explanations only: they get the step's counts after the
    policy has used them, never delay it, and nothing they learn flows back into the policy.
 
 One bad step never ends the day: a step that raises is logged (once per kind of failure) and
@@ -37,6 +38,7 @@ from loguru import logger
 from spotcool_agent.actuator import Actuator, Publish
 from spotcool_agent.domain.events import Perception
 from spotcool_agent.domain.geometry import Detections
+from spotcool_agent.loops.narration import Narrator
 from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.observers.metrics import LOG_EVERY_STEPS, StageMetrics
 from spotcool_agent.processors.occupancy import occupancy
@@ -88,6 +90,7 @@ class BuildingLoop:
         concept: What to count.
         on_new_run: Called when a new run starts, such as the Meta client's ``new_run``.
         notes: Muse Spark's scene notes on the occupied zones; ``None`` for none.
+        narrator: Muse Wonder's narration of the steps that wrote; ``None`` for none.
     """
 
     def __init__(
@@ -104,6 +107,7 @@ class BuildingLoop:
         concept: str = CONCEPT,
         on_new_run: Callable[[], None] | None = None,
         notes: SceneNotes | None = None,
+        narrator: Narrator | None = None,
     ) -> None:
         self._clock = clock
         self._world = world
@@ -119,6 +123,7 @@ class BuildingLoop:
         self._cap_reached = False
         self._on_new_run = on_new_run
         self._notes = notes
+        self._narrator = narrator
         self._run = 0
         self._step_errors: set[str] = set()  # kinds of step failure logged so far
         self.steps = 0
@@ -150,9 +155,11 @@ class BuildingLoop:
             await self.stop_background()
 
     async def stop_background(self) -> None:
-        """Cancel the scene notes under way. Safe to call twice."""
+        """Cancel the scene notes and the narration under way. Safe to call twice."""
         if self._notes is not None:
             await self._notes.stop()
+        if self._narrator is not None:
+            await self._narrator.stop()
 
     async def new_run(self, run: int) -> None:
         """Start a new run afresh (see the module docstring).
@@ -188,6 +195,7 @@ class BuildingLoop:
         commands = self._policy.commands(
             occupancy(counts), counts, step.end_s, cap_reached=self._cap_reached
         )
+        held = self._actuator.held if self._narrator is not None else {}
         await self._actuator.apply(commands, step.start_s)
         now = time.perf_counter()
         self._metrics.add("actuate", now - began)
@@ -195,6 +203,15 @@ class BuildingLoop:
         if self._notes is not None:  # after the writes: explanations only
             ids = {zone: camera.id for zone, camera in cameras.items()}
             self._notes.offer(jpegs, counts, ids, step.start_s)
+        if self._narrator is not None:
+            written = written_zones(held, self._actuator.held)
+            decisions = [
+                f"{ZONES[zone].display_name}: {counts.get(zone, 'unknown')} people counted; "
+                f"{commands[zone].reason}"
+                for zone in Zone
+                if zone in written and zone in commands
+            ]
+            self._narrator.narrate(decisions, step.start_s)
         self.steps += 1
         seen = " ".join(f"{z.value}={counts.get(z, '?')}" for z in Zone)
         logger.info(f"step {clock_text(step.start_s)}: people {seen}")
@@ -298,3 +315,11 @@ class BuildingLoop:
     def _recovered(self, what: str) -> None:
         if self._failing.pop(what, None) is not None:
             logger.info(f"{what}: answering again")
+
+
+def written_zones(before: Mapping[str, object], after: Mapping[str, object]) -> set[Zone]:
+    """The zones with a point whose held value changed between two ``Actuator.held``."""
+    changed = {name for name in before.keys() | after.keys() if before.get(name) != after.get(name)}
+    return {
+        zone for zone in Zone if any(n.startswith(f"ZN-{zone.value.upper()}-") for n in changed)
+    }

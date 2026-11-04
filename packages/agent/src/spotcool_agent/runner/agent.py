@@ -20,6 +20,7 @@ from spotcool_agent.actuator import Actuator
 from spotcool_agent.domain.louvers import CameraPose
 from spotcool_agent.loops.building import BuildingLoop
 from spotcool_agent.loops.complaints import ComplaintLoop
+from spotcool_agent.loops.narration import Narrator
 from spotcool_agent.loops.scene import SceneNotes
 from spotcool_agent.loops.vrf import VrfLoop
 from spotcool_agent.observers.metrics import StageMetrics, ledger_summary
@@ -235,6 +236,11 @@ class Agent:
                     self.scene, self.publisher.publish, every_steps=settings.scene_every_steps
                 )
                 if self.scene is not None
+                else None
+            ),
+            narrator=(  # Muse Wonder only: a fake's scripted words are no narration
+                Narrator(self.llm, self.publisher.publish)
+                if self.llm is not None and settings.llm == "meta"
                 else None
             ),
         )
