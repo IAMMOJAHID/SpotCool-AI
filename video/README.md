@@ -1,13 +1,13 @@
 # The demo video
 
-The video is built from code, from the sources in this folder. The user supplies only what code can't: the filmed clips, the three screen and phone takes, the narration voice, one music track, and the upload. Until those exist, every step below still runs, and the cut has a labelled slate wherever material is missing ("TAKE MISSING: dashboard"), so the draft can be watched end to end.
+The video is built from code, from the sources in this folder. The user supplies only what code can't: the live take, the narration voice, one music track, and the upload. Until those exist, every step below still runs, and the cut has a labelled slate wherever material is missing ("TAKE MISSING: live"), so the draft can be watched end to end.
 
 | File | What it is |
 |---|---|
 | [`storyboard.yaml`](storyboard.yaml) | The single source of truth: every beat's times, type, source (composition, take or clip), narration, on-screen text and sources |
 | [`narration.md`](narration.md) | The voice-over, one section per beat, written to be read aloud |
 | [`sources.yaml`](sources.yaml) | Every source a beat cites, with the figures it backs and the file in the repo that records them (`docs/release/numbers.md` for every figure) |
-| [`motion/<id>/index.html`](motion/) | The HyperFrames compositions: `title`, `hook_stats`, `three_connections`, `architecture`, `results_card`, `rollout_privacy`, `close` |
+| [`motion/<id>/index.html`](motion/) | The HyperFrames compositions: `title`, `hook_stats`, `three_connections`, `architecture`, `meta_models`, `results_card`, `rollout_privacy`, `close` |
 | [`obs/scene_collection.json`](obs/scene_collection.json) | The OBS scenes: `Dashboard`, `Dashboard+Camera`, `YABE`, `PhoneCam`, and `Quad` (the live quad take, [video-takes.md](../docs/runbooks/video-takes.md#the-live-quad-take)) |
 | [`QA.md`](QA.md) | The checklist before upload |
 | `raw/`, `takes/`, `renders/` | The narration and music, the OBS takes, and everything generated. All git-ignored (Law 6) |
@@ -19,15 +19,17 @@ The scripts are in [`scripts/video/`](../scripts/video/), and each one's `--help
 | Time (s) | Beat | Type | Source | On screen |
 |---|---|---|---|---|
 | 0-4 | `title` | title | `title` composition | SpotCool, "Cooling that follows people" |
-| 4-39 | `hook` | motion | `hook_stats` | US office attendance 56.1 % against February 2020, 66.1 % on the peak day (Kastle); about 55 % of a typical Indian commercial building's energy goes to HVAC (BEE); 17.8 % against 5.9 % of whole-building energy saved by counting occupants against presence sensors, in simulations of a large US office (PNNL-22072) |
-| 39-56 | `plugs_in` | motion | `three_connections` | CCTV, the BMS and complaints: no new sensors |
-| 56-72 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice |
-| 72-92 | `bms_yabe` | screen | take `yabe_override` | The BMS in YABE: an operator at priority 8 beats the agent at 10, which backs off |
-| 92-113 | `dashboard` | screen | take `dashboard_replay` | The hybrid Tuesday, a replay of SpotCool's agent's scored run (`ag3-boptest-agent-s60`): 07:00 to 19:00 in 16 s |
-| 113-130 | `louvers` | phone | take `phone_vrf` | Live: the VRF's louvers follow a person |
-| 130-157 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from run `ag3-boptest-agent-s60` |
-| 157-170 | `rollout` | motion | `rollout_privacy` | Rollout and privacy |
-| 170-176 | `close` | title | `close` | SpotCool, the repo, the sources slide |
+| 4-26 | `hook` | motion | `hook_stats` | US office attendance 56.1 % against February 2020, 66.1 % on the peak day (Kastle); about 55 % of a typical Indian commercial building's energy goes to HVAC (BEE) |
+| 26-40 | `plugs_in` | motion | `three_connections` | CCTV (see who is in each zone), the BMS and complaints: no new sensors |
+| 40-52 | `world` | motion | `architecture` | The world built to test it: one BOPTEST office run twice, the BACnet BMS |
+| 52-112 | `live` | screen | take `live_quad`, scene `Quad` | Live: SpotCool's agent on BOPTEST, with every Meta call in the terminal; the cameras play MEVA dataset clips |
+| 112-124 | `louvers` | screen | take `live_quad` (a later `in_s`), scene `Dashboard` | The meeting room's louvers follow a person (the camera plays a recorded clip) |
+| 124-144 | `meta_models` | motion | `meta_models` | The four Meta models, one card each with its model id; "Models perceive. Code decides. No language model writes to the BMS." |
+| 144-164 | `results` | motion | `results_card` (generated) | 19.94 %, labelled "SpotCool saved (SAM 3.1 perception, in simulation)", from the live run `live-quad-boptest-s60` |
+| 164-172 | `rollout` | motion | `rollout_privacy` | Rollout (a real BMS needs the same BACnet points and occupied-standby) and privacy (SpotCool never stores a frame) |
+| 172-176 | `close` | title | `close` | SpotCool, the repo, the sources slide |
+
+One take file feeds two beats: `live` and `louvers` each start at their own `in_s` into `video/takes/live_quad.mkv`. Both are `0` placeholders until the take is recorded and the lead sets them.
 
 ## Before you start
 
@@ -62,7 +64,7 @@ Run it after every edit to `storyboard.yaml`, `narration.md` or a composition.
 
 ```bash
 uv run python scripts/video/results_card.py              # the card's text from the saved run (stub label)
-uv run python scripts/video/render_motion.py             # all seven into video/renders/motion/ (about 4 min)
+uv run python scripts/video/render_motion.py             # all eight into video/renders/motion/ (about 4 min)
 uv run python scripts/video/render_motion.py --only results_card   # one again
 uv run python scripts/video/render_motion.py --check     # HyperFrames' lint, layout and contrast checks
 ```
@@ -77,7 +79,7 @@ cd video/motion/hook_stats && npx --yes hyperframes@0.8.6 preview
 
 Studio shows the placeholders, not the storyboard's text; the render always passes the text.
 
-**Done Nov 4:** the results beat names SpotCool's agent's quotable run `ag3-boptest-agent-s60`. For any later run, the steps are:
+**Done Nov 5:** the results beat names the live run `live-quad-boptest-s60` (quotable, the run the video shows live; the scored run `ag3-boptest-agent-s60` has the same figures). For any later run, the steps are:
 
 1. Name it in the results beat's `run_id`, add a `video/sources.yaml` entry with that `run_id`, its figures (in `docs/release/numbers.md`) and its `cite`, and list it in the beat's `sources`.
 2. Run `results_card.py` and `render_motion.py --only results_card`. The label becomes "SpotCool saved" only if the report's verdict is `Quotable`.
@@ -140,27 +142,11 @@ To record your own:
 2. switches scenes and prints cues at the storyboard's times;
 3. saves the recording as `video/takes/<take>.mkv` (the take it replaces becomes `<take>.previous.mkv`).
 
-Rehearse first with `--dry-run`, which needs no OBS. In this order:
+**The live take** is recorded by hand, not by `take.py`: [video-takes.md, The live quad take](../docs/runbooks/video-takes.md#the-live-quad-take). Record the `Quad` scene from sim 08:15, then about 30 s of the `Dashboard` scene around 14:00 for the louvers. Rename OBS's file to `video/takes/live_quad.mkv`, and set the `in_s` of the `live` and `louvers` beats to the seconds where those two parts start.
 
-```bash
-# The camera tiles show the MEVA clips in $SPOTCOOL_WORLD_FOOTAGE_DIR/datasets/meva (docs/agent/HANDOFF.md, D1).
-# Build the dashboard once:
-cd apps/dashboard && npm ci && npm run build && cd ../..
+`take.py` still records the scripted takes in that runbook (YABE, the replay, the phone), for a beat that shows one. Rehearse with `--dry-run`, which needs no OBS.
 
-# 1. The BMS in YABE: docs/runbooks/yabe.md, The operator override for the video. The agent, then the world
-#    on loopback; hold ZN-COR-CLG-SP at 23 at priority 8 between 08:30 and 17:45; wait for the back-off at 18:15:
-uv run python scripts/video/take.py yabe_override --dry-run
-uv run python scripts/video/take.py yabe_override
-
-# 2. The hybrid Tuesday: the script starts the replay of the agent's scored run itself.
-uv run python scripts/video/take.py dashboard_replay
-
-# 3. The louvers, live with SpotCool's agent (docs/runbooks/video-takes.md, The VRF segment):
-export SPOTCOOL_WORLD_LIVE_CAMERA_URL=http://<phone address>/shot.jpg
-uv run python scripts/video/take.py phone_vrf --agent http://127.0.0.1:8002
-```
-
-Watch each take in VLC before the next: no keys, emails, notifications or real names on screen. A take is re-shot by running its command again.
+Watch each take in VLC: no keys, emails, notifications or real names on screen.
 
 ## 5. Choose the music (optional)
 
