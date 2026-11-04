@@ -556,6 +556,14 @@ input {
   font-weight: 800;
 }
 
+/* An RC run: the kW readouts with the RC note in place of the kWh. */
+.energy-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  max-width: 14em;
+}
+
 .chart {
   position: relative;
   flex: 1;
@@ -993,6 +1001,14 @@ button:disabled {
   font-weight: 700;
 }
 
+/* An RC run's figures are never quoted: this note stands in their place. */
+.rc-note {
+  margin: 0.2em 0;
+  font-size: 0.85em;
+  color: var(--warn);
+  font-weight: 700;
+}
+
 /* Developer panels */
 .errors {
   margin: 0;
@@ -1053,6 +1069,7 @@ button:disabled {
 .app.video .legend,
 .app.video .kpi-note,
 .app.video .kpi-stub,
+.app.video .rc-note,
 .app.video .axis,
 .app.video .lane-label,
 .app.video .span-label,
@@ -1189,6 +1206,17 @@ button:disabled {
 
 .app.video .chart {
   min-height: 0;
+}
+
+.app.video .energy-head {
+  flex-direction: row;
+  align-items: center;
+  max-width: none;
+}
+
+.app.video .energy-head .rc-note {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Timeline */
@@ -1354,6 +1382,31 @@ button:disabled {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
+}
+
+/* `?panels=`: only the chosen panels, filling the window (an OBS browser source, such as
+   960x540); App.tsx sets the grid's columns and rows. */
+.app.panels {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  padding: 6px;
+  gap: 6px;
+}
+
+.app.panels .grid {
+  flex: 1;
+  min-height: 0;
+  gap: 6px;
+  grid-template-areas: none;
+}
+
+.app.panels .grid > .panel {
+  grid-area: auto;
+}
+
+.app.panels .grid > .panel:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
 }
 
 /* Narrow screens: one column. */

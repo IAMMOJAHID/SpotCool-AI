@@ -13,6 +13,12 @@ describe('the energy chart', () => {
     expect(datasets.filter((d) => d.yAxisID === 'kwh').map((d) => d.stepped)).toEqual([undefined, undefined]);
   });
 
+  it('draws no energy on an RC run, only power', () => {
+    const power = { spotcool: [{ t: 0, kw: 1, kwh: 5 }], baseline: [{ t: 0, kw: 2, kwh: 9 }] };
+    expect(chartData(power, true).datasets.map((d) => d.label)).toEqual(['SpotCool kW', 'Baseline kW']);
+    expect(chartData(power).datasets).toHaveLength(4);
+  });
+
   it('draws a point stamped t (the mean over its step) over [t - step, t]', () => {
     // Chart.js's own line drawing between two neighbouring points, in its 'after' mode.
     const t = 10 * STEP;

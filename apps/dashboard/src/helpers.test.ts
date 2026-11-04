@@ -67,6 +67,14 @@ describe('readConfig', () => {
     expect(c.video).toBe(true);
   });
 
+  it('takes ?panels= and ?masks=off; without them, every panel and the masks', () => {
+    const c = readConfig('?mode=video&panels=floorplan, energy,,agent&masks=off', page, prod);
+    expect(c.panels).toEqual(['floorplan', 'energy', 'agent']);
+    expect(c.masks).toBe(false);
+    const all = readConfig('?mode=video', page, prod);
+    expect([all.panels, all.masks]).toEqual([null, true]);
+  });
+
   it('falls back to VITE_AGENT_URL, and reports a bad agent URL instead of using it', () => {
     expect(readConfig('', page, { agentUrl: 'http://10.1.2.3:8002', dev: false }).agentUrl).toBe('http://10.1.2.3:8002');
     const bad = readConfig('?agent=javascript:alert(1)', page, prod);

@@ -21,20 +21,39 @@ export const BOPTEST_CAPTION =
   "BOPTEST's schedule counts every zone as occupied all day, so its discomfort includes zones the scenario leaves empty.";
 /** What a stub run's KPIs are worth, as the world's quote verdict says. */
 export const STUB_KPI_NOTE = 'Stub agent: upper bound with perfect perception';
+/** Shown instead of an RC run's figures: RC figures are on numbers.md's never-quote list. */
+export const RC_NOTE = 'RC test plant: a model for testing, no saving is quoted';
+
+/** The RC note, in place of a saving and of kWh. */
+export function RcNote({ testId }: { testId: string }) {
+  return (
+    <p className="rc-note" data-testid={testId}>
+      {RC_NOTE}
+    </p>
+  );
+}
 
 function Provisional({ kpi }: { kpi: KpiData | undefined }) {
   if (!kpi) return null;
   return kpi.provisional === false ? <Tag kind="final">final</Tag> : <Tag kind="provisional">provisional</Tag>;
 }
 
-export const KpiCards = memo(function KpiCards(props: { kpi: DashboardState['kpi']; stub: boolean; video: boolean }) {
+export const KpiCards = memo(function KpiCards(props: {
+  kpi: DashboardState['kpi'];
+  stub: boolean;
+  video: boolean;
+  /** An RC run: no figure at all, the RC note instead. */
+  rc: boolean;
+}) {
   const { kpi, video } = props;
   const spotcool = kpi.spotcool?.data;
   const baseline = kpi.baseline?.data;
   const saved = spotcool?.energy_saved_pct;
   return (
     <Panel id="kpis" title="Results" populated={spotcool !== undefined}>
-      {!spotcool && !baseline ? (
+      {props.rc ? (
+        <RcNote testId="kpi-rc" />
+      ) : !spotcool && !baseline ? (
         <Empty>The first KPIs arrive after four steps.</Empty>
       ) : (
         <div className="cards">
