@@ -57,6 +57,9 @@ from spotcool_agent.transports.server import (
 from spotcool_agent.transports.world_http import WorldHttp
 
 VRF_CONCURRENCY = 2
+VRF_TRACE_EVERY = 10
+"""The VRF loop asks SAM about twice a second: its trace shows 1 call in 10, so the building's,
+Muse Spark's and Muse Wonder's calls stay readable in the demo's terminal."""
 """SAM calls the VRF loop may have in flight, on a budget of its own."""
 LANGUAGE_CONCURRENCY = 2
 """Calls the transcriber and the language model may have in flight together."""
@@ -67,7 +70,7 @@ VRF_STOP_TIMEOUT_S = 5.0
 
 
 def meta_client(
-    settings: AgentSettings, flag: str, *, concurrency: int, call_cap: int
+    settings: AgentSettings, flag: str, *, concurrency: int, call_cap: int, trace_every: int = 1
 ) -> MetaClient:
     """One budget of Meta calls: its own limiter, call cap and ledger.
 
@@ -82,6 +85,7 @@ def meta_client(
         max_concurrency=concurrency,
         call_cap=call_cap,
         trace=settings.meta_trace,
+        trace_every=trace_every,
     )
 
 
@@ -91,6 +95,7 @@ def create_vision(
     concurrency: int | None = None,
     call_cap: int | None = None,
     flag: str = "--vision meta",
+    trace_every: int = 1,
 ) -> tuple[VisionService, MetaClient | None]:
     """The settings' people counter, and the Meta budget behind it if it has one.
 
@@ -99,6 +104,7 @@ def create_vision(
         concurrency: Its calls in flight; the building's ``sam_concurrency`` by default.
         call_cap: Its call cap; the building's ``sam_call_cap`` by default.
         flag: The choice that needs the key, for the error.
+        trace_every: Trace only every Nth Meta call (the VRF loop's ``VRF_TRACE_EVERY``).
 
     Raises:
         ValueError: If ``meta`` is chosen without a key.
@@ -112,6 +118,7 @@ def create_vision(
         flag,
         concurrency=concurrency or settings.sam_concurrency,
         call_cap=settings.sam_call_cap if call_cap is None else call_cap,
+        trace_every=trace_every,
     )
     vision = SamVision(client, model=settings.sam_model, min_confidence=settings.sam_min_confidence)
     return vision, client
@@ -260,6 +267,7 @@ class Agent:
                     settings,
                     concurrency=VRF_CONCURRENCY,
                     call_cap=settings.vrf_call_cap,
+                    trace_every=VRF_TRACE_EVERY,
                     flag="--vrf",
                 )
             else:

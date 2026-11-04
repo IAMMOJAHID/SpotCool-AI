@@ -66,7 +66,9 @@ class PhoneCamera(CameraService):
     def spec(self) -> CameraSpec:
         """The live camera's catalog entry; the size is that of the latest frame."""
         width, height = self._size
-        name = "Meeting room: live phone"
+        # A phone is never on loopback: there it is scripts/footage/clip_camera.py, a recording.
+        recorded = self._url.host in ("127.0.0.1", "localhost", "::1")
+        name = "Meeting room: recorded clip" if recorded else "Meeting room: live phone"
         return CameraSpec(LIVE_CAMERA_ID, name, None, width, height, self._fps, CameraSource.LIVE)
 
     def latest(self) -> Snapshot | None:

@@ -38,7 +38,7 @@ socket), and finds people with a vision provider whose budget is its own (2 call
    while people are seen, a task of its own takes a live snapshot and asks the scene reader
    (Muse Spark) who is there; Person A's comfort physics (``domain/comfort.py``) then gives the
    air temperature at PMV 0 for them, at 50 % RH (the gateway has no RH point), on the
-   setpoint's grid within 16-30 degC. It is written to ``IDU-SP`` by the same rules, and
+   setpoint's grid within ``COMFORT_BAND_C`` (23-26 degC). It is written to ``IDU-SP`` by the same rules, and
    explained when it changes. A complaint's override comes before it, and the operator before
    both (the actuator's back-off). With nobody seen for ``hold_s``, or a reading that fails, no
    new one is taken: the last stands while people are seen, and is released when nobody is.
@@ -110,6 +110,9 @@ FAN_STEPS = ("Low", "Mid", "High")
 COMFORT_EVERY_S = 60.0
 """Wall seconds between two comfort readings, at least."""
 SCENE_TIMEOUT_S = 30.0
+COMFORT_BAND_C = (23.0, 26.0)
+"""The comfort setpoint's band: a summer office band, so a passing walker's high activity never
+drives the unit cold (a PMV-0 temperature for walking is far below what a meeting needs)."""
 """The longest one comfort reading may take."""
 COMFORT_REASON = "comfort: PMV 0 for the people seen"
 CONCEPT = "humans"
@@ -555,7 +558,8 @@ class VrfLoop:
         self._recovered("comfort")
         if not found.people or not self._people_seen(self._clock()):
             return
-        target = _setpoint(comfort_setpoint(found.people))
+        low, high = COMFORT_BAND_C
+        target = _setpoint(min(max(comfort_setpoint(found.people), low), high))
         if target != self.comfort_c:
             people = occupants(found.people)
             clo = sum(o.clo for o in people) / len(people)
