@@ -1,11 +1,13 @@
 import hashlib
 import json
+from dataclasses import replace
 
 import assemble
 import captions
 import media
 import pytest
 import qa
+from storyboard import Talk
 
 
 @pytest.fixture
@@ -46,6 +48,24 @@ def test_a_beat_can_cover_part_of_its_take(tiny_board, takes):
     _, chains = assemble.video_inputs(board, assemble.resolve(board))
     assert "drawbox=x=1:y=2:w=3:h=4:color=0x040809:t=fill," in chains[1]
     assert "drawbox" not in chains[0]
+
+
+def test_a_talk_puts_the_speaker_in_a_circle_and_counts_as_an_input(tiny_board, takes, monkeypatch):
+    clip = takes / "talk.mp4"
+    clip.write_bytes(b"")
+    monkeypatch.setattr(assemble, "REPO", takes)
+    (takes / "intro_take.mkv").write_bytes(b"")
+    (takes / "outro_take.mkv").write_bytes(b"")
+    board = tiny_board()
+    beat = replace(board.beats[1], talk=Talk("talk.mp4", 2.0, None, (10, 20, 500), 300))
+    board = replace(board, beats=(board.beats[0], beat))
+    args, chains = assemble.video_inputs(board, assemble.resolve(board))
+    assert args[-4:] == ["-t", f"{beat.duration + 1:g}", "-i", str(clip)]
+    joined = ";".join(chains)
+    assert "crop=500:500:10:20,scale=300:300" in joined
+    assert "[b1]" in joined and "[v1]" in joined and "alphamerge" in joined
+    assert f"trim=end_frame={round(beat.duration * 30)},setpts=PTS-STARTPTS[v1]" in joined
+    assert f"overlay={1920 - 40 - 300}:{1080 - 40 - 300}" in joined
 
 
 def test_the_overlay_has_slates_labels_and_captions(tiny_board, takes):

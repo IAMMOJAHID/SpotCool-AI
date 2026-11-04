@@ -103,7 +103,7 @@ def _narration(board: Storyboard, narration: dict[str, str]) -> list[str]:
     for beat in board.beats:
         if beat.narration_id and beat.narration_id not in narration:
             errors.append(f"{beat.id}: no section ## {beat.narration_id} in video/narration.md")
-        elif (rate := pace(beat, narration)) > MAX_WPM:
+        elif not beat.talk and (rate := pace(beat, narration)) > MAX_WPM:
             errors.append(
                 f"{beat.id}: its narration needs {rate:.0f} words a minute, more than {MAX_WPM:g}"
             )

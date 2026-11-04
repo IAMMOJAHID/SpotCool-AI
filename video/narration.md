@@ -2,45 +2,44 @@
 
 The voice-over for the demo video, one section per beat of `video/storyboard.yaml`. Each `##` heading is the beat's `narration_id`, and the paragraph under it is what you say during that beat. The title beat has no narration.
 
-How to record it (`video/README.md`, step 3):
+The words are what the person on camera says: `scripts/video/prep_clips.py` cuts the takes, and each beat's `talk` plays them.
 
-- Read at about 140 words a minute: plain and calm, like explaining it to a colleague.
-- Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at the longest pauses and starts each paragraph at its beat; it names any paragraph it cannot place, to record again.
-- Say every number as written. Each one is in `docs/release/numbers.md` with its source, and the sentence that says it names the source.
-- Save the take as `video/raw/narration.wav`.
+## intro
 
-## hook
+Before moving forward, let me clarify. We built the entire project during the hackathon, and nothing was out before this hackathon.
 
-Hi. Offices are emptier now. Kastle's badge data puts US attendance at 56.1 % of its pre-pandemic level. Yet the cooling still runs on a fixed schedule, and in a typical Indian commercial building HVAC is about 55 % of the energy, says the Bureau of Energy Efficiency.
+## story
 
-## plugs_in
+In commercial buildings across hot climates, up to 70 % of electricity goes directly into HVAC cooling. Why? Because traditional HVAC controllers rely on a static wall sensor, and they have no idea where humans are sitting, what they are wearing, and how they actually feel. So they blindly cool empty space. Meet our project, SpotCool AI, an autonomous HVAC controller layer powered by five Meta AI models. Instead of ripping and replacing hardware, SpotCool AI sits right on top of a building's existing BMS controller, combining existing CCTV feeds with thermal sensors to deliver targeted 3D spot cooling and real-time energy optimization.
 
-Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool uses what's already there: the cameras, the BMS and complaints.
+## whiteboard
 
-## world
+This is a comprehensive architecture that we have built. This is the agent, and this is the virtual building that we have built using the BOPTEST framework with the HVAC system. This agent is taking the current state of the building with the previous state, and then outputting a manipulated variable, and this is applied to the HVAC system of the building. And again, this process is continuously repeating.
 
-We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST runs one office twice, with SpotCool and without.
+## code
+
+Here's the codebase. The agent package is SpotCool's agent: it watches the cameras and writes to the BMS. The world package is the simulated building. They share only the contracts package, so the agent doesn't depend on the simulator. And one command starts it, with the Meta models on.
 
 ## live
 
-This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each zone camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
+This is SpotCool running live on a simulated office. Top right, the building's cameras, playing public dataset clips. Every fifteen minutes of building time, the agent sends each camera's frame to Meta's SAM 3.1, with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Top left, the floor plan and the energy, SpotCool against the baseline. Then our code decides, not a language model. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten. Right now every zone is empty. Watch: people arrive at eight thirty, SAM sees them, and the agent releases those zones back to the building. An operator always wins: if anyone holds a higher priority, the agent backs off. And if the agent stops, the building takes everything back.
 
 ## louvers
 
-In the meeting room, SAM finds the person in the camera. Here, the camera plays a recorded clip. The agent turns the AC's louvers to follow them.
+In the meeting room, the camera plays a clip I filmed. SAM finds me, and the AC's louvers follow me. When someone complains it's freezing, the agent raises the setpoint.
 
 ## meta_models
 
-Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model decides a BMS write.
+Five Meta models. SAM sees people. Muse Spark reads clothing and activity, for comfort. Muse Voice hears complaints. Muse Wonder explains decisions. Muse Image draws a privacy view. No language model decides a write to the building.
 
 ## results
 
-In simulation, SpotCool's agent used 19.94 % less HVAC energy than the baseline, from SAM's occupancy alone, right at every zone-step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
-
-## rollout
-
-It uses a building's own BMS and cameras, stores no frame, and an operator always wins.
+In simulation, on the same day, SpotCool used 19.94 % less HVAC energy than the baseline. The cost: comfort where people were went from 0.33 to 2.13 kelvin hours.
 
 ## close
 
 SpotCool. Cooling that follows people.
+
+## goodbye
+
+Thank you, and goodbye.

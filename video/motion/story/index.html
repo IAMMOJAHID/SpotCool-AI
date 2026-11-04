@@ -1,0 +1,760 @@
+<!doctype html>
+<!--
+  The story: the narrator's opening, illustrated as they say it. The HVAC running without an agent, why it
+  cools empty space, SpotCool and its five models, plugged onto the building's BMS, then the building
+  saving energy. The chart is an illustration, tagged so, and shows no number.
+-->
+<html
+  lang="en"
+  data-composition-variables='[
+    {"id": "stat_value", "type": "string", "label": "Stat value", "default": "Up to 70 %"},
+    {"id": "stat_label", "type": "string", "label": "Stat label", "default": "of the UAE&apos;s electricity goes to air conditioning"},
+    {"id": "stat_source", "type": "string", "label": "Stat source", "default": "Source: Emirates Authority for Standardisation and Metrology, via The National, 2012"},
+    {"id": "sam_name", "type": "string", "label": "SAM chip", "default": "SAM 3.1"},
+    {"id": "spot_3d", "type": "string", "label": "Spot cooling label", "default": "3D spot cooling"}
+  ]'
+>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>SpotCool: the story</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root {
+        --bg: #0b0f14;
+        --panel: #111821;
+        --line: #2a3542;
+        --ink: #f2f1ec;
+        --muted: #a3acb6;
+        --cool: #63d3e8;
+        --spot: #3d8bf0;
+        --spot-ink: #7db4ff;
+        --hot: #eb6834;
+        --warn: #f2c14e;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg);
+      }
+      body {
+        font-family: "Inter", sans-serif;
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      #root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+      }
+      #story-scene,
+      #story-bg,
+      #bld-svg,
+      #hud,
+      #hud-bld {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+      #story-bg { background: var(--bg); }
+      .h { opacity: 0; }
+      .abs { position: absolute; }
+      .air { fill: none; stroke: var(--cool); stroke-width: 4; stroke-dasharray: 12 16; stroke-linecap: round; }
+      .blast { fill: none; stroke: var(--cool); stroke-width: 6; stroke-dasharray: 20 12; stroke-linecap: round; }
+      .flow { fill: none; stroke: var(--cool); stroke-width: 4; stroke-dasharray: 14 14; opacity: 0.8; }
+      .sig { fill: none; stroke: var(--cool); stroke-width: 3; stroke-dasharray: 10 10; }
+      .tag {
+        position: absolute;
+        padding: 8px 18px;
+        border: 2px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        font-size: 30px;
+        font-weight: 700;
+        line-height: 1.15;
+        white-space: nowrap;
+      }
+      .room-tag { text-align: center; padding: 6px 12px; }
+      .room-tag.empty { border-color: var(--hot); color: #f59a72; }
+      .room-tag.occ { border-color: var(--cool); color: var(--cool); }
+
+      /* Scene one: the stat. */
+      #stat { position: absolute; left: 80px; top: 330px; width: 700px; }
+      #stat-value { font-size: 112px; font-weight: 900; letter-spacing: -0.03em; line-height: 1; white-space: nowrap; }
+      #stat-label { margin-top: 18px; font-size: 44px; font-weight: 700; line-height: 1.18; color: var(--cool); }
+      #stat-source { margin-top: 22px; font-size: 24px; line-height: 1.35; color: var(--muted); }
+      #tag-today { left: 840px; top: 226px; border-color: var(--warn); color: var(--warn); }
+      #lbl-chiller { left: 1270px; top: 142px; width: 246px; text-align: center; font-size: 30px; font-weight: 700; color: var(--muted); }
+
+      /* The meter: no digits, a dial that climbs and a disc that spins. */
+      #meter {
+        position: absolute;
+        left: 1560px;
+        top: 110px;
+        width: 300px;
+        height: 400px;
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+      }
+      #meter-title { position: absolute; left: 0; top: 20px; width: 296px; text-align: center; font-size: 32px; font-weight: 700; }
+      #meter svg { position: absolute; left: 28px; top: 74px; }
+      .meter-state { position: absolute; left: 0; top: 332px; width: 296px; text-align: center; font-size: 30px; font-weight: 700; }
+      #meter-climb { color: #f59a72; }
+      #meter-slow { color: var(--cool); }
+
+      /* Scene two: the wall sensor and what it can't know. */
+      #lbl-sensor { left: 632px; top: 300px; border-color: var(--warn); color: var(--warn); font-size: 32px; }
+      .ask {
+        position: absolute;
+        top: 716px;
+        width: 460px;
+        height: 124px;
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 0 22px;
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        font-size: 32px;
+        font-weight: 700;
+        line-height: 1.15;
+      }
+      .ask b {
+        flex: none;
+        width: 62px;
+        height: 62px;
+        border-radius: 50%;
+        background: rgba(242, 193, 78, 0.16);
+        color: var(--warn);
+        font-size: 42px;
+        font-weight: 900;
+        line-height: 62px;
+        text-align: center;
+      }
+      #ask-where { left: 70px; }
+      #ask-wear { left: 545px; }
+      #ask-feel { left: 1020px; }
+      #warn { position: absolute; left: 70px; top: 730px; width: 1410px; text-align: center; font-size: 72px; font-weight: 800; color: var(--warn); }
+      .lbl-empty { border-color: var(--warn); color: var(--warn); font-size: 36px; }
+      #lbl-empty-a { left: 248px; top: 500px; }
+      #lbl-empty-c { left: 1118px; top: 500px; }
+
+      /* Scene five: what plugs in, and the room tags. */
+      .leg { position: absolute; left: 80px; display: flex; align-items: center; gap: 18px; font-size: 34px; font-weight: 700; }
+      #leg-cam { top: 70px; color: var(--cool); }
+      #leg-temp { top: 134px; color: var(--spot-ink); }
+      #mod5-spot, #mod5-bms {
+        position: absolute;
+        left: 440px;
+        width: 330px;
+        height: 88px;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 800;
+      }
+      #mod5-spot { top: 662px; border: 3px solid var(--cool); background: linear-gradient(135deg, rgba(61, 139, 240, 0.28), rgba(99, 211, 232, 0.12)), var(--panel); color: var(--cool); font-size: 42px; }
+      #mod5-bms { top: 752px; border: 2px solid var(--line); background: var(--panel); color: var(--ink); font-size: 32px; font-weight: 700; }
+      #tag-a { left: 860px; top: 420px; }
+      #tag-b { left: 1091px; top: 396px; padding: 6px 8px; }
+      #tag-c { left: 1294px; top: 420px; }
+      #tag-d { left: 876px; top: 720px; }
+      #tag-e { left: 1097px; top: 790px; }
+      #lbl-spot { left: 1250px; top: 654px; padding: 0; border: 0; background: none; color: var(--cool); }
+      #chart {
+        position: absolute;
+        left: 70px;
+        top: 200px;
+        width: 700px;
+        height: 430px;
+        border: 2px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+      }
+      #chart svg { position: absolute; left: 0; top: 0; }
+      #chart-title { position: absolute; left: 26px; top: 18px; font-size: 30px; font-weight: 700; color: var(--muted); }
+      #chart-tag {
+        position: absolute;
+        right: 18px;
+        top: 16px;
+        padding: 4px 14px;
+        border: 2px solid var(--warn);
+        border-radius: 999px;
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--warn);
+      }
+      #chart-without { position: absolute; left: 300px; top: 76px; font-size: 30px; font-weight: 700; color: #f59a72; }
+      #chart-with { position: absolute; left: 400px; top: 196px; font-size: 30px; font-weight: 700; color: var(--cool); }
+
+      /* Scene three: SpotCool and its models. */
+      #s3, #s4 { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; background: var(--bg); }
+      #s3-lines { position: absolute; left: 0; top: 0; }
+      #s3-meet { position: absolute; left: 0; top: 410px; width: 1920px; text-align: center; font-size: 76px; font-weight: 700; letter-spacing: -0.01em; }
+      #s3-hub {
+        position: absolute;
+        left: 620px;
+        top: 345px;
+        width: 680px;
+        height: 240px;
+        border-radius: 120px;
+        border: 3px solid var(--cool);
+        background: linear-gradient(135deg, rgba(61, 139, 240, 0.28), rgba(99, 211, 232, 0.12)), var(--bg);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      #s3-name { font-size: 92px; font-weight: 900; line-height: 1.05; letter-spacing: -0.02em; color: var(--cool); }
+      #s3-layer { margin-top: 10px; font-size: 34px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+      .chip {
+        position: absolute;
+        width: 340px;
+        height: 96px;
+        border: 2px solid var(--line);
+        border-top: 4px solid var(--cool);
+        border-radius: 18px;
+        background: var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 40px;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      #chip-sam { left: 190px; top: 150px; }
+      #chip-spark { left: 790px; top: 110px; }
+      #chip-voice { left: 1390px; top: 150px; }
+      #chip-wonder { left: 1170px; top: 720px; }
+      #chip-image { left: 410px; top: 720px; }
+
+      /* Scene four: plug and play. */
+      #s4-lines { position: absolute; left: 0; top: 0; }
+      #s4-rip { position: absolute; left: 610px; top: 210px; width: 700px; text-align: center; font-size: 84px; font-weight: 800; letter-spacing: -0.01em; white-space: nowrap; }
+      #s4-strike { position: absolute; left: 30px; top: 50px; width: 640px; height: 8px; border-radius: 4px; background: var(--hot); transform-origin: 0 50%; }
+      #s4-bms {
+        position: absolute;
+        left: 680px;
+        top: 520px;
+        width: 560px;
+        height: 210px;
+        border: 3px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+      #s4-bms-name { font-size: 54px; font-weight: 800; white-space: nowrap; }
+      #s4-bms-sub { margin-top: 8px; font-size: 32px; font-weight: 700; color: var(--muted); }
+      .node {
+        position: absolute;
+        width: 190px;
+        height: 70px;
+        border: 2px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 30px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      #s4-mod {
+        position: absolute;
+        left: 730px;
+        top: 358px;
+        width: 460px;
+        height: 162px;
+        border: 3px solid var(--cool);
+        border-radius: 18px;
+        background: linear-gradient(135deg, rgba(61, 139, 240, 0.32), rgba(99, 211, 232, 0.14)), var(--bg);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 62px;
+        font-weight: 900;
+        letter-spacing: -0.02em;
+        color: var(--cool);
+      }
+      #s4-pulse { position: absolute; left: 680px; top: 358px; width: 560px; height: 372px; border: 4px solid var(--cool); border-radius: 26px; }
+      #s4-tag { position: absolute; left: 0; top: 780px; width: 1920px; text-align: center; font-size: 44px; font-weight: 700; color: var(--cool); }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="story" data-start="0" data-duration="34" data-width="1920" data-height="1080">
+      <div id="story-scene" class="clip" data-start="0" data-duration="34" data-track-index="1">
+        <div id="story-bg"></div>
+
+        <!-- The building: scene one, pushed in for scene two, back for scene five. -->
+        <svg id="bld-svg" viewBox="0 0 1920 1080" width="1920" height="1080" data-layout-ignore>
+          <defs>
+            <symbol id="person" viewBox="0 0 60 100">
+              <circle cx="30" cy="16" r="15" />
+              <path d="M8 100 V52 Q8 36 30 36 Q52 36 52 52 V100 Z" />
+            </symbol>
+            <symbol id="desk" viewBox="0 0 110 44">
+              <rect x="0" y="0" width="110" height="8" rx="3" />
+              <rect x="8" y="8" width="6" height="36" />
+              <rect x="96" y="8" width="6" height="36" />
+            </symbol>
+            <symbol id="thermo" viewBox="0 0 22 44">
+              <rect x="6" y="0" width="10" height="30" rx="5" />
+              <circle cx="11" cy="33" r="10" />
+            </symbol>
+            <linearGradient id="cone-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#63d3e8" stop-opacity="0.8" />
+              <stop offset="1" stop-color="#63d3e8" stop-opacity="0.22" />
+            </linearGradient>
+          </defs>
+          <g id="bld">
+            <!-- The hot climate. -->
+            <g id="sun" class="h">
+              <circle cx="735" cy="190" r="42" fill="#f2c14e" />
+              <g stroke="#f2c14e" stroke-width="7" stroke-linecap="round">
+                <line x1="735" y1="130" x2="735" y2="112" />
+                <line x1="735" y1="250" x2="735" y2="268" />
+                <line x1="675" y1="190" x2="657" y2="190" />
+                <line x1="795" y1="190" x2="813" y2="190" />
+                <line x1="693" y1="148" x2="680" y2="135" />
+                <line x1="777" y1="148" x2="790" y2="135" />
+                <line x1="693" y1="232" x2="680" y2="245" />
+                <line x1="777" y1="232" x2="790" y2="245" />
+              </g>
+            </g>
+            <!-- The chiller on the roof. -->
+            <g id="chiller">
+              <rect x="1270" y="190" width="246" height="100" rx="10" fill="#111821" stroke="#3a4756" stroke-width="3" />
+              <circle cx="1332" cy="240" r="38" fill="#0b0f14" stroke="#3a4756" stroke-width="3" />
+              <circle cx="1454" cy="240" r="38" fill="#0b0f14" stroke="#3a4756" stroke-width="3" />
+              <g id="fan-a" fill="#63d3e8">
+                <path d="M1332 240 Q1320 216 1332 206 Q1344 216 1332 240 Z" />
+                <path d="M1332 240 Q1359 239 1361 257 Q1347 262 1332 240 Z" />
+                <path d="M1332 240 Q1317 262 1303 257 Q1305 239 1332 240 Z" />
+              </g>
+              <g id="fan-b" fill="#63d3e8">
+                <path d="M1454 240 Q1442 216 1454 206 Q1466 216 1454 240 Z" />
+                <path d="M1454 240 Q1481 239 1483 257 Q1469 262 1454 240 Z" />
+                <path d="M1454 240 Q1439 262 1425 257 Q1427 239 1454 240 Z" />
+              </g>
+            </g>
+
+            <!-- Top floor: empty, occupied, empty. -->
+            <g id="floor1">
+              <rect x="830" y="290" width="655" height="300" fill="#0e141b" stroke="#3a4756" stroke-width="4" />
+              <rect x="832" y="292" width="651" height="48" fill="#151d27" />
+              <rect id="tint-a" class="tint" x="832" y="340" width="216" height="250" fill="#63d3e8" opacity="0.07" />
+              <rect id="tint-b" class="tint" x="1048" y="340" width="218" height="250" fill="#63d3e8" opacity="0.07" />
+              <rect id="tint-c" class="tint" x="1266" y="340" width="217" height="250" fill="#63d3e8" opacity="0.07" />
+              <rect id="warm-a" class="h" x="832" y="340" width="216" height="250" fill="#eb6834" />
+              <rect id="warm-c" class="h" x="1266" y="340" width="217" height="250" fill="#eb6834" />
+              <rect x="1046" y="340" width="4" height="250" fill="#3a4756" />
+              <rect x="1264" y="340" width="4" height="250" fill="#3a4756" />
+              <!-- The duct and its riser. -->
+              <rect x="840" y="298" width="645" height="24" rx="4" fill="#1d2b38" stroke="#34495c" stroke-width="2" />
+              <rect x="1488" y="290" width="28" height="300" fill="#1d2b38" stroke="#34495c" stroke-width="2" />
+              <path class="flow" d="M1502 292 V310 H842" />
+              <path class="flow" d="M1502 310 V590" />
+              <!-- The diffusers. -->
+              <g fill="#34495c">
+                <rect x="934" y="322" width="12" height="12" />
+                <rect x="910" y="334" width="60" height="6" />
+                <rect x="1151" y="322" width="12" height="12" />
+                <rect x="1127" y="334" width="60" height="6" />
+                <rect x="1369" y="322" width="12" height="12" />
+                <rect x="1345" y="334" width="60" height="6" />
+              </g>
+              <!-- The furniture and the people. -->
+              <g fill="#3a4756">
+                <use href="#desk" x="885" y="544" width="110" height="44" />
+                <use href="#desk" x="1320" y="544" width="110" height="44" />
+                <use href="#desk" x="1100" y="544" width="110" height="44" />
+              </g>
+              <use href="#person" x="1078" y="488" width="60" height="100" fill="#f2f1ec" />
+              <use href="#person" x="1182" y="488" width="60" height="100" fill="#f2f1ec" />
+              <!-- The air. -->
+              <g id="air-a">
+                <path class="air" d="M940 342 V480" />
+                <path class="air" d="M914 342 L874 470" />
+                <path class="air" d="M966 342 L1006 470" />
+              </g>
+              <g id="air-b">
+                <path class="air" d="M1157 342 V480" />
+                <path class="air" d="M1139 342 L1109 470" />
+                <path class="air" d="M1175 342 L1205 470" />
+              </g>
+              <g id="air-c">
+                <path class="air" d="M1375 342 V480" />
+                <path class="air" d="M1349 342 L1309 470" />
+                <path class="air" d="M1401 342 L1441 470" />
+              </g>
+              <g id="blast-a" class="h">
+                <path class="blast" d="M940 342 V576" />
+                <path class="blast" d="M925 342 L898 576" />
+                <path class="blast" d="M955 342 L982 576" />
+                <path class="blast" d="M912 342 L856 560" />
+                <path class="blast" d="M968 342 L1024 560" />
+              </g>
+              <g id="blast-c" class="h">
+                <path class="blast" d="M1375 342 V576" />
+                <path class="blast" d="M1360 342 L1333 576" />
+                <path class="blast" d="M1390 342 L1417 576" />
+                <path class="blast" d="M1347 342 L1291 560" />
+                <path class="blast" d="M1403 342 L1459 560" />
+              </g>
+              <!-- The static wall sensor. -->
+              <circle id="thermostat-ring" class="h" cx="1071" cy="408" r="30" fill="none" stroke="#f2c14e" stroke-width="4" />
+              <g id="thermostat">
+                <line x1="1071" y1="340" x2="1071" y2="388" stroke="#3a4756" stroke-width="3" />
+                <rect id="thermostat-body" x="1056" y="386" width="30" height="44" rx="6" fill="#1b2430" stroke="#a3acb6" stroke-width="3" />
+                <rect x="1061" y="392" width="20" height="12" rx="2" fill="#3a4756" />
+                <circle cx="1071" cy="418" r="5" fill="#a3acb6" />
+              </g>
+            </g>
+
+            <!-- Bottom floor: empty, and the meeting room. -->
+            <g id="floor2">
+              <rect x="830" y="590" width="655" height="300" fill="#0e141b" stroke="#3a4756" stroke-width="4" />
+              <rect x="832" y="592" width="651" height="48" fill="#151d27" />
+              <rect id="tint-d" class="tint" x="832" y="640" width="253" height="248" fill="#63d3e8" opacity="0.07" />
+              <rect id="tint-e" class="tint" x="1085" y="640" width="398" height="248" fill="#63d3e8" opacity="0.07" />
+              <rect id="warm-d" class="h" x="832" y="640" width="253" height="248" fill="#eb6834" />
+              <rect x="1083" y="640" width="4" height="248" fill="#3a4756" />
+              <rect x="840" y="598" width="645" height="24" rx="4" fill="#1d2b38" stroke="#34495c" stroke-width="2" />
+              <rect x="1488" y="590" width="28" height="32" fill="#1d2b38" stroke="#34495c" stroke-width="2" />
+              <path class="flow" d="M1502 590 V610 H842" />
+              <g fill="#34495c">
+                <rect x="952" y="622" width="12" height="12" />
+                <rect x="928" y="634" width="60" height="6" />
+                <rect x="1189" y="622" width="12" height="18" />
+              </g>
+              <!-- The meeting room's VRF cassette and louver. -->
+              <rect x="1150" y="640" width="90" height="28" rx="4" fill="#1d2b38" stroke="#34495c" stroke-width="2" />
+              <rect id="louver" x="1155" y="668" width="80" height="7" rx="3" fill="#63d3e8" />
+              <polygon id="cone" class="h" points="1195,680 1432,768 1372,862" fill="url(#cone-grad)" />
+              <g fill="#3a4756">
+                <use href="#desk" x="903" y="844" width="110" height="44" />
+                <use href="#desk" x="1280" y="844" width="90" height="44" />
+              </g>
+              <use href="#person" x="1374" y="790" width="58" height="97" fill="#f2f1ec" />
+              <g id="air-d">
+                <path class="air" d="M958 642 V780" />
+                <path class="air" d="M932 642 L892 770" />
+                <path class="air" d="M984 642 L1024 770" />
+              </g>
+              <g id="air-e">
+                <path class="air" d="M1195 682 V800" />
+                <path class="air" d="M1171 682 L1140 790" />
+                <path class="air" d="M1219 682 L1250 790" />
+              </g>
+              <line x1="780" y1="893" x2="1530" y2="893" stroke="#3a4756" stroke-width="5" stroke-linecap="round" />
+              <g fill="#63d3e8">
+              <g class="cam"><rect x="852" y="634" width="4" height="16" /><rect x="842" y="648" width="34" height="18" rx="4" /><circle cx="880" cy="657" r="6" /></g>
+              <g class="cam"><rect x="1104" y="634" width="4" height="16" /><rect x="1094" y="648" width="34" height="18" rx="4" /><circle cx="1132" cy="657" r="6" /></g>
+              </g>
+              <g fill="#7db4ff">
+              <use class="sensor" href="#thermo" x="1054" y="650" width="22" height="44" />
+              <use class="sensor" href="#thermo" x="1098" y="694" width="22" height="44" />
+              </g>
+            </g>
+
+            <!-- What SpotCool perceives with: dim until the narrator names them. -->
+            <g id="cams" fill="#63d3e8">
+              <g class="cam"><rect x="852" y="334" width="4" height="16" /><rect x="842" y="348" width="34" height="18" rx="4" /><circle cx="880" cy="357" r="6" /></g>
+              <g class="cam"><rect x="1212" y="334" width="4" height="16" /><rect x="1202" y="348" width="34" height="18" rx="4" /><circle cx="1198" cy="357" r="6" /></g>
+              <g class="cam"><rect x="1288" y="334" width="4" height="16" /><rect x="1278" y="348" width="34" height="18" rx="4" /><circle cx="1316" cy="357" r="6" /></g>
+            </g>
+            <g id="sensors" fill="#7db4ff">
+              <use class="sensor" href="#thermo" x="1016" y="350" width="22" height="44" />
+              <use class="sensor" href="#thermo" x="1241" y="350" width="22" height="44" />
+              <use class="sensor" href="#thermo" x="1452" y="350" width="22" height="44" />
+            </g>
+            <g id="sig" class="h">
+              <path class="sig" d="M1470 334 H800 V705 H772" />
+              <path class="sig" d="M1140 634 H800" />
+              <line x1="772" y1="796" x2="830" y2="796" stroke="#3a4756" stroke-width="4" />
+            </g>
+          </g>
+        </svg>
+
+        <div id="hud">
+          <!-- Labels that travel with the building at the start. -->
+          <div id="hud-bld">
+            <div id="tag-today" class="tag">Today: no agent</div>
+            <div id="lbl-chiller" class="abs">Chiller</div>
+          </div>
+
+          <div id="stat" class="h">
+            <div id="stat-value" data-var-text="stat_value">Stat</div>
+            <div id="stat-label" data-var-text="stat_label">Stat label</div>
+            <div id="stat-source" data-var-text="stat_source">Source</div>
+          </div>
+
+          <div id="meter">
+            <div id="meter-title">Electricity</div>
+            <svg width="240" height="240" viewBox="0 0 240 240">
+              <circle cx="120" cy="120" r="96" fill="none" stroke="#2a3542" stroke-width="16" stroke-dasharray="452.4 603.2" transform="rotate(135 120 120)" stroke-linecap="round" />
+              <circle id="meter-arc" cx="120" cy="120" r="96" fill="none" stroke="#eb6834" stroke-width="16" stroke-dasharray="452.4 603.2" stroke-dashoffset="416.2" transform="rotate(135 120 120)" stroke-linecap="round" />
+              <g id="meter-disc">
+                <circle cx="120" cy="120" r="46" fill="#1a2430" stroke="#3a4756" stroke-width="3" />
+                <rect x="115" y="78" width="10" height="24" rx="3" fill="#f2f1ec" />
+              </g>
+              <g id="meter-needle">
+                <line x1="120" y1="120" x2="120" y2="40" stroke="#f2f1ec" stroke-width="6" stroke-linecap="round" />
+              </g>
+              <circle cx="120" cy="120" r="10" fill="#f2f1ec" />
+            </svg>
+            <div id="meter-climb" class="meter-state">Climbing</div>
+            <div id="meter-slow" class="meter-state h">Slowing</div>
+          </div>
+
+          <!-- Scene two. -->
+          <div id="lbl-sensor" class="tag h">Static wall sensor</div>
+          <div id="ask-where" class="ask h"><b>?</b><span>Where are people sitting?</span></div>
+          <div id="ask-wear" class="ask h"><b>?</b><span>What are they wearing?</span></div>
+          <div id="ask-feel" class="ask h"><b>?</b><span>How do they feel?</span></div>
+          <div id="warn" class="h">Cooling empty space</div>
+          <div id="lbl-empty-a" class="tag lbl-empty h">Empty</div>
+          <div id="lbl-empty-c" class="tag lbl-empty h">Empty</div>
+
+          <!-- Scene five. -->
+          <div id="leg-cam" class="leg h">
+            <svg width="56" height="36" viewBox="0 0 56 36"><rect x="0" y="4" width="40" height="28" rx="5" fill="#63d3e8" /><circle cx="48" cy="18" r="8" fill="#63d3e8" /></svg>
+            <span>CCTV cameras</span>
+          </div>
+          <div id="leg-temp" class="leg h">
+            <svg width="56" height="44" viewBox="0 0 56 44"><use href="#thermo" x="17" y="0" width="22" height="44" fill="#7db4ff" /></svg>
+            <span>Temperature sensors</span>
+          </div>
+          <div id="mod5-spot" class="h">SpotCool</div>
+          <div id="mod5-bms" class="h">BMS controller</div>
+          <div id="tag-a" class="tag room-tag empty h">Empty:<br />eases off</div>
+          <div id="tag-b" class="tag room-tag occ h">Occupied:<br />cooled</div>
+          <div id="tag-c" class="tag room-tag empty h">Empty:<br />eases off</div>
+          <div id="tag-d" class="tag room-tag empty h">Empty:<br />eases off</div>
+          <div id="tag-e" class="tag room-tag occ h">Occupied:<br />cooled</div>
+          <div id="lbl-spot" class="tag h" data-var-text="spot_3d">Spot cooling</div>
+
+          <div id="chart" class="h">
+            <svg width="696" height="426" viewBox="0 0 696 426">
+              <path d="M40 70 V404 H660" fill="none" stroke="#3a4756" stroke-width="3" />
+              <path id="line-without" d="M44 150 C160 138 260 136 360 130 S560 124 656 118" fill="none" stroke="#eb6834" stroke-width="7" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+              <path id="line-with" d="M44 150 C120 146 170 146 220 152 S360 170 460 173 S600 176 656 176" fill="none" stroke="#63d3e8" stroke-width="7" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+            </svg>
+            <div id="chart-title">Energy use</div>
+            <div id="chart-tag">Illustration</div>
+            <div id="chart-without" class="h">Without</div>
+            <div id="chart-with" class="h">With SpotCool</div>
+          </div>
+        </div>
+
+        <!-- Scene three: SpotCool and its five models. -->
+        <div id="s3" class="h">
+          <svg id="s3-lines" width="1920" height="1080" viewBox="0 0 1920 1080">
+            <g fill="none" stroke="#63d3e8" stroke-width="3" opacity="0.6">
+              <line id="wire-sam" x1="360" y1="246" x2="740" y2="400" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+              <line id="wire-spark" x1="960" y1="206" x2="960" y2="370" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+              <line id="wire-voice" x1="1560" y1="246" x2="1180" y2="400" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+              <line id="wire-wonder" x1="1340" y1="720" x2="1140" y2="540" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+              <line id="wire-image" x1="580" y1="720" x2="780" y2="540" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" />
+            </g>
+          </svg>
+          <div id="s3-meet" class="h">Meet our project</div>
+          <div id="s3-hub" class="h">
+            <div id="s3-name">SpotCool AI</div>
+            <div id="s3-layer" class="h">Autonomous HVAC controller layer</div>
+          </div>
+          <div id="chip-sam" class="chip h" data-var-text="sam_name">Model</div>
+          <div id="chip-spark" class="chip h">Muse Spark</div>
+          <div id="chip-voice" class="chip h">Muse Voice</div>
+          <div id="chip-wonder" class="chip h">Muse Wonder</div>
+          <div id="chip-image" class="chip h">Muse Image</div>
+        </div>
+
+        <!-- Scene four: the module clicks onto the building's own BMS. -->
+        <div id="s4" class="h">
+          <svg id="s4-lines" width="1920" height="1080" viewBox="0 0 1920 1080">
+            <g fill="none" stroke="#3a4756" stroke-width="5">
+              <path d="M680 590 H590" />
+              <path d="M680 670 H590" />
+              <path d="M1240 590 H1330" />
+              <path d="M1240 670 H1330" />
+            </g>
+          </svg>
+          <div class="node" style="left: 400px; top: 555px">Chiller</div>
+          <div class="node" style="left: 400px; top: 635px">Fans</div>
+          <div class="node" style="left: 1330px; top: 555px">Dampers</div>
+          <div class="node" style="left: 1330px; top: 635px">Sensors</div>
+          <div id="s4-rip" class="h">Rip and replace<div id="s4-strike"></div></div>
+          <div id="s4-bms">
+            <div id="s4-bms-name">BMS controller</div>
+            <div id="s4-bms-sub">The building's own</div>
+          </div>
+          <div id="s4-mod">SpotCool AI</div>
+          <div id="s4-pulse" class="h"></div>
+          <div id="s4-tag" class="h">Plug and play: no new hardware</div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      const show = (sel, at, d = 0.35) => tl.to(sel, { opacity: 1, duration: d, ease: "power2.out" }, at);
+      const hide = (sel, at, d = 0.25) => tl.to(sel, { opacity: 0, duration: d, ease: "power2.in" }, at);
+      const pop = (sel, at, d = 0.4) => tl.fromTo(sel, { opacity: 0, y: 18, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: d, ease: "back.out(1.6)", immediateRender: false }, at);
+      const dial = (progress) => ({ offset: 452.4 * (1 - progress), angle: -135 + 270 * progress });
+      const meterTo = (progress, at, d) => {
+        const { offset, angle } = dial(progress);
+        tl.to("#meter-arc", { strokeDashoffset: offset, duration: d, ease: "none" }, at);
+        tl.to("#meter-needle", { rotation: angle, duration: d, ease: "none" }, at);
+      };
+
+      // The building starts centred, and every rotation turns about its own centre.
+      gsap.set("#bld", { svgOrigin: "0 0", x: -310 });
+      gsap.set("#hud-bld", { x: -310 });
+      gsap.set("#sun", { svgOrigin: "735 190" });
+      gsap.set("#thermostat-ring", { svgOrigin: "1071 408" });
+      gsap.set("#fan-a", { svgOrigin: "1332 240" });
+      gsap.set("#fan-b", { svgOrigin: "1454 240" });
+      gsap.set("#louver", { svgOrigin: "1195 671" });
+      gsap.set("#cone", { svgOrigin: "1195 680", scale: 0.2 });
+      gsap.set("#meter-needle", { svgOrigin: "120 120", rotation: dial(0.08).angle });
+      gsap.set("#meter-disc", { svgOrigin: "120 120" });
+      gsap.set("#s4-strike", { scaleX: 0 });
+      gsap.set("#s4-mod", { y: -560 });
+      gsap.set([".cam", ".sensor"], { opacity: 0.28 });
+
+      // What runs the whole time: the air, the ducts, the signal lines, the disc, the fans.
+      tl.to(".flow", { strokeDashoffset: -3400, duration: 34, ease: "none" }, 0);
+      tl.to(".air", { strokeDashoffset: -2380, duration: 34, ease: "none" }, 0);
+      tl.to(".blast", { strokeDashoffset: -6800, duration: 34, ease: "none" }, 0);
+      tl.to(".sig", { strokeDashoffset: -2720, duration: 34, ease: "none" }, 0);
+      tl.to("#meter-disc", { rotation: 11844, duration: 32.9, ease: "none" }, 0);
+      tl.to("#meter-disc", { rotation: 11904, duration: 1.1, ease: "power2.out" }, 32.9);
+      tl.to(["#fan-a", "#fan-b"], { rotation: 16524, duration: 30.6, ease: "none" }, 0);
+      tl.to(["#fan-a", "#fan-b"], { rotation: 17200, duration: 3.4, ease: "power1.out" }, 30.6);
+
+      // SCENE ONE, the HVAC with no agent. "across hot climates":
+      tl.fromTo("#sun", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.5, ease: "power3.out", immediateRender: false }, 1.6);
+      tl.to(["#bld", "#hud-bld"], { x: 0, duration: 0.5, ease: "power3.inOut" }, 1.85);
+      // "up to 70 %":
+      tl.fromTo("#stat", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out", immediateRender: false }, 2.3);
+      // "of electricity":
+      tl.to("#meter", { borderColor: "#eb6834", duration: 0.25, ease: "power2.out" }, 3.0);
+      tl.to("#meter", { borderColor: "#2a3542", duration: 0.5, ease: "power2.in" }, 3.6);
+      // "goes directly into HVAC cooling":
+      tl.to(".tint", { opacity: 0.22, duration: 0.3, ease: "power2.out" }, 4.2);
+      tl.to(".tint", { opacity: 0.07, duration: 0.4, ease: "power2.in" }, 4.55);
+      meterTo(0.92, 0, 15.4);
+
+      // SCENE TWO, "Why?": push in on the top floor.
+      hide(["#stat", "#tag-today", "#lbl-chiller", "#sun"], 4.9, 0.2);
+      hide("#floor2", 5.0, 0.3);
+      tl.to("#bld", { x: -1570, y: -490, scale: 2, duration: 0.5, ease: "power2.inOut" }, 5.0);
+      // "a static wall sensor":
+      tl.to("#thermostat-body", { stroke: "#f2c14e", fill: "#2c2a1c", duration: 0.25, ease: "power2.out" }, 7.9);
+      tl.fromTo("#thermostat-ring", { opacity: 1, scale: 0.6 }, { opacity: 0, scale: 1.5, duration: 0.8, ease: "power2.out", immediateRender: false }, 7.9);
+      pop("#lbl-sensor", 7.95);
+      // "where humans are sitting", "what they are wearing", "how they actually feel":
+      pop("#ask-where", 9.9);
+      pop("#ask-wear", 11.0);
+      pop("#ask-feel", 12.3);
+      // "So they blindly cool empty space":
+      hide(["#ask-where", "#ask-wear", "#ask-feel"], 13.4, 0.2);
+      pop("#warn", 13.5, 0.45);
+      show(["#blast-a", "#blast-c"], 13.5, 0.3);
+      hide(["#air-a", "#air-c"], 13.5, 0.2);
+      tl.to(["#tint-a", "#tint-c"], { opacity: 0.3, duration: 0.5, ease: "power2.out" }, 13.5);
+      pop(["#lbl-empty-a", "#lbl-empty-c"], 13.7);
+
+      // SCENE THREE, a dark stage. Everything below is reset behind it for scene five.
+      show("#s3", 15.4, 0.25);
+      tl.set("#bld", { x: 0, y: 0, scale: 1 }, 15.8);
+      tl.set("#hud", { opacity: 0 }, 15.8);
+      tl.set("#hud", { opacity: 1 }, 26.85);
+      tl.set(["#floor2", "#air-a", "#air-c", "#lbl-chiller"], { opacity: 1 }, 15.8);
+      tl.set(["#blast-a", "#blast-c", "#warn", "#lbl-sensor", "#lbl-empty-a", "#lbl-empty-c"], { opacity: 0 }, 15.8);
+      tl.set(["#tint-a", "#tint-c"], { opacity: 0.07 }, 15.8);
+      // "Meet our project", "SpotCool AI":
+      tl.fromTo("#s3-meet", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out", immediateRender: false }, 15.7);
+      hide("#s3-meet", 17.3, 0.2);
+      tl.fromTo("#s3-hub", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.5)", immediateRender: false }, 17.5);
+      // "an autonomous HVAC controller layer":
+      tl.fromTo("#s3-layer", { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out", immediateRender: false }, 18.4);
+      // "powered by five Meta AI models":
+      [["sam", 19.8], ["spark", 20.16], ["voice", 20.52], ["wonder", 20.88], ["image", 21.24]].forEach(([name, at]) => {
+        pop(`#chip-${name}`, at, 0.36);
+        tl.to(`#wire-${name}`, { strokeDashoffset: 0, duration: 0.3, ease: "power2.out" }, at + 0.05);
+      });
+
+      // SCENE FOUR, plug and play. "Instead of ripping and replacing hardware":
+      show("#s4", 21.8, 0.2);
+      tl.set("#s3", { opacity: 0 }, 22.1);
+      tl.fromTo("#s4-rip", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.35, ease: "power3.out", immediateRender: false }, 22.0);
+      tl.to("#s4-strike", { scaleX: 1, duration: 0.22, ease: "power2.inOut" }, 23.25);
+      tl.to("#s4-rip", { color: "#a3acb6", duration: 0.35, ease: "power2.out" }, 23.3);
+      // "SpotCool AI sits right on top of": slides down and clicks.
+      hide("#s4-rip", 23.95, 0.2);
+      tl.to("#s4-mod", { y: 0, duration: 0.65, ease: "power3.in" }, 24.0);
+      tl.fromTo("#s4-pulse", { opacity: 1, scale: 1 }, { opacity: 0, scale: 1.14, duration: 0.6, ease: "power2.out", immediateRender: false }, 24.65);
+      tl.fromTo("#s4-bms", { y: 0 }, { y: 6, duration: 0.07, ease: "power2.out", yoyo: true, repeat: 1, immediateRender: false }, 24.65);
+      tl.fromTo("#s4-tag", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out", immediateRender: false }, 24.85);
+      // "a building's existing BMS controller":
+      tl.to("#s4-bms", { borderColor: "#63d3e8", duration: 0.3, ease: "power2.out" }, 25.8);
+
+      // SCENE FIVE, back to the building, SpotCool attached.
+      hide("#s4", 26.9, 0.2);
+      show(["#mod5-spot", "#mod5-bms"], 26.9, 0.2);
+      // "combining existing CCTV feeds":
+      tl.set("#meter-arc", { strokeDashoffset: dial(0.55).offset }, 15.8);
+      tl.set("#meter-needle", { rotation: dial(0.55).angle }, 15.8);
+      tl.to(".cam", { opacity: 1, duration: 0.3, ease: "power2.out", stagger: 0.08 }, 27.1);
+      show("#leg-cam", 27.1);
+      show("#sig", 27.3, 0.4);
+      // "with thermal sensors":
+      tl.to(".sensor", { opacity: 1, duration: 0.3, ease: "power2.out", stagger: 0.08 }, 29.3);
+      show("#leg-temp", 29.3);
+      // "to deliver targeted": empty rooms ease off, occupied rooms stay cool.
+      hide(["#air-a", "#air-c", "#air-d"], 30.6, 0.4);
+      hide(["#tint-a", "#tint-c", "#tint-d"], 30.6, 0.5);
+      tl.to(["#warm-a", "#warm-c", "#warm-d"], { opacity: 0.26, duration: 0.7, ease: "power2.out" }, 30.6);
+      tl.to(["#tint-b", "#tint-e"], { opacity: 0.2, duration: 0.5, ease: "power2.out" }, 30.6);
+      pop(["#tag-a", "#tag-c", "#tag-d"], 30.7);
+      pop(["#tag-b", "#tag-e"], 30.85);
+      // "3D spot cooling": the louver swings and the air aims at the person.
+      tl.to("#louver", { rotation: 30, duration: 0.3, ease: "power2.inOut" }, 31.3);
+      tl.to("#louver", { rotation: -14, duration: 0.35, ease: "power2.inOut" }, 31.6);
+      tl.to("#louver", { rotation: 24, duration: 0.35, ease: "power2.out" }, 31.96);
+      hide("#air-e", 31.3, 0.3);
+      tl.to("#cone", { opacity: 1, scale: 1, duration: 0.5, ease: "power3.out" }, 31.45);
+      pop("#lbl-spot", 31.5);
+      // "and real-time energy optimization": the meter slows, the line drops. An illustration.
+      meterTo(0.85, 27.1, 5.8);
+      meterTo(0.87, 32.9, 1.1);
+      tl.to("#meter-arc", { stroke: "#63d3e8", duration: 0.3, ease: "power2.out" }, 32.9);
+      hide("#meter-climb", 32.9, 0.2);
+      show("#meter-slow", 32.95, 0.2);
+      show("#chart", 32.3, 0.2);
+      tl.to("#line-without", { strokeDashoffset: 0, duration: 0.55, ease: "power1.inOut" }, 32.35);
+      tl.to("#line-with", { strokeDashoffset: 0, duration: 0.6, ease: "power1.inOut" }, 32.38);
+      show(["#chart-without", "#chart-with"], 32.75, 0.2);
+
+      window.__timelines["story"] = tl;
+    </script>
+  </body>
+</html>

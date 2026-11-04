@@ -120,6 +120,26 @@ class Source:
 
 
 @dataclass(frozen=True)
+class Talk:
+    """The person speaking over a beat: its audio and, with ``crop``, a round video.
+
+    Parameters:
+        clip: The video file, relative to the repo root.
+        in_s: Seconds into the clip where the beat starts.
+        out_s: Where the speech ends; the beat's rest is quiet and the circle holds. ``None`` for
+            the beat's length.
+        crop: The square the circle shows: (x, y, side) in the clip's pixels. ``None`` for none.
+        size: The circle's diameter in the video's pixels.
+    """
+
+    clip: str
+    in_s: float = 0.0
+    out_s: float | None = None
+    crop: tuple[int, int, int] | None = None
+    size: int = 300
+
+
+@dataclass(frozen=True)
 class Beat:
     """One beat of the video.
 
@@ -132,6 +152,7 @@ class Beat:
         narration_id: Its section of ``video/narration.md``, or ``None`` for none.
         on_screen_text: Its text by key: a composition's variables, or a take's ``label``.
         sources: Ids in ``video/sources.yaml`` that back its numbers.
+        talk: The person speaking over it, if the beat carries its own speech.
     """
 
     id: str
@@ -142,6 +163,7 @@ class Beat:
     narration_id: str | None
     on_screen_text: dict[str, str]
     sources: tuple[str, ...]
+    talk: Talk | None = None
 
     @property
     def duration(self) -> float:
@@ -316,6 +338,18 @@ def _beat(entry: Any, index: int) -> Beat:
         narration_id=None if narration is None else str(narration),
         on_screen_text={str(key): str(value) for key, value in text.items()},
         sources=tuple(str(source) for source in entry.get("sources") or ()),
+        talk=_talk(entry["talk"]) if entry.get("talk") else None,
+    )
+
+
+def _talk(data: dict[str, Any]) -> Talk:
+    crop = data.get("crop")
+    return Talk(
+        clip=str(data["clip"]),
+        in_s=float(data.get("in_s", 0.0)),
+        out_s=None if data.get("out_s") is None else float(data["out_s"]),
+        crop=(int(crop[0]), int(crop[1]), int(crop[2])) if crop else None,
+        size=int(data.get("size", 300)),
     )
 
 

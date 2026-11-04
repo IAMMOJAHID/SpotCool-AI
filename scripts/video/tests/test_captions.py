@@ -77,5 +77,5 @@ def test_captions_cli_estimates_without_a_recording(tmp_path, monkeypatch, capsy
     assert "estimated at 140 words a minute" in capsys.readouterr().out
     shown = captions.parse_srt(out.read_text("utf-8"))
     board = load_storyboard()
-    assert shown[0].start == pytest.approx(board.beat("hook").start + voice.LEAD_S)
+    assert shown[0].start == pytest.approx(board.beat("intro").start + voice.LEAD_S)
     assert shown[-1].end <= board.total_s

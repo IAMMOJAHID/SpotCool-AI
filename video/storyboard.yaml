@@ -24,93 +24,73 @@ video:
   max_s: 178
 
 beats:
-  - id: title
+  # The person's own voice carries the video: each beat's `talk` is its audio and, with `crop`, the
+  # round video at bottom right. talk.mp4's in_s are set once it is recorded (prep_clips.py).
+  - id: intro
     start: 0
-    end: 4
-    type: title
-    source: {composition: title}
-    narration_id: null
-    on_screen_text:
-      title: SpotCool
-      tagline: Cooling that follows people
+    end: 6
+    type: screen
+    source: {clip: video/takes/intro.mp4}
+    narration_id: intro
+    talk: {clip: video/takes/intro.mp4, in_s: 0}
+    on_screen_text: {}
     sources: []
 
-  - id: hook
-    start: 4
-    end: 26
-    type: motion
-    source: {composition: hook_stats}
-    narration_id: hook
-    on_screen_text:
-      headline: Fewer people come in. The cooling keeps its schedule.
-      attendance_value: 56.1 %
-      attendance_label: US office attendance, against February 2020
-      peak_value: 66.1 %
-      peak_label: on the peak day
-      attendance_source: "Source: Kastle Systems, badge swipes"
-      hvac_value: About 55 %
-      hvac_label: of a typical commercial building's energy in India goes to HVAC
-      hvac_source: "Source: Bureau of Energy Efficiency, Building Code and Rating in India"
-    sources: [kastle, bee-hvac-share]
-
-  - id: plugs_in
-    start: 26
+  - id: story
+    start: 6
     end: 40
     type: motion
-    source: {composition: three_connections}
-    narration_id: plugs_in
+    source: {composition: story}
+    narration_id: story
+    talk: {clip: video/takes/body_round.mp4, in_s: 0, crop: [910, 20, 560]}
     on_screen_text:
-      headline: Three connections the building already has
-      hub: SpotCool
-      cctv_title: CCTV cameras
-      cctv_body: see who is in each zone
-      bms_title: Building management system
-      bms_body: eases the cooling where nobody is
-      complaints_title: Complaints
-      complaints_body: so a cold meeting room is heard
-      footer: No new sensors
-    sources: []
+      stat_value: Up to 70 %
+      stat_label: of the UAE's electricity goes to air conditioning
+      stat_source: "Source: Emirates Authority for Standardisation and Metrology, via The National, 2012"
+      sam_name: SAM 3.1
+      spot_3d: 3D spot cooling
+    sources: [uae-cooling, meta-models]
 
-  - id: world
+  - id: whiteboard
     start: 40
-    end: 52
-    type: motion
-    source: {composition: architecture}
-    narration_id: world
-    on_screen_text:
-      headline: A building to test it on
-      agent: SpotCool agent
-      world: The world
-      bms: BACnet BMS
-      vrf: VRF unit
-      cameras: CCTV cameras
-      complaints: Complaints
-      plant_spotcool: BOPTEST office, SpotCool run
-      plant_baseline: BOPTEST office, baseline run
-      footer: Same weather, same building, same BMS. Only one run gets SpotCool's writes.
+    end: 55.5
+    type: screen
+    source: {clip: video/takes/whiteboard.mp4}
+    narration_id: whiteboard
+    talk: {clip: video/takes/whiteboard.mp4, in_s: 0}
+    on_screen_text: {}
     sources: [boptest]
 
+  - id: code
+    start: 55.5
+    end: 75.5
+    type: screen
+    source: {clip: video/takes/code.mp4}
+    narration_id: code
+    talk: {clip: video/takes/code.mp4, in_s: 0}
+    on_screen_text: {}
+    sources: []
+
   # The live take, recorded by hand in OBS (docs/runbooks/video-takes.md, The live quad take):
-  # one file feeds two beats, each from its own in_s. The lead sets both in_s after recording.
+  # one file feeds two beats, each from its own in_s.
   - id: live
-    start: 52
-    end: 112
+    start: 75.5
+    end: 127.5
     type: screen
     source:
       take: live_quad
       in_s: 44  # sim 08:13: every zone empty at 28 degC; the 08:30 arrivals land 17 s in
       scenes:
         - {at: 0, scene: Quad}
-      before:
-        - "Follow docs/runbooks/video-takes.md, The live quad take: SpotCool's agent with the Meta models and --vrf, then the world on BOPTEST at speed 60. Recorded by hand in OBS; save it as video/takes/live_quad.mkv."
     narration_id: live
+    talk: {clip: video/takes/talk.mp4, in_s: 0, crop: [910, 20, 560], size: 240}
     on_screen_text:
       label: "Live: SpotCool's agent on BOPTEST. Meta's calls are logged in the terminal. The zone cameras play MEVA dataset clips"
     sources: [meta-models, meva]
 
   - id: louvers
-    start: 112
-    end: 124
+    start: 127.5
+    end: 139.5
     type: screen
     source:
       take: live_quad
@@ -122,18 +102,20 @@ beats:
       scenes:
         - {at: 0, scene: Dashboard}
     narration_id: louvers
+    talk: {clip: video/takes/talk.mp4, in_s: 0, crop: [910, 20, 560]}
     on_screen_text:
       label: "The meeting room's louvers follow a person (the camera plays a recorded clip)"
     sources: []
 
   - id: meta_models
-    start: 124
-    end: 144
+    start: 139.5
+    end: 154.5
     type: motion
     source: {composition: meta_models}
     narration_id: meta_models
+    talk: {clip: video/takes/talk.mp4, in_s: 0, crop: [910, 20, 560]}
     on_screen_text:
-      headline: Four Meta models, one job each
+      headline: Five Meta models, one job each
       sam_title: SAM 3.1
       sam_id: sam-3.1
       sam_body: Sees the people in every camera, from a one-word prompt. The building's occupied or empty, and the person the meeting room's louvers follow
@@ -146,42 +128,43 @@ beats:
       wonder_title: Muse Wonder
       wonder_id: muse-wonder-1.0
       wonder_body: Works out what a complaint means when keywords can't, and answers it. One plain sentence for each step's decisions
+      image_title: Muse Image
+      image_id: muse-image-1.0
+      image_body: Redraws a camera as a faceless illustration, for an optional privacy view. Off in this run
       footer: Models perceive. Code decides. No language model writes to the BMS.
     sources: [meta-models]
 
+
   - id: results
-    start: 144
-    end: 164
+    start: 154.5
+    end: 168.5
     type: motion
     source: {composition: results_card, run_id: live-quad-boptest-s60-c}
     narration_id: results
+    talk: {clip: video/takes/talk.mp4, in_s: 0, crop: [910, 20, 560], size: 260}
     on_screen_text:
       title: "BOPTEST: SpotCool's policy against the baseline"
     sources: [run-live-quad, boptest]
 
-  - id: rollout
-    start: 164
-    end: 172
-    type: motion
-    source: {composition: rollout_privacy}
-    narration_id: rollout
-    on_screen_text:
-      rollout_title: Rollout
-      rollout_1: No new hardware. It runs on the cameras and the BMS already there.
-      rollout_2: A real BMS needs the same BACnet points and occupied-standby.
-      privacy_title: Privacy
-      privacy_1: SpotCool never stores a frame.
-      privacy_2: The record keeps counts and decisions, never images.
-    sources: []
-
   - id: close
-    start: 172
-    end: 176
+    start: 168.5
+    end: 172.5
     type: title
     source: {composition: close}
     narration_id: close
+    talk: {clip: video/takes/talk.mp4, in_s: 0, crop: [910, 20, 560]}
     on_screen_text:
       title: SpotCool
       tagline: Cooling that follows people
       repo: github.com/IAMMOJAHID/SpotCool-AI
+    sources: []
+
+  - id: goodbye
+    start: 172.5
+    end: 175.5
+    type: screen
+    source: {clip: video/takes/thanks.mp4}
+    narration_id: goodbye
+    talk: {clip: video/takes/thanks.mp4, in_s: 0}
+    on_screen_text: {}
     sources: []
