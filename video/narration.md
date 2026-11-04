@@ -15,11 +15,11 @@ Hi. Offices are emptier now. Kastle's badge data puts US attendance at 56.1 % of
 
 ## plugs_in
 
-Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool sits on what's already there: the cameras, the BMS, and people's complaints. No new sensors.
+Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool uses what's already there: the cameras, the BMS and complaints.
 
 ## world
 
-To test it, we built a building: a BACnet BMS, cameras and occupants. Behind it, BOPTEST, an open research simulator, runs one office twice, with SpotCool and without.
+We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST runs one office twice, with SpotCool and without.
 
 ## live
 
@@ -27,11 +27,11 @@ This is SpotCool running live. Top right, the building's cameras, here public da
 
 ## louvers
 
-In the meeting room, SAM finds the person in the camera, here a recorded clip, and the agent turns the AC's louvers to follow them.
+In the meeting room, SAM finds the person in the camera. Here, the camera plays a recorded clip. The agent turns the AC's louvers to follow them.
 
 ## meta_models
 
-Meta's models see, listen and explain. SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our comfort physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model writes to the building.
+Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model writes to the building.
 
 ## results
 
@@ -39,7 +39,7 @@ SpotCool's agent used 19.94 % less HVAC energy than the baseline, and got occupa
 
 ## rollout
 
-It runs on a building's own BMS and cameras, never stores a frame, and an operator always wins.
+It uses a building's own BMS and cameras, stores no frame, and an operator always wins.
 
 ## close
 

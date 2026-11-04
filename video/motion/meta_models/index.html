@@ -168,15 +168,14 @@
       const tl = gsap.timeline({ paused: true });
       const card = (name, at) =>
         tl.fromTo(`#models-${name}`, { opacity: 0, y: 24, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out" }, at);
-      // "Meta's models see, listen and explain":
-      tl.fromTo("#models-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 0.3);
-      // Each card as the narration names its model.
-      card("sam", 2.4);
-      card("spark", 5.4);
-      card("voice", 10.2);
-      card("wonder", 12.0);
+      // The headline, then each card as the narration names its model.
+      tl.fromTo("#models-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 0.2);
+      card("sam", 0.6);
+      card("spark", 4.2);
+      card("voice", 10.0);
+      card("wonder", 11.8);
       // "No language model writes to the building":
-      tl.fromTo("#models-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 15.4);
+      tl.fromTo("#models-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 15.2);
       window.__timelines["meta_models"] = tl;
     </script>
   </body>
