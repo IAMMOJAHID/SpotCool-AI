@@ -1,4 +1,4 @@
-// The chat box and hold-to-talk, against a stand-in for Person A's agent.
+// The chat box and hold-to-talk, against a stand-in for SpotCool's agent.
 import { expect, test } from '@playwright/test';
 import { agentServer, dashboard, multipart } from './support.ts';
 

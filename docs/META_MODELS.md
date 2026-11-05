@@ -10,7 +10,7 @@ SpotCool uses five Meta models, each with one job:
 
 The decisions around them are deterministic code: **the models perceive, and the code decides.** No language model ever writes to the building's BMS.
 
-All five are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probes: SAM 3.1's is AG0's (recorded in [`agent/HANDOFF.md`](agent/HANDOFF.md)), and Muse Spark's and Muse Image's are the lead's (recorded in [`agent/workpackages/AG8-meta-models.md`](agent/workpackages/AG8-meta-models.md) and in section 5 below).
+All five are called through the Meta AI API (`api.meta.ai/v1`) by the agent in [`packages/agent`](../packages/agent/README.md). The file references below are under `packages/agent/src/spotcool_agent/`. Figures come from [`release/numbers.md`](release/numbers.md), except the latency probes: SAM 3.1's is AG0's, and Muse Spark's and Muse Image's are the lead's (section 5 below).
 
 ```text
  CCTV snapshot ──► SAM 3.1 ──► boxes ──► occupied / empty ──► policy ──► BACnet writes (BMS)
@@ -59,7 +59,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 `loops/vrf.py`, `domain/louvers.py`
 
 1. **See.** It keeps two SAM calls in flight on the live camera.
-2. **Locate.** Each person is placed on the floor from the camera's mounting height and tilt. This is Person A's geometry:
+2. **Locate.** Each person is placed on the floor from the camera's mounting height and tilt. This is the MVP's geometry:
    - **First choice:** a ray from the person's feet in the image to the floor plane.
    - **Fallback:** a pinhole estimate from the box's height, as a standing or seated person.
 3. **Aim.** The aim point is the people's centre, weighted by box area. From it come the louvers' pan and tilt, from the AC's outlet to a person's torso.
@@ -96,7 +96,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 
    The setpoint stays within 16–30 °C. A point an operator holds is left as it is, and the reply says so.
 3. **Reply.**
-   - muse-wonder writes the answer, grounded on live facts: the last zone counts, the room's temperature, and what the agent just did. That's Person A's `state_card` idea.
+   - muse-wonder writes the answer, grounded on live facts: the last zone counts, the room's temperature, and what the agent just did. That's the MVP's `state_card` idea.
    - It has 8 s, and the reply is cut to two sentences.
    - If it's late or fails, a template answers instead.
 
@@ -107,13 +107,13 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 `services/meta/scene.py`, `domain/scene.py`, `domain/comfort.py`
 
 **The call:**
-- **Input:** one snapshot, in memory, and a JSON-only prompt adapted from Person A's `SCENE_INSTRUCTIONS`, with SAM 3.1's count as text.
+- **Input:** one snapshot, in memory, and a JSON-only prompt adapted from the MVP's `SCENE_INSTRUCTIONS`, with SAM 3.1's count as text.
 - **Output:** per person, the closest ASHRAE 55 clothing ensemble, the activity, the posture and a visible discomfort cue; for the room, the open doors and windows, the sunlight and the space type. It is validated against a strict schema: any other key, a temperature included, makes the answer invalid. An invalid or late answer (30 s) is dropped.
 - **Budget:** its own, `--scene-call-cap` (300). It never takes a call from SAM 3.1's.
 
 **The meeting room's comfort setpoint** (`loops/vrf.py`, with `--vrf`; `--no-comfort` turns it off):
 1. Every 60 s while people are seen, muse-spark reads the live camera's frame.
-2. Person A's ISO 7730 physics, ported near verbatim, turns each person into clo (the ensemble's, plus 0.1 seated) and met (the activity's), and finds the air temperature at PMV 0 for them, in still air at 50 % RH (the gateway has no humidity point).
+2. The MVP's ISO 7730 physics, ported near verbatim, turns each person into clo (the ensemble's, plus 0.1 seated) and met (the activity's), and finds the air temperature at PMV 0 for them, in still air at 50 % RH (the gateway has no humidity point).
 3. The result goes on the setpoint's 0.5 °C grid, within a **comfort band of 23–26 °C**, and is written to `IDU-SP` at priority 10 on a change only. The band came from the first live take (Nov 5): a person walking through the clip reads as high activity, and their PMV-0 temperature fell to 16 °C, far colder than a meeting needs.
 4. **Precedence:** the operator first (the agent backs off from slots 1 to 9), then a complaint's override, then the comfort setpoint. With nobody seen, it's released, and the unit goes back to its default.
 5. The explanation reads like "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort setpoint 24.5 degC (PMV 0)".
@@ -121,7 +121,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 **Scene notes for the building's zones** (`loops/scene.py`), explanations only:
 - Each occupied zone is read at most every 4 steps, from that step's snapshot, after the step's writes are made, in a background task. A zone still being read is skipped.
 - The note reads like "Muse Spark, West: 1 person, typical office clothing; a door is open".
-- **Cross-check (Person A's rule):** when muse-spark's count differs from SAM 3.1's by more than 2, or 30 % of the larger, a second note says "SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's".
+- **Cross-check (the MVP's rule):** when muse-spark's count differs from SAM 3.1's by more than 2, or 30 % of the larger, a second note says "SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's".
 - The notes never change the policy's input. A test runs the building loop with and without the scene notes and narration and requires the same BMS writes, in the same order.
 
 **The latency probes** (the lead's, Nov 4): a short prompt on one MEVA cafe frame took 10.4 s; the full scene prompt took 16.6–18.7 s on three frames (the cafe, the meeting-room clip and the entrance), each valid JSON, with 6, 1 and 3 people, as many as the clips show. That's why muse-spark runs in the background with a 30 s timeout, and never on a building step's deadline.
@@ -130,8 +130,8 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 
 `services/meta/render.py`, `loops/render.py`, `transports/server.py`
 
-**The call** (Person A's `render_privacy_snapshot`, from the MVP's `app/spotcool/media.py`):
-- **Input:** one snapshot, in memory, sent to `images.edit` as `frame.jpg` with A's `PRIVACY_RENDER_PROMPT`: redraw the scene as a flat isometric illustration, keep the layout and each person's position, posture and clothing colours, make people faceless, add or remove nothing, add no text. `n=1`, a 45 s timeout, no retries.
+**The call** (the MVP's `render_privacy_snapshot`, from the MVP's `app/spotcool/media.py`):
+- **Input:** one snapshot, in memory, sent to `images.edit` as `frame.jpg` with the MVP's `PRIVACY_RENDER_PROMPT`: redraw the scene as a flat isometric illustration, keep the layout and each person's position, posture and clothing colours, make people faceless, add or remove nothing, add no text. `n=1`, a 45 s timeout, no retries.
 - **Output:** one image as `b64_json`. It's checked, kept as a JPEG, and held in memory only. The trace gives the frame's and the render's sizes, never the image or its base64.
 - **Budget:** its own, `--render-call-cap` (60), one call at a time. It never takes a call from another model's.
 
@@ -151,7 +151,7 @@ SAM 3.1 finds things from a text prompt, so it needed no training on our buildin
 - `?privacy=on` chooses what this page shows. The world's camera server still serves the raw feeds.
 - Only the service call has been verified live (below). The render loop, the server and the dashboard's view have run on fakes.
 
-**The latency probes** (the lead's): on Nov 4, `images.edit` with A's prompt on one MEVA frame took 24 s and answered with a 280 KB `b64_json`, and no URL (recorded in [`agent/workpackages/AG9-muse-image.md`](agent/workpackages/AG9-muse-image.md)). On Nov 5, a call through `MuseImageRender` took 25.16 s; Meta answered WEBP 2048x1152, and it was converted to a valid JPEG (request-id `959b6201-3b36-481c-b7d7-e9d1d8d2cfc8`).
+**The latency probes** (the lead's): on Nov 4, `images.edit` with the MVP's prompt on one MEVA frame took 24 s and answered with a 280 KB `b64_json`, and no URL. On Nov 5, a call through `MuseImageRender` took 25.16 s; Meta answered WEBP 2048x1152, and it was converted to a valid JPEG (request-id `959b6201-3b36-481c-b7d7-e9d1d8d2cfc8`).
 
 ## Why it's built this way
 

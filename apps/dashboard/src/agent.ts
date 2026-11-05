@@ -1,4 +1,4 @@
-// Posts to Person A's agent (`AGENT_CHAT_PATH` and `AGENT_VOICE_PATH` in the contracts). The agent
+// Posts to SpotCool's agent (`AGENT_CHAT_PATH` and `AGENT_VOICE_PATH` in the contracts). The agent
 // must allow CORS from the dashboard's origin, `CLIENT_HEADER` included.
 import type { ComplaintText } from './wire';
 

@@ -1,6 +1,6 @@
 # spotcool-contracts
 
-Everything that crosses the line between **Person A's agent** and **Person B's simulated world** is defined here. Neither side imports the other's code, only this package. Swap the world for a real building, or the agent for another agent: as long as both honour these contracts, nothing else changes.
+Everything that crosses the line between **SpotCool's agent** and **The world's simulated world** is defined here. Neither side imports the other's code, only this package. Swap the world for a real building, or the agent for another agent: as long as both honour these contracts, nothing else changes.
 
 | Contract | File | In plain words |
 |---|---|---|
@@ -26,7 +26,7 @@ Everything that crosses the line between **Person A's agent** and **Person B's s
 Contracts are owned jointly. To change one:
 1. Open a PR that bumps `version` in `pyproject.toml` and `CONTRACTS_VERSION`.
 2. Explain the change in the PR description.
-3. Get approval from both Person A and Person B.
+3. Get approval from both the agent's and the world's maintainers.
 
 Additive changes bump the minor version; breaking changes bump the major version.
 

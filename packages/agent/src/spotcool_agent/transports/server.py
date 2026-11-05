@@ -1,4 +1,4 @@
-"""The agent's HTTP server: complaints on ``POST /chat`` and ``POST /voice`` (A-handoff section 9).
+"""The agent's HTTP server: complaints on ``POST /chat`` and ``POST /voice`` (docs/INTERFACES.md, section 9).
 
 - ``POST /chat``: a ``ComplaintText`` JSON body.
 - ``POST /voice``: ``multipart/form-data`` with an ``audio`` WAV in ``VOICE_FORMAT`` and an

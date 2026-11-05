@@ -1,11 +1,11 @@
-"""10: The whole world in one run, scored without Person A.
+"""10: The whole world in one run, scored without the agent.
 
 The world `spotcool-world run --stub-agent` runs, built the same way (runner/assembly.py): the
 hybrid Tuesday on two RC plants, SpotCool's and the baseline's, behind the BACnet BMS, with the
 cameras, the room calendar, the occupants, the recorder and the dashboard server, all on one bus.
 
-The stub agent stands in for Person A's agent. It is a real BACnet/IP client of the BMS on its own
-UDP port, but its perception is the scenario's ground truth, which A's agent never sees: empty
+The stub agent stands in for SpotCool's agent. It is a real BACnet/IP client of the BMS on its own
+UDP port, but its perception is the scenario's ground truth, which the agent never sees: empty
 zones get OCC-SENSOR = Unoccupied and CLG-SP = 28 degC at priority 10 (the BMS then puts them on
 standby), occupied and booked ones the building schedule, and its heartbeat keeps the BMS's
 watchdog quiet. The run is labelled a stub run.

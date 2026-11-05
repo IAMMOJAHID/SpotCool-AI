@@ -1,7 +1,7 @@
 """SparkScene: the people and the room read by ``muse-spark-1.3`` on the Meta AI API.
 
-The prompt is adapted from Person A's ``SCENE_INSTRUCTIONS`` (``app/spotcool/perception.py`` on
-branch ``third_level_improvement``): one frame, not A's numbered boxes and storyboard, plus SAM
+The prompt is adapted from the MVP's ``SCENE_INSTRUCTIONS`` (``app/spotcool/perception.py`` on
+branch ``third_level_improvement``): one frame, not the MVP's numbered boxes and storyboard, plus SAM
 3.1's count as text, and a JSON-only answer of exactly the keys of ``Scene``. Each call is one
 ``responses.create`` through a ``MetaClient`` of the scene's own budget (``--scene-call-cap``).
 No retries: a scene note or a comfort setpoint can wait for the next one. The trace gives the

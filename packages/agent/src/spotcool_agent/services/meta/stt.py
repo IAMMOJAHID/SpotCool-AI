@@ -1,8 +1,8 @@
 """MetaSTT: voice messages transcribed by ``muse-voice-transcribe-1.0`` on the Meta AI API.
 
-The request is Person A's (``_post_transcription`` in the MVP's ``media.py``), sent with httpx
+The request is the MVP's (``_post_transcription`` in the MVP's ``media.py``), sent with httpx
 instead of urllib: a multipart ``POST {base_url}/asr/transcribe`` with a ``request`` part (JSON:
-the model, ``DIARIZATION``, ``WAV`` and A's comfort keywords) and an ``audio`` part
+the model, ``DIARIZATION``, ``WAV`` and the MVP's comfort keywords) and an ``audio`` part
 (``clip.wav``, ``audio/wav``), and ``Authorization: Bearer <key>``. The answer, as the lead
 measured it, is ``{sessionId, transcript, audioDurationMs, turns: [{..., transcript, ...}]}``;
 the text is ``transcript``, or the turns' texts joined when it is missing.
@@ -34,7 +34,7 @@ COMFORT_KEYWORDS = [
     "hot", "cold", "freezing", "warm", "stuffy", "humid", "sweating", "draft",
     "air conditioning", "AC", "temperature", "fan",
 ]  # fmt: skip
-"""Words the model is told to expect (A's ``COMFORT_KEYWORDS``)."""
+"""Words the model is told to expect (the MVP's ``COMFORT_KEYWORDS``)."""
 
 
 def parse_transcript(body: bytes) -> str:

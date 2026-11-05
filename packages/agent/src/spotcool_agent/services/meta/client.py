@@ -1,6 +1,6 @@
 """MetaClient: one budget of calls to the Meta AI API (``api.meta.ai/v1``).
 
-It wraps an ``AsyncOpenAI`` (Person A's MVP client, ``app/mvp_pipeline.py`` on branch
+It wraps an ``AsyncOpenAI`` (the team's MVP client, ``app/mvp_pipeline.py`` on branch
 ``third_level_improvement``), created on the first call, inside the running event loop. Every
 request goes through its asyncio limiter, counts against its call cap, and leaves a ``Call`` in
 its ledger: the model, the purpose, the latency, whether it worked and the request id

@@ -1,4 +1,4 @@
-"""Person A's geometry and louver aim, and the aim mapped onto each brand's vanes."""
+"""The MVP's geometry and louver aim, and the aim mapped onto each brand's vanes."""
 
 import math
 
@@ -21,13 +21,13 @@ from spotcool_agent.domain.louvers import (
 )
 from spotcool_contracts import load_vrf_profiles
 
-POSE = CameraPose()  # A's defaults: 2.8 m, 30 deg, 90 deg; the unit under it at 2.6 m
+POSE = CameraPose()  # the MVP's defaults: 2.8 m, 30 deg, 90 deg; the unit under it at 2.6 m
 W, H = 1280, 720
 PROFILES = load_vrf_profiles()
 
 
 def person(lateral_m: float, forward_m: float, pose: CameraPose = POSE) -> Detection:
-    """A standing person's box, drawn from where they stand by A's projection."""
+    """A standing person's box, drawn from where they stand by the MVP's projection."""
     feet = project_floor_point(lateral_m, forward_m, 0.0, W, H, pose)
     head = project_floor_point(lateral_m, forward_m, pose.standing_height_m, W, H, pose)
     assert feet is not None and head is not None

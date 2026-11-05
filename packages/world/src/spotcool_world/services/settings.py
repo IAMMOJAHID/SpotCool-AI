@@ -44,12 +44,12 @@ class WorldSettings(BaseSettings):
         bms_port: UDP port of the virtual BMS (BACnet/IP).
         vrf_port: UDP port of the VRF gateway (BACnet/IP).
         http_host: Address the HTTP server (cameras and calendar) binds; ``0.0.0.0`` takes every
-            interface, because A's agent may connect from another PC.
+            interface, because the agent may connect from another PC.
         http_port: HTTP port for the camera catalog and the room calendar.
         dashboard_port: Port of the dashboard event stream.
-        agent_base_url: Base URL of Person A's agent (``/chat``, ``/voice``).
+        agent_base_url: Base URL of SpotCool's agent (``/chat``, ``/voice``).
         stub_agent: Run the stub agent in the world (``spotcool-world run --stub-agent``): a
-            BACnet client with perfect perception from the scenario script, never Person A's
+            BACnet client with perfect perception from the scenario script, never the MVP's
             agent. Its run id, printout and report say so.
         run_dir: Directory for recorded runs.
         footage_dir: Filmed footage, outside the repo (usually ``C:/Users/hussa/dev/footage``):

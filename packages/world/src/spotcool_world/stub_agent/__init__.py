@@ -1,6 +1,6 @@
-"""The stub agent: a stand-in for Person A's agent, so the world runs without it.
+"""The stub agent: a stand-in for SpotCool's agent, so the world runs without it.
 
-It is a stub, never Person A's agent: its perception is the scenario's ground truth. Import what
+It is a stub, never SpotCool's agent: its perception is the scenario's ground truth. Import what
 you need from its module:
 
 - ``policy``: ``StubPolicy``, what each zone's occupancy sensor holds (pure, no extra needed).

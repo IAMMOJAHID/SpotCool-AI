@@ -1,4 +1,4 @@
-"""07: The camera catalog: the world's CCTV cameras over HTTP, as Person A's agent sees them.
+"""07: The camera catalog: the world's CCTV cameras over HTTP, as SpotCool's agent sees them.
 
 The cameras look like a video recorder: GET /cameras lists them (a CameraCatalog), and
 GET /cameras/{id}/snapshot.jpg returns a camera's latest frame, like ONVIF GetSnapshotUri.

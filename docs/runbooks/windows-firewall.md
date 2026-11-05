@@ -1,6 +1,6 @@
 # Windows firewall
 
-Windows blocks other PCs from reaching the world. Person A's agent on another PC needs the BMS and the VRF over BACnet/IP (UDP 47808 and 47810), and the cameras, calendar and dashboard over HTTP (TCP 8081 and 8090). Loopback traffic is never filtered, and the phone needs no rule, because the world polls it. Details: [AGENTS.md, Windows notes](../../packages/world/AGENTS.md#windows-notes).
+Windows blocks other PCs from reaching the world. SpotCool's agent on another PC needs the BMS and the VRF over BACnet/IP (UDP 47808 and 47810), and the cameras, calendar and dashboard over HTTP (TCP 8081 and 8090). Loopback traffic is never filtered, and the phone needs no rule, because the world polls it. Details: [AGENTS.md, Windows notes](../../packages/world/AGENTS.md#windows-notes).
 
 1. Open PowerShell as administrator (Start, type `PowerShell`, Run as administrator).
 2. Allow BACnet/IP, UDP 47808 to 47810 (the BMS on 47808, the VRF gateway on 47810):

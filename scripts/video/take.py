@@ -259,7 +259,7 @@ def schedule(beat: Beat, url: str | None = None) -> list[tuple[float, str, str]]
 
 
 def dashboard_url(beat: Beat, agent: str | None) -> str | None:
-    """The beat's dashboard URL, with ``&agent=`` (URL-encoded) for Person A's agent."""
+    """The beat's dashboard URL, with ``&agent=`` (URL-encoded) for SpotCool's agent."""
     url = beat.source.dashboard_url
     if url and agent:
         url += "&agent=" + quote(agent, safe="")
@@ -403,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("take", help="a beat's source.take in video/storyboard.yaml")
     parser.add_argument("--url", default=OBS_URL, help=f"obs-websocket (default {OBS_URL})")
-    parser.add_argument("--agent", help="Person A's agent, e.g. http://192.168.1.20:8002")
+    parser.add_argument("--agent", help="SpotCool's agent, e.g. http://192.168.1.20:8002")
     parser.add_argument("--yes", action="store_true", help="do not wait for Enter")
     parser.add_argument("--dry-run", action="store_true", help="print the schedule; no OBS")
     args = parser.parse_args(argv)

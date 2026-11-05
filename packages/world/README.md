@@ -1,6 +1,6 @@
 # spotcool-world
 
-Person B's simulated building for SpotCool AI: everything the agent connects to when there is no
+the simulated building for SpotCool AI: everything the agent connects to when there is no
 real building. It is built the way [pipecat](https://github.com/pipecat-ai/pipecat) builds voice
 agents: frames flow through processors, a pipeline orders one tick of work, the two building
 plants step in parallel, workers run on a bus and a runner owns their lifecycle.

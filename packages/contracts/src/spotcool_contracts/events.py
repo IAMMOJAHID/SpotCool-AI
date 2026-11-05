@@ -2,7 +2,7 @@
 
 Both the world and the agent publish events in the same envelope, so the dashboard renders one
 time-ordered stream. The world's payloads are defined here; the agent's payloads (perception,
-decision, explanation, chat) are owned by Person A and only their type names are reserved here.
+decision, explanation, chat) are owned by the agent and only their type names are reserved here.
 """
 
 import time
@@ -40,7 +40,7 @@ class EventType(StrEnum):
     COMPLAINT_CUE = "complaint_cue"
     ERROR = "error"
     METRICS = "metrics"
-    # Published by the agent (payloads defined by Person A).
+    # Published by the agent (payloads defined by the agent).
     PERCEPTION = "perception"
     DECISION = "decision"
     EXPLANATION = "explanation"

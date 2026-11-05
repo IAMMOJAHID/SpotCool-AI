@@ -12,7 +12,7 @@ takes them one at a time:
    ``room_hint`` names it, or when a real occupant (the dashboard) gives no room. One about
    another zone, or with no intent, changes nothing. With the VRF loop on, the intent acts on
    the meeting room's unit (``VrfLoop.act``); the BMS zones are never written from here.
-4. **Answered.** The language model writes the reply from the live state (Person A's
+4. **Answered.** The language model writes the reply from the live state (the MVP's
    ``state_card`` idea: the zone counts of the last perception, the unit's room temperature,
    setpoint, fan and vanes, and the action just taken), in at most two sentences within
    ``REPLY_TIMEOUT_S``; otherwise, or without a model, a template does
@@ -66,7 +66,7 @@ def template(action: Action) -> str:
 
 
 def reply_prompt(text: str, intent: Intent, action: Action, facts: Mapping[str, object]) -> str:
-    """The prompt for a reply grounded on the live state (A's ``state_card`` idea)."""
+    """The prompt for a reply grounded on the live state (the MVP's ``state_card`` idea)."""
     card = {"complaint": text, "understood_as": intent, "action_taken": action.summary, **facts}
     return (
         "You are SpotCool, the AI that runs this office's air conditioning. An occupant has "

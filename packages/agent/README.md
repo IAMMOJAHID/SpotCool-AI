@@ -43,13 +43,13 @@ explanation.
 `--scene meta|fake|off` chooses the scene reader (`muse-spark-1.3`): Meta's with
 `--vision meta`, `off` otherwise. It notes each occupied zone's people and open doors every 4
 steps, as explanations only, and with `--vrf` sets the meeting room's comfort setpoint (Person
-A's PMV 0, on `IDU-SP`) every 60 s while people are seen; `--no-comfort` turns that off. Its
+The MVP's PMV 0, on `IDU-SP`) every 60 s while people are seen; `--no-comfort` turns that off. Its
 budget is its own, `--scene-call-cap` (300). None of it changes a BMS write.
 
 `--render meta|fake|off` chooses the privacy renderer (`muse-image-1.0`). It is `off` by
 default, whatever `--vision` says: each render takes about 24 s. With it on, every 180 s the
 agent redraws the five zone cameras and the meeting room's, one at a time, as illustrations
-(Person A's prompt asks for faceless figures; nothing verifies a render has none), keeps the
+(the MVP's prompt asks for faceless figures; nothing verifies a render has none), keeps the
 latest of each in memory and serves it at `GET /privacy/<camera>.jpg` on its own server (404
 before the first; a new run clears them). The dashboard shows them
 with `?privacy=on&agent=http://127.0.0.1:8002`. Its budget is its own, `--render-call-cap`

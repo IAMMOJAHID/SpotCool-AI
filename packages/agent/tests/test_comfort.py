@@ -1,6 +1,6 @@
-"""Person A's comfort physics, ported: characterized against A's own functions.
+"""The MVP's comfort physics, ported: characterized against the MVP's own functions.
 
-The reference values were computed by running A's ``app/spotcool/physics.py`` (branch
+The reference values were computed by running the MVP's ``app/spotcool/physics.py`` (branch
 ``third_level_improvement``, extracted with ``git show`` and imported from a temporary
 directory) on the same inputs; the port gave the same floats, bit for bit.
 """
@@ -83,7 +83,7 @@ def test_a_scene_becomes_occupants_with_a_s_tables_and_the_chair() -> None:
         Occupant(weight=1.0, met=1.1, clo=pytest.approx(0.71)),  # type: ignore[arg-type]
         Occupant(weight=1.0, met=1.4, clo=0.96),
     ]
-    # one seated office worker, 50 % RH, still air: A's own 24.415 degC
+    # one seated office worker, 50 % RH, still air: the MVP's own 24.415 degC
     assert comfort_setpoint([OFFICE_WORKER]) == pytest.approx(24.415000000502914, abs=EXACT)
     with pytest.raises(ValueError, match="no people"):
         comfort_setpoint([])

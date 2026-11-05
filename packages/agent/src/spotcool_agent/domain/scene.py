@@ -1,6 +1,6 @@
 """What a scene reader sees in one snapshot: people dressed and busy, and the room (pure).
 
-Person A's enums (``app/spotcool/schemas.py`` on branch ``third_level_improvement``), cut to
+The MVP's enums (``app/spotcool/schemas.py`` on branch ``third_level_improvement``), cut to
 what the agent uses: per person the ASHRAE 55 clothing ensemble, the activity, the posture and
 a visible discomfort cue; for the room the open doors and windows, the sunlight and the space
 type. The models forbid any other key, so an answer with a temperature in it is invalid.
@@ -22,7 +22,7 @@ ClothingEnsemble = Literal[
     "sweater_or_layers",
     "winter_outerwear",
 ]
-"""Person A's ASHRAE 55 ensembles (``app/spotcool/schemas.py``)."""
+"""The MVP's ASHRAE 55 ensembles (``app/spotcool/schemas.py``)."""
 Activity = Literal[
     "seated_quiet",
     "seated_typing",
@@ -32,7 +32,7 @@ Activity = Literal[
     "carrying_or_lifting",
     "exercising",
 ]
-"""Person A's activities, each with its met rate (``domain/comfort.py``)."""
+"""The MVP's activities, each with its met rate (``domain/comfort.py``)."""
 Posture = Literal["seated", "standing", "walking", "lying"]
 DiscomfortCue = Literal[
     "none",

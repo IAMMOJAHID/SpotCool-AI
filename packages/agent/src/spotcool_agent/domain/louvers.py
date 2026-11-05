@@ -1,16 +1,16 @@
 """Where the people are on the floor, where the louvers should point, and the vane states for it.
 
 ``CameraPose``, ``locate``, ``project_floor_point``, ``louver_angles_to`` and ``louver_aim`` are
-Person A's, from the MVP on ``third_level_improvement`` (``b653cbf``), kept near-verbatim:
+The MVP's, from the MVP on ``third_level_improvement`` (``b653cbf``), kept near-verbatim:
 ``perception.py`` (``_intrinsics``, ``locate``, ``project_floor_point``), ``physics.py``
 (``louver_angles_to``), ``control.py`` (``louver_aim``) and ``config.py`` (``CAMERA_DEFAULTS``,
 ``louver_beam_half_angle_deg``). The camera dict became a typed ``CameraPose``; ``louver_aim``
-weights each person by their box's area (A weighted by dwell) and leaves out A's draft offset,
+weights each person by their box's area (the MVP weighted by dwell) and leaves out the MVP's draft offset,
 because a draft complaint sets the vertical vane itself.
 
 ``vane_states`` maps an aim onto a brand's gateway profile: vertical = -tilt, horizontal = pan,
 each clamped to the axis's range and snapped to its nearest position; the swing goes to the
-horizontal axis, or to the vertical one when the brand has no horizontal axis (A's swing is one
+horizontal axis, or to the vertical one when the brand has no horizontal axis (the MVP's swing is one
 flag for the unit); an axis the brand lacks is left out, and LG, with swing only, gets Swing or
 a release (its relinquish default, Pos3, is swing off).
 
@@ -26,9 +26,9 @@ from spotcool_agent.domain.geometry import Detection
 from spotcool_contracts.vrf import VaneAxis, VrfProfile
 
 BEAM_HALF_ANGLE_DEG = 15.0
-"""The louver jet's half-angle (A's ``louver_beam_half_angle_deg``)."""
+"""The louver jet's half-angle (the MVP's ``louver_beam_half_angle_deg``)."""
 SWING_SPREAD = 1.5
-"""The pan spread, in beam half-angles, above which the louvers swing (A's rule)."""
+"""The pan spread, in beam half-angles, above which the louvers swing (the MVP's rule)."""
 SWING = "Swing"
 """The louver state that sweeps the axis."""
 VANE_V = "IDU-VANE-V"
@@ -39,7 +39,7 @@ VANE_H = "IDU-VANE-H"
 class CameraPose:
     """The live camera's pose, and the indoor unit's outlet in the same floor frame.
 
-    The defaults are A's ``CAMERA_DEFAULTS``: the camera 2.8 m up, tilted 30 deg down, 90 deg
+    The defaults are the MVP's ``CAMERA_DEFAULTS``: the camera 2.8 m up, tilted 30 deg down, 90 deg
     across; the unit right under it at 2.6 m, aiming at a torso 1.1 m up.
 
     Parameters:
@@ -67,7 +67,7 @@ class CameraPose:
 
 @dataclass(frozen=True)
 class FloorPoint:
-    """Where a person stands on the floor (A's ``locate`` result).
+    """Where a person stands on the floor (the MVP's ``locate`` result).
 
     Parameters:
         lateral_m: To the camera's right.
@@ -89,7 +89,7 @@ class FloorPoint:
 
 @dataclass(frozen=True)
 class Aim:
-    """Where the louvers should point (A's ``louver_aim``).
+    """Where the louvers should point (the MVP's ``louver_aim``).
 
     Parameters:
         pan_deg: The weighted centroid's pan, positive to the unit's right.
@@ -194,7 +194,7 @@ def louver_aim(
     *,
     beam_half_angle_deg: float = BEAM_HALF_ANGLE_DEG,
 ) -> Aim | None:
-    """The weighted centroid of everyone's louver angles, and whether to swing (A's rule).
+    """The weighted centroid of everyone's louver angles, and whether to swing (the MVP's rule).
 
     Args:
         people: Each person's floor position and weight (their box's area).

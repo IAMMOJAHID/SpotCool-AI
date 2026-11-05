@@ -9,7 +9,7 @@
   messages when full, so a slow browser never holds up the world. What a client sends is
   ignored. ``app.state.viewers`` counts the clients connected (a replay can wait for the first
   one); ``app.state.feed`` is the ``EventFeed``.
-- ``/ws/agent``: publish-only, for Person A's agent. Each message must be one ``EventEnvelope``
+- ``/ws/agent``: publish-only, for SpotCool's agent. Each message must be one ``EventEnvelope``
   as JSON text, with ``source: "agent"`` and an agent type (``AGENT_TYPES``), at most
   ``MAX_AGENT_MESSAGE_BYTES`` long and at most ``MAX_AGENT_MESSAGES_PER_S`` a second on the
   connection, and carry no image: no string starting ``data:`` and none longer than
