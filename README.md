@@ -4,7 +4,7 @@ SpotCool is an agent for an office building's existing CCTV and BACnet building 
 
 Built for the Meta Global AI Developer Hackathon, submitted 4 November 2026. Every figure on this page comes from [`docs/release/numbers.md`](docs/release/numbers.md), with its source.
 
-**Video:** `<YouTube link>`
+**Video:** [Watch the demo on YouTube (2:59)](https://youtu.be/jdGqDLeVoRI)
 
 ---
 
