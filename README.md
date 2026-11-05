@@ -2,7 +2,7 @@
 
 SpotCool is an agent for an office building's existing CCTV and BACnet building management system (BMS). It sees which zones have people in them, using Meta's SAM 3.1. Empty zones ease off and their airflow shuts off, and the zones with people stay as the building set them. In the meeting room, the air conditioner's louvers aim at whoever is there, and complaints by text or voice adjust the unit.
 
-Built for the Meta Global AI Developer Hackathon, submitted 4 November 2026. Every figure on this page comes from [`docs/release/numbers.md`](docs/release/numbers.md), with its source.
+Built for the Meta Global AI Developer Hackathon, submitted 5 November 2026. Every figure on this page comes from [`docs/release/numbers.md`](docs/release/numbers.md), with its source.
 
 **Video:** [Watch the demo on YouTube (2:59)](https://youtu.be/jdGqDLeVoRI)
 
