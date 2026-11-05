@@ -194,7 +194,9 @@ def card_problems(
     if stray:
         problems.append(f"the {beat.id} narration says {', '.join(stray)}, which the card does not")
     saving = numbers(card.figures[0])
-    if saving and saving[0] not in spoken:
+    if (
+        saving and beat.narration_id is not None and saving[0] not in spoken
+    ):  # a silent card shows it
         problems.append(
             f"the {beat.id} narration does not say the card's saving, {card.figures[0]}"
         )

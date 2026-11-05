@@ -18,7 +18,7 @@ CARD = ResultsCard(
 
 def test_a_composition_gets_its_beats_text():
     board = load_storyboard()
-    beat = board.beat("hook")
+    beat = board.beat("story")
     values = render_motion.variables_for(beat, board, load_sources(), None)
     assert values == beat.on_screen_text
 
@@ -40,7 +40,7 @@ def test_the_close_lists_every_cited_source_once():
     lines = text.split("\n")
     cited = {s for beat in board.beats for s in beat.sources}
     assert len(lines) == len(cited) == len(set(lines))
-    assert sources["kastle"].cite in lines and sources["meta-models"].cite in lines
+    assert sources["uae-cooling"].cite in lines and sources["meta-models"].cite in lines
 
 
 def test_render_runs_the_pinned_cli_with_the_variables_file(fake_run, tmp_path, monkeypatch):

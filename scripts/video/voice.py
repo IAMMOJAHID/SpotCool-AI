@@ -206,6 +206,47 @@ def estimate(board: Storyboard, words: dict[str, int]) -> list[Placement]:
     return placements
 
 
+def talk_placements(board: Storyboard) -> list[Placement]:
+    """The placements when each narrated beat carries its own speech (``Beat.talk``)."""
+    placements: list[Placement] = []
+    for beat in narrated(board):
+        assert beat.narration_id is not None and beat.talk is not None
+        end = beat.talk.in_s + beat.duration if beat.talk.out_s is None else beat.talk.out_s
+        placements.append(
+            Placement(
+                beat.id, beat.narration_id, beat.start, beat.talk.in_s, end, end - beat.talk.in_s
+            )
+        )
+    return placements
+
+
+def write_talk_track(board: Storyboard, placements: list[Placement], repo: Path, out: Path) -> Path:
+    """Write each beat's speech at its time, each evened out, silence where a clip is missing."""
+    args: list[str] = []
+    graph = [f"anullsrc=r=48000:cl=mono,atrim=0:{board.total_s}[base]"]
+    delayed = ""
+    for p in placements:
+        talk = board.beat(p.beat_id).talk
+        assert talk is not None
+        clip = repo / talk.clip
+        if not clip.is_file():
+            continue
+        i = args.count("-i")
+        args += ["-i", str(clip)]
+        graph.append(
+            f"[{i}:a]atrim={p.src_start}:{p.src_end},asetpts=PTS-STARTPTS,highpass=f=70,"
+            "loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=mono,"
+            f"adelay={round(p.at_s * 1000)}:all=1[d{i}]"
+        )
+        delayed += f"[d{i}]"
+    count = delayed.count("[")
+    graph.append(f"[base]{delayed}amix=inputs={count + 1}:normalize=0:duration=first[out]")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    encode = ["-c:a", "pcm_s16le", "-ar", "48000", "-fflags", "+bitexact", str(out)]
+    media.ffmpeg(*args, "-filter_complex", ";".join(graph), "-map", "[out]", *encode)
+    return out
+
+
 def write_track(recording: Path, placements: list[Placement], total_s: float, out: Path) -> Path:
     """Write the placed narration: each segment at its time, silence between, ``total_s`` long.
 

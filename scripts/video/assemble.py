@@ -38,12 +38,16 @@ from storyboard import (
     find_take,
     load_narration,
     load_storyboard,
+    narrated,
 )
 
 OUTPUT = RENDERS / "spotcool_draft.mp4"
 WORK = RENDERS / "work"
 SLATE_COLOR = "0x0e1116"
 PAD_COLOR = "0x0b0f14"
+RING_COLOR = "0x63d3e8"
+RING_PX = 5
+MARGIN_PX = 40
 MUSIC_UNDER_LU = 20.0
 """How far the music sits under the voice (integrated loudness)."""
 ASS_HEADER = """[Script Info]
@@ -183,6 +187,41 @@ def overlay(board: Storyboard, visuals: list[Visual], shown: list[captions.Capti
     return ASS_HEADER.format(width=board.width, height=board.height) + "\n".join(events) + "\n"
 
 
+def _circle_mask(side: int, seconds: float, fps: int, name: str) -> str:
+    """A filter chain: an antialiased circle's alpha, ``side`` pixels across, for ``seconds``."""
+    r = side / 2
+    return (
+        f"color=c=black:s={side}x{side}:r={fps}:d=0.1,format=gray,"
+        f"geq=lum='255*clip({r}-hypot(X-{r}+0.5,Y-{r}+0.5),0,1)',"
+        f"loop=loop=-1:size=1:start=0,trim=duration={seconds:g},setpts=N/{fps}/TB[{name}]"
+    )
+
+
+def round_video(board: Storyboard, beat: Beat, i: int, k: int) -> list[str]:
+    """The chains that put input ``k`` in a ringed circle at bottom right, as ``[v{i}]``.
+
+    The beat's picture comes in as ``[b{i}]``. A clip that ends first holds its last frame.
+    """
+    talk = beat.talk
+    assert talk is not None and talk.crop is not None
+    x0, y0, side = talk.crop
+    size, ring = talk.size, talk.size + 2 * RING_PX
+    x, y = board.width - MARGIN_PX - size, board.height - MARGIN_PX - size
+    fps, seconds = board.fps, beat.duration + 1
+    return [
+        f"[{k}:v]crop={side}:{side}:{x0}:{y0},scale={size}:{size}:flags=lanczos,fps={fps},"
+        f"format=yuva420p[f{i}]",
+        _circle_mask(size, seconds, fps, f"m{i}"),
+        f"[f{i}][m{i}]alphamerge[c{i}]",
+        f"color=c={RING_COLOR}:s={ring}x{ring}:r={fps}:d={seconds:g},format=yuva420p[rc{i}]",
+        _circle_mask(ring, seconds, fps, f"rm{i}"),
+        f"[rc{i}][rm{i}]alphamerge[r{i}]",
+        f"[b{i}][r{i}]overlay={x - RING_PX}:{y - RING_PX}[t{i}]",
+        f"[t{i}][c{i}]overlay={x}:{y}:eof_action=repeat,format=yuv420p,"
+        f"trim=end_frame={round(beat.duration * fps)},setpts=PTS-STARTPTS[v{i}]",
+    ]
+
+
 def video_inputs(board: Storyboard, visuals: list[Visual]) -> tuple[list[str], list[str]]:
     """ffmpeg's input arguments and filter chains: each beat exactly its frames, 1080p30."""
     args: list[str] = []
@@ -216,9 +255,59 @@ def video_inputs(board: Storyboard, visuals: list[Visual]) -> tuple[list[str], l
             f"pad={board.width}:{board.height}:(ow-iw)/2:(oh-ih)/2:color={PAD_COLOR},setsar=1,"
             f"{cover}"
             f"fps={board.fps},format=yuv420p,tpad=stop_mode=clone:stop_duration={duration:g},"
-            f"trim=end_frame={frames},setpts=PTS-STARTPTS[v{i}]"
+            f"trim=end_frame={frames},setpts=PTS-STARTPTS[{'b' if rounds(visual.beat) else 'v'}{i}]"
         )
+    for i, visual in enumerate(visuals):
+        talk = visual.beat.talk
+        if visual.path is not None and rounds(visual.beat):
+            assert talk is not None
+            length = beat_talk_seconds(visual.beat)
+            k = args.count("-i")
+            args += ["-ss", f"{talk.in_s:g}", "-t", f"{length:g}", "-i", str(REPO / talk.clip)]
+            chains += round_video(board, visual.beat, i, k)
     return args, chains
+
+
+def rounds(beat: Beat) -> bool:
+    """Whether the beat shows its speaker in a circle: it has a crop, and the clip exists."""
+    return bool(beat.talk and beat.talk.crop and (REPO / beat.talk.clip).is_file())
+
+
+def beat_talk_seconds(beat: Beat) -> float:
+    """How much of the talk clip the beat plays."""
+    assert beat.talk is not None
+    if beat.talk.out_s is None:
+        return beat.duration + 1
+    return beat.talk.out_s - beat.talk.in_s
+
+
+def talk_word_times(board: Storyboard) -> dict[str, tuple[list[float], float]]:
+    """When each spoken word plays in the video, from a transcript beside each talk clip.
+
+    ``<clip>.json`` is Whisper's output with word timestamps; without one the captions split
+    their paragraph evenly.
+    """
+    times: dict[str, tuple[list[float], float]] = {}
+    for beat in board.beats:
+        if beat.talk is None or beat.narration_id is None:
+            continue
+        transcript = (REPO / beat.talk.clip).with_suffix(".json")
+        if not transcript.is_file():
+            continue
+        end = beat.talk.in_s + beat.duration if beat.talk.out_s is None else beat.talk.out_s
+        words = [
+            word
+            for segment in json.loads(transcript.read_text("utf-8"))["segments"]
+            for word in segment["words"]
+            if beat.talk.in_s <= word["start"] < end
+        ]
+        if words:
+            shift = beat.start - beat.talk.in_s
+            times[beat.narration_id] = (
+                [word["start"] + shift for word in words],
+                min(words[-1]["end"] + shift, beat.end),
+            )
+    return times
 
 
 def mix(voice_track: Path, music: Path | None, total_s: float, out: Path) -> Path:
@@ -279,9 +368,16 @@ def build(
     board = board or load_storyboard()
     narration = narration or load_narration()
     visuals = resolve(board)
-    recording, voice_kind = pick_narration(narration_arg)
+    talks = narrated(board) and all(beat.talk for beat in narrated(board))
+    if talks:
+        clips = [REPO / beat.talk.clip for beat in narrated(board) if beat.talk]
+        recording, voice_kind = clips[0], "recorded"
+    else:
+        recording, voice_kind = pick_narration(narration_arg)
     if final:
         missing = [v.missing for v in visuals if v.kind == "slate"]
+        if talks:
+            missing += [f"the talk clip {clip.name}" for clip in clips if not clip.is_file()]
         if voice_kind == "placeholder":
             missing.append("the narration is the TTS placeholder")
         if missing:
@@ -298,11 +394,15 @@ def build(
                 "its last frame is held"
             )
     WORK.mkdir(parents=True, exist_ok=True)
-    placements = voice.placements_for(recording, board, narration)
-    track = voice.write_track(recording, placements, board.total_s, WORK / "voice.wav")
+    if talks:
+        placements = voice.talk_placements(board)
+        track = voice.write_talk_track(board, placements, REPO, WORK / "voice.wav")
+    else:
+        placements = voice.placements_for(recording, board, narration)
+        track = voice.write_track(recording, placements, board.total_s, WORK / "voice.wav")
     mixed = mix(track, music, board.total_s, WORK / "mix.wav")
     mastering = master(mixed)
-    shown = captions.build(board, narration, placements)
+    shown = captions.build(board, narration, placements, talk_word_times(board) if talks else None)
     srt = output.with_suffix(".srt")
     output.parent.mkdir(parents=True, exist_ok=True)
     srt.write_text(captions.to_srt(shown), "utf-8")
@@ -313,7 +413,7 @@ def build(
     joined = "".join(f"[v{i}]" for i in range(len(visuals)))
     chains.append(f"{joined}concat=n={len(visuals)}:v=1:a=0,subtitles=filename=overlay.ass[vout]")
     chains.append(
-        f"[{len(visuals)}:a]{mastering},aresample=48000,"
+        f"[{args.count('-i')}:a]{mastering},aresample=48000,"
         f"atrim=0:{board.total_s:g},asetpts=PTS-STARTPTS[aout]"
     )
     video = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high"]

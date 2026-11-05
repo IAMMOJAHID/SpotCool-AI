@@ -1,9 +1,9 @@
 <!doctype html>
-<!-- How SpotCool uses Meta's models: four cards, one model each, shown as the narration names them, then the rule that code decides. -->
+<!-- How SpotCool uses Meta's models: five cards, one model each, shown as the narration names them, then the rule that code decides. -->
 <html
   lang="en"
   data-composition-variables='[
-    {"id": "headline", "type": "string", "label": "Headline", "default": "Four models, one job each"},
+    {"id": "headline", "type": "string", "label": "Headline", "default": "Five models, one job each"},
     {"id": "sam_title", "type": "string", "label": "SAM title", "default": "Model"},
     {"id": "sam_id", "type": "string", "label": "SAM model id", "default": "model-id"},
     {"id": "sam_body", "type": "string", "label": "SAM body", "default": "What it does"},
@@ -16,6 +16,9 @@
     {"id": "wonder_title", "type": "string", "label": "Wonder title", "default": "Model"},
     {"id": "wonder_id", "type": "string", "label": "Wonder model id", "default": "model-id"},
     {"id": "wonder_body", "type": "string", "label": "Wonder body", "default": "What it does"},
+    {"id": "image_title", "type": "string", "label": "Image title", "default": "Model"},
+    {"id": "image_id", "type": "string", "label": "Image model id", "default": "model-id"},
+    {"id": "image_body", "type": "string", "label": "Image body", "default": "What it does"},
     {"id": "footer", "type": "string", "label": "Footer", "default": "Models perceive. Code decides."}
   ]'
 >
@@ -68,8 +71,8 @@
       }
       #models-headline {
         position: absolute;
-        left: 160px;
-        top: 96px;
+        left: 70px;
+        top: 62px;
         width: 1600px;
         font-size: 58px;
         font-weight: 700;
@@ -77,24 +80,20 @@
       }
       .models-card {
         position: absolute;
-        width: 780px;
-        height: 290px;
-        padding: 30px 34px 0 34px;
+        width: 570px;
+        height: 346px;
+        padding: 26px 32px 0 32px;
         border: 2px solid var(--line);
         border-top: 4px solid var(--cool);
         border-radius: 18px;
         background: var(--panel);
       }
-      #models-sam { left: 160px; top: 220px; }
-      #models-spark { left: 980px; top: 220px; }
-      #models-voice { left: 160px; top: 540px; }
-      #models-wonder { left: 980px; top: 540px; }
-      .models-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 20px;
-      }
+      /* Three over two, so the bottom right stays clear for the round video of the speaker. */
+      #models-sam { left: 70px; top: 158px; }
+      #models-spark { left: 675px; top: 158px; }
+      #models-voice { left: 1280px; top: 158px; }
+      #models-wonder { left: 70px; top: 526px; width: 705px; height: 280px; }
+      #models-image { left: 805px; top: 526px; width: 705px; height: 280px; }
       .models-title {
         font-size: 40px;
         font-weight: 700;
@@ -104,20 +103,21 @@
       .models-id {
         font-family: "JetBrains Mono", monospace;
         font-size: 22px;
+        margin-top: 6px;
         color: var(--cool);
         white-space: nowrap;
       }
       .models-body {
-        margin-top: 18px;
+        margin-top: 12px;
         font-size: 29px;
         line-height: 1.32;
         color: var(--muted);
       }
       #models-footer {
         position: absolute;
-        left: 160px;
-        top: 890px;
-        width: 1600px;
+        left: 70px;
+        top: 838px;
+        width: 1440px;
         text-align: center;
         font-size: 38px;
         font-weight: 700;
@@ -126,10 +126,10 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="meta_models" data-start="0" data-duration="20" data-width="1920" data-height="1080">
-      <div id="models-scene" class="clip" data-start="0" data-duration="20" data-track-index="1">
+    <div id="root" data-composition-id="meta_models" data-start="0" data-duration="15" data-width="1920" data-height="1080">
+      <div id="models-scene" class="clip" data-start="0" data-duration="15" data-track-index="1">
         <div id="models-bg"></div>
-        <div id="models-headline" data-var-text="headline">Four models, one job each</div>
+        <div id="models-headline" data-var-text="headline">Five models, one job each</div>
 
         <div class="models-card" id="models-sam">
           <div class="models-head">
@@ -159,6 +159,13 @@
           </div>
           <div class="models-body" data-var-text="wonder_body">What it does</div>
         </div>
+        <div class="models-card" id="models-image">
+          <div class="models-head">
+            <div class="models-title" data-var-text="image_title">Model</div>
+            <div class="models-id" data-var-text="image_id">model-id</div>
+          </div>
+          <div class="models-body" data-var-text="image_body">What it does</div>
+        </div>
 
         <div id="models-footer" data-var-text="footer">Models perceive. Code decides.</div>
       </div>
@@ -169,13 +176,14 @@
       const card = (name, at) =>
         tl.fromTo(`#models-${name}`, { opacity: 0, y: 24, filter: "blur(8px)" }, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.55, ease: "expo.out" }, at);
       // The headline, then each card as the narration names its model.
-      tl.fromTo("#models-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 0.2);
-      card("sam", 0.6);
-      card("spark", 4.2);
-      card("voice", 10.0);
-      card("wonder", 11.8);
+      tl.fromTo("#models-headline", { opacity: 0, filter: "blur(8px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 0.0);
+      card("sam", 1.5);
+      card("spark", 3.0);
+      card("voice", 6.0);
+      card("wonder", 7.8);
+      card("image", 9.6);
       // "No language model writes to the building":
-      tl.fromTo("#models-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 15.2);
+      tl.fromTo("#models-footer", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.5, ease: "power4.out" }, 11.8);
       window.__timelines["meta_models"] = tl;
     </script>
   </body>

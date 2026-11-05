@@ -152,7 +152,10 @@ def chunk(paragraph: str) -> list[tuple[str, ...]]:
 
 
 def build(
-    board: Storyboard, narration: dict[str, str], placements: list[voice.Placement]
+    board: Storyboard,
+    narration: dict[str, str],
+    placements: list[voice.Placement],
+    word_times: dict[str, tuple[list[float], float]] | None = None,
 ) -> list[Caption]:
     """Every caption of the video, in time order.
 
@@ -160,14 +163,25 @@ def build(
         board: The storyboard.
         narration: Each section's text.
         placements: Where each paragraph plays (``voice.placements_for`` or ``voice.estimate``).
+        word_times: By narration id: when each spoken word starts in the video, and when the last
+            ends. A caption then starts on its first word; otherwise captions split the paragraph
+            evenly by words.
     """
     captions: list[Caption] = []
     for placement in placements:
         groups = chunk(narration[placement.narration_id])
         weights = [spoken_words(" ".join(group)) for group in groups]
-        t = placement.at_s
+        timed = (word_times or {}).get(placement.narration_id)
+        t = timed[0][0] if timed else placement.at_s
+        said = 0
         for group, weight in zip(groups, weights, strict=True):
-            end = t + placement.length_s * weight / sum(weights)
+            said += weight
+            if timed:
+                index = round(said / sum(weights) * len(timed[0]))
+                end = timed[0][index] if index < len(timed[0]) else timed[1]
+                end = max(end, t + 0.4)
+            else:
+                end = t + placement.length_s * weight / sum(weights)
             captions.append(Caption(round(t, 3), round(end, 3), group, placement.beat_id))
             t = end
     return captions

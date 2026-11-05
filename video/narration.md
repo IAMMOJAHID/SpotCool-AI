@@ -2,45 +2,32 @@
 
 The voice-over for the demo video, one section per beat of `video/storyboard.yaml`. Each `##` heading is the beat's `narration_id`, and the paragraph under it is what you say during that beat. The title beat has no narration.
 
-How to record it (`video/README.md`, step 3):
+The words are what the person on camera says: `scripts/video/prep_clips.py` cuts the takes, and each beat's `talk` plays them.
 
-- Read at about 140 words a minute: plain and calm, like explaining it to a colleague.
-- Leave a pause of about 2 seconds between paragraphs, and none that long inside one. The assembly cuts the recording at the longest pauses and starts each paragraph at its beat; it names any paragraph it cannot place, to record again.
-- Say every number as written. Each one is in `docs/release/numbers.md` with its source, and the sentence that says it names the source.
-- Save the take as `video/raw/narration.wav`.
+## intro
 
-## hook
+Before moving forward, let me clarify. We built the entire project during the hackathon, and nothing was out before this hackathon.
 
-Hi. Offices are emptier now. Kastle's badge data puts US attendance at 56.1 % of its pre-pandemic level. Yet the cooling still runs on a fixed schedule, and in a typical Indian commercial building HVAC is about 55 % of the energy, says the Bureau of Energy Efficiency.
+## story
 
-## plugs_in
+In commercial buildings across hot climates, up to 70 % of electricity goes directly into HVAC cooling. Why? Because traditional HVAC controllers rely on a static wall sensor, and they have no idea where humans are sitting, what they are wearing, and how they actually feel. So they blindly cool empty space. Meet our project, SpotCool AI, an autonomous HVAC controller layer powered by five Meta AI models. Instead of ripping and replacing hardware, SpotCool AI sits right on top of a building's existing BMS controller, combining existing CCTV feeds with thermal sensors to deliver targeted 3D spot cooling and real-time energy optimization.
 
-Most zones have no occupancy sensor, so the BMS cools an empty room like a full one. SpotCool uses what's already there: the cameras, the BMS and complaints.
+## whiteboard
 
-## world
+This is a comprehensive architecture that we have built. This is the agent, and this is the virtual building that we have built using the BOPTEST framework with the HVAC system. This agent is taking the current state of the building with the previous state, and then outputting a manipulated variable, and this is applied to the HVAC system of the building. And again, this process is continuously repeating.
 
-We built a building to test it: a BACnet BMS, cameras and occupants. BOPTEST runs one office twice, with SpotCool and without.
+## code
 
-## live
+Now, I'm going to explain our codebase and how we have integrated the Meta models. So, this is the code for SAM 3.1. SAM 3.1 is the eyes: it takes a camera snapshot and the prompt, humans, and outputs a bounding box with a confidence score. We filter the detections below 0.3 and calculate the occupant count. This count drives the building's occupancy control and the meeting room's airflow direction. Now, this is our code for Muse Spark. It receives a camera's image, an occupant count and a structured prompt. It outputs information about clothing, activity, posture and room conditions. Now, this is the code for Muse Voice. It is like ears: it converts in-memory audio into complaint text, which is combined with typed feedback. So, this is the code for Muse Wonder. It classifies a complaint into cold, hot, draft or stuffy. Deterministic rules adjust the temperature and fan speed, while Wonder generates a grounded occupant response and a dashboard explanation. This is, finally, our Muse Image, which creates privacy-preserving, faceless room illustrations. We overlay live occupancy boxes and counts for visualization, without affecting HVAC control.
 
-This is SpotCool running live. Top right, the building's cameras, here public dataset clips. Every fifteen minutes of building time, the agent sends each zone camera's snapshot to Meta's SAM 3.1 with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Then our code decides. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten, and the building's own standby shuts its airflow off. A zone with people is left to the building, and an operator always wins. Top left, the dashboard shows each decision, and the power against the baseline.
+## command
 
-## louvers
+This is the command to start and run our codebase, so I'm now going to run the codebase.
 
-In the meeting room, SAM finds the person in the camera. Here, the camera plays a recorded clip. The agent turns the AC's louvers to follow them.
+## dash_a
 
-## meta_models
+So, here our code is running, and we are visualizing what is happening inside the building. So, here you can see, in West, two people are going, and it's tracking them, creating the bounding box around them. Now, here in the terminal you can see what model we are calling, and this is the request ID. Also, there is an endpoint here.
 
-Meta's SAM 3.1 makes a camera an occupancy sensor. Muse Spark reads clothing and activity, and our physics sets the meeting room's setpoint. Muse Voice hears complaints. Muse Wonder answers them and narrates decisions. No language model decides a BMS write.
+## dash_b
 
-## results
-
-In simulation, SpotCool's agent used 19.94 % less HVAC energy than the baseline, from SAM's occupancy alone, right at every zone-step it saw. Discomfort where people were rose from 0.33 to 2.13 kelvin hours. BOPTEST's occupant heat follows its own schedule.
-
-## rollout
-
-It uses a building's own BMS and cameras, stores no frame, and an operator always wins.
-
-## close
-
-SpotCool. Cooling that follows people.
+In this video, this is actually me. I have recorded myself and fit it into one of the rooms. So, you can see here I'm at one position, and the AC's louver angle is forty-five degrees. Now, I'll move from this place to this place. Now, the AC's louver angle moves to another degree, to fit on me and to fix the airflow towards me.

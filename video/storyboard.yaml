@@ -21,165 +21,119 @@ video:
   fps: 30
   width: 1920
   height: 1080
-  max_s: 178
+  max_s: 179.5
 
 beats:
-  - id: title
+  # The person's own voice carries the video: each beat's `talk` plays its clip's audio.
+  # The clips are cut by scripts/video/prep_clips.py; covers hide what must not be shown.
+  - id: intro
     start: 0
-    end: 4
-    type: title
-    source: {composition: title}
-    narration_id: null
-    on_screen_text:
-      title: SpotCool
-      tagline: Cooling that follows people
+    end: 6
+    type: screen
+    source: {clip: video/takes/intro.mp4}
+    narration_id: intro
+    talk: {clip: video/takes/intro.mp4, in_s: 0}
+    on_screen_text: {}
     sources: []
 
-  - id: hook
-    start: 4
-    end: 26
-    type: motion
-    source: {composition: hook_stats}
-    narration_id: hook
-    on_screen_text:
-      headline: Fewer people come in. The cooling keeps its schedule.
-      attendance_value: 56.1 %
-      attendance_label: US office attendance, against February 2020
-      peak_value: 66.1 %
-      peak_label: on the peak day
-      attendance_source: "Source: Kastle Systems, badge swipes"
-      hvac_value: About 55 %
-      hvac_label: of a typical commercial building's energy in India goes to HVAC
-      hvac_source: "Source: Bureau of Energy Efficiency, Building Code and Rating in India"
-    sources: [kastle, bee-hvac-share]
-
-  - id: plugs_in
-    start: 26
+  - id: story
+    start: 6
     end: 40
     type: motion
-    source: {composition: three_connections}
-    narration_id: plugs_in
+    source: {composition: story}
+    narration_id: story
+    talk: {clip: video/takes/body_round.mp4, in_s: 0, crop: [910, 20, 560]}
     on_screen_text:
-      headline: Three connections the building already has
-      hub: SpotCool
-      cctv_title: CCTV cameras
-      cctv_body: see who is in each zone
-      bms_title: Building management system
-      bms_body: eases the cooling where nobody is
-      complaints_title: Complaints
-      complaints_body: so a cold meeting room is heard
-      footer: No new sensors
+      stat_value: Up to 70 %
+      stat_label: of the UAE's electricity goes to air conditioning
+      stat_source: "Source: Emirates Authority for Standardisation and Metrology, via The National, 2012"
+      sam_name: SAM 3.1
+      spot_3d: 3D spot cooling
+    sources: [uae-cooling, meta-models]
+
+  - id: arch_title
+    start: 40
+    end: 40.8
+    type: screen
+    source: {clip: video/takes/arch_title.mp4}
+    narration_id: null
+    on_screen_text: {}
     sources: []
 
-  - id: world
-    start: 40
-    end: 52
-    type: motion
-    source: {composition: architecture}
-    narration_id: world
-    on_screen_text:
-      headline: A building to test it on
-      agent: SpotCool agent
-      world: The world
-      bms: BACnet BMS
-      vrf: VRF unit
-      cameras: CCTV cameras
-      complaints: Complaints
-      plant_spotcool: BOPTEST office, SpotCool run
-      plant_baseline: BOPTEST office, baseline run
-      footer: Same weather, same building, same BMS. Only one run gets SpotCool's writes.
+  - id: whiteboard
+    start: 40.8
+    end: 56.3
+    type: screen
+    source: {clip: video/takes/whiteboard.mp4}
+    narration_id: whiteboard
+    talk: {clip: video/takes/whiteboard.mp4, in_s: 0}
+    on_screen_text: {}
     sources: [boptest]
 
-  # The live take, recorded by hand in OBS (docs/runbooks/video-takes.md, The live quad take):
-  # one file feeds two beats, each from its own in_s. The lead sets both in_s after recording.
-  - id: live
-    start: 52
-    end: 112
+  - id: code
+    start: 56.3
+    end: 118.9
     type: screen
     source:
-      take: live_quad
-      in_s: 44  # sim 08:13: every zone empty at 28 degC; the 08:30 arrivals land 17 s in
-      scenes:
-        - {at: 0, scene: Quad}
-      before:
-        - "Follow docs/runbooks/video-takes.md, The live quad take: SpotCool's agent with the Meta models and --vrf, then the world on BOPTEST at speed 60. Recorded by hand in OBS; save it as video/takes/live_quad.mkv."
-    narration_id: live
+      clip: video/takes/code.mp4
+      cover:
+        - {x: 358, y: 1055, w: 414, h: 25, color: '0x1b1b1b'}  # another project's AWS account id
+    narration_id: code
+    talk: {clip: video/takes/code.mp4, in_s: 0}
+    on_screen_text: {}
+    sources: [meta-models]
+
+  - id: command
+    start: 118.9
+    end: 125.1
+    type: screen
+    source: {clip: video/takes/command.mp4}
+    narration_id: command
+    talk: {clip: video/takes/command.mp4, in_s: 0}
+    on_screen_text: {}
+    sources: []
+
+  - id: dash_a
+    start: 125.1
+    end: 144.7
+    type: screen
+    source: {clip: video/takes/dash_a.mp4}
+    narration_id: dash_a
+    talk: {clip: video/takes/dash_a.mp4, in_s: 0}
     on_screen_text:
-      label: "Live: SpotCool's agent on BOPTEST. Meta's calls are logged in the terminal. The zone cameras play MEVA dataset clips"
+      label: "Live run on BOPTEST, replayed. The zone cameras play MEVA dataset clips"
     sources: [meta-models, meva]
 
-  - id: louvers
-    start: 112
-    end: 124
+  - id: dash_b
+    start: 144.7
+    end: 167.3
     type: screen
     source:
-      take: live_quad
-      in_s: 405  # the Dashboard segment runs 390.5-427: the complaint's writes, then the louvers
-      # The Results panel's mid-day figures aren't quotable, and the chat box has no agent URL here.
+      clip: video/takes/dash_b.mp4
       cover:
-        - {x: 1268, y: 98, w: 646, h: 394, color: '0x040809'}
-        - {x: 1278, y: 908, w: 300, h: 36, color: '0x0a1117'}
-      scenes:
-        - {at: 0, scene: Dashboard}
-    narration_id: louvers
+        - {x: 1266, y: 94, w: 652, h: 400, color: '0x040a0a'}  # the provisional mid-day figure
+    narration_id: dash_b
+    talk: {clip: video/takes/dash_b.mp4, in_s: 0}
     on_screen_text:
       label: "The meeting room's louvers follow a person (the camera plays a recorded clip)"
     sources: []
 
-  - id: meta_models
-    start: 124
-    end: 144
-    type: motion
-    source: {composition: meta_models}
-    narration_id: meta_models
-    on_screen_text:
-      headline: Four Meta models, one job each
-      sam_title: SAM 3.1
-      sam_id: sam-3.1
-      sam_body: Sees the people in every camera, from a one-word prompt. The building's occupied or empty, and the person the meeting room's louvers follow
-      spark_title: Muse Spark
-      spark_id: muse-spark-1.3
-      spark_body: "Reads the scene: clothing, activity, open doors. The meeting room's comfort setpoint (PMV), and notes on occupied zones"
-      voice_title: Muse Voice
-      voice_id: muse-voice-transcribe-1.0
-      voice_body: Turns a spoken complaint into text
-      wonder_title: Muse Wonder
-      wonder_id: muse-wonder-1.0
-      wonder_body: Works out what a complaint means when keywords can't, and answers it. One plain sentence for each step's decisions
-      footer: Models perceive. Code decides. No language model writes to the BMS.
-    sources: [meta-models]
-
   - id: results
-    start: 144
-    end: 164
+    start: 167.3
+    end: 174.8
     type: motion
     source: {composition: results_card, run_id: live-quad-boptest-s60-c}
-    narration_id: results
+    narration_id: null
     on_screen_text:
       title: "BOPTEST: SpotCool's policy against the baseline"
     sources: [run-live-quad, boptest]
 
-  - id: rollout
-    start: 164
-    end: 172
-    type: motion
-    source: {composition: rollout_privacy}
-    narration_id: rollout
-    on_screen_text:
-      rollout_title: Rollout
-      rollout_1: No new hardware. It runs on the cameras and the BMS already there.
-      rollout_2: A real BMS needs the same BACnet points and occupied-standby.
-      privacy_title: Privacy
-      privacy_1: SpotCool never stores a frame.
-      privacy_2: The record keeps counts and decisions, never images.
-    sources: []
-
   - id: close
-    start: 172
-    end: 176
+    start: 174.8
+    end: 178.8
     type: title
     source: {composition: close}
-    narration_id: close
+    narration_id: null
     on_screen_text:
       title: SpotCool
       tagline: Cooling that follows people
