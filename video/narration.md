@@ -18,28 +18,16 @@ This is a comprehensive architecture that we have built. This is the agent, and 
 
 ## code
 
-Here's the codebase. The agent package is SpotCool's agent: it watches the cameras and writes to the BMS. The world package is the simulated building. They share only the contracts package, so the agent doesn't depend on the simulator. And one command starts it, with the Meta models on.
+Now, I'm going to explain our codebase and how we have integrated the Meta models. So, this is the code for SAM 3.1. SAM 3.1 is the eyes: it takes a camera snapshot and the prompt, humans, and outputs a bounding box with a confidence score. We filter the detections below 0.3 and calculate the occupant count. This count drives the building's occupancy control and the meeting room's airflow direction. Now, this is our code for Muse Spark. It receives a camera's image, an occupant count and a structured prompt. It outputs information about clothing, activity, posture and room conditions. Now, this is the code for Muse Voice. It is like ears: it converts in-memory audio into complaint text, which is combined with typed feedback. So, this is the code for Muse Wonder. It classifies a complaint into cold, hot, draft or stuffy. Deterministic rules adjust the temperature and fan speed, while Wonder generates a grounded occupant response and a dashboard explanation. This is, finally, our Muse Image, which creates privacy-preserving, faceless room illustrations. We overlay live occupancy boxes and counts for visualization, without affecting HVAC control.
 
-## live
+## command
 
-This is SpotCool running live on a simulated office. Top right, the building's cameras, playing public dataset clips. Every fifteen minutes of building time, the agent sends each camera's frame to Meta's SAM 3.1, with one word: humans. Bottom right, Meta's calls as they happen: the model, the endpoint, Meta's request ID, what went in, and the boxes that came back with their confidence. Bottom left, those boxes on the frames. Top left, the floor plan and the energy, SpotCool against the baseline. Then our code decides, not a language model. An empty zone is set to unoccupied at twenty-eight degrees, at BACnet priority ten. Right now every zone is empty. Watch: people arrive at eight thirty, SAM sees them, and the agent releases those zones back to the building. An operator always wins: if anyone holds a higher priority, the agent backs off. And if the agent stops, the building takes everything back.
+This is the command to start and run our codebase, so I'm now going to run the codebase.
 
-## louvers
+## dash_a
 
-In the meeting room, the camera plays a clip I filmed. SAM finds me, and the AC's louvers follow me. When someone complains it's freezing, the agent raises the setpoint.
+So, here our code is running, and we are visualizing what is happening inside the building. So, here you can see, in West, two people are going, and it's tracking them, creating the bounding box around them. Now, here in the terminal you can see what model we are calling, and this is the request ID. Also, there is an endpoint here.
 
-## meta_models
+## dash_b
 
-Five Meta models. SAM sees people. Muse Spark reads clothing and activity, for comfort. Muse Voice hears complaints. Muse Wonder explains decisions. Muse Image draws a privacy view. No language model decides a write to the building.
-
-## results
-
-In simulation, on the same day, SpotCool used 19.94 % less HVAC energy than the baseline. The cost: comfort where people were went from 0.33 to 2.13 kelvin hours.
-
-## close
-
-SpotCool. Cooling that follows people.
-
-## goodbye
-
-Thank you, and goodbye.
+In this video, this is actually me. I have recorded myself and fit it into one of the rooms. So, you can see here I'm at one position, and the AC's louver angle is forty-five degrees. Now, I'll move from this place to this place. Now, the AC's louver angle moves to another degree, to fit on me and to fix the airflow towards me.
