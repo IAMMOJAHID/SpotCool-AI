@@ -5,7 +5,7 @@ event stream. It has a dense operator view and a fixed 1920×1080 video mode for
 
 Panels: header (simulated clock and day, run status, plant, scenario, connection), floor plan,
 camera wall, BACnet log, power and energy, KPI cards, timeline, the meeting-room AC unit and the
-agent panel (decisions, explanations, a chat box and hold-to-talk to Person A's agent). The
+agent panel (decisions, explanations, a chat box and hold-to-talk to SpotCool's agent). The
 operator view adds the world's errors and metrics, and the script's true counts, labelled
 "script".
 
@@ -47,8 +47,8 @@ npm run test:e2e            # Playwright on the installed Microsoft Edge; run `n
 | Query parameter | Default | Meaning |
 |---|---|---|
 | `world=host:port` | the page's host (served by the world); `127.0.0.1:8090` under `npm run dev` | WP6's dashboard server: `ws://<world>/ws/events` |
-| `cameras=host:port` | the world's host, port 8081 | WP4's camera server: `/cameras`, `/cameras/{id}/mjpeg`, `/cameras/{id}/snapshot.jpg` |
-| `agent=http://host:port` | `VITE_AGENT_URL`, else none | Person A's agent: `POST /chat` and `POST /voice` |
+| `cameras=host:port` | The world's host, port 8081 | WP4's camera server: `/cameras`, `/cameras/{id}/mjpeg`, `/cameras/{id}/snapshot.jpg` |
+| `agent=http://host:port` | `VITE_AGENT_URL`, else none | SpotCool's agent: `POST /chat` and `POST /voice` |
 | `mode=video` | operator view | the 1920×1080 video layout |
 | `panels=a,b,c` | every panel | only those panels, filling the window (such as a 960×540 OBS source): `header`, `floorplan`, `cameras`, `kpis`, `energy`, `timeline`, `bacnet`, `acunit`, `agent`, `errors` |
 | `masks=off` | boxes drawn | the camera tiles without SAM's boxes and counts: the raw feeds |

@@ -114,7 +114,7 @@ export interface Received {
   body: Buffer;
 }
 
-/** A stand-in for Person A's agent on a free port; with `cors`, it allows this page's requests. */
+/** A stand-in for SpotCool's agent on a free port; with `cors`, it allows this page's requests. */
 export async function agentServer(cors: boolean): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
   const received: Received[] = [];
   const server = createServer((request, response) => {

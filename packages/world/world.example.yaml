@@ -20,7 +20,7 @@ speed: 300                      # simulation seconds per wall second; null: as f
 start_clock: "07:00"
 end_clock: "19:00"
 
-# Where Person A's agent finds the building. 0.0.0.0 and the primary IPv4 address are reachable
+# Where SpotCool's agent finds the building. 0.0.0.0 and the primary IPv4 address are reachable
 # from other PCs (allow them through the firewall, see AGENTS.md); 127.0.0.1 is this PC only.
 bms_address: null               # BACnet/IP address, e.g. 192.168.1.20/24; null: primary IPv4, /24
 bms_port: 47808

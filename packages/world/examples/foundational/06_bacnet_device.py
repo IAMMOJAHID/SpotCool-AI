@@ -2,7 +2,7 @@
 
 The world's BMS is a real BACnet/IP device, SpotCool-Office-BMS (instance 1001), built from
 the office_bms point map. This example serves it against the RC plant and, after every
-15-minute step, reads a few points with a BACnet client, as Person A's agent would. After the
+15-minute step, reads a few points with a BACnet client, as SpotCool's agent would. After the
 first step the client marks the South zone empty: it writes ZN-SOU-OCC-SENSOR = Unoccupied at
 priority 10, and the BMS stamps the write 07:15. The 07:15 tick comes too soon after it, so at
 the 07:30 tick, 15 minutes on, the BMS puts South in occupied-standby on its own: it raises

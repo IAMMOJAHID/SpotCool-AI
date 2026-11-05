@@ -1,48 +1,6 @@
-# SpotCool world: integration handoff for Person A (the agent)
+# The world's interfaces
 
-**From** Person B (the world and the video), **for** Person A (the agent).
-
-**Last updated:** 2026-11-04, 03:15 IST. **Location:** `docs/integration/PERSON_A_HANDOFF.md` on branch `agent/main` (the active trunk; `world/main` is frozen).
-
-## 0. Nov 4: your agent was built into the world, and it scored
-
-**Update, Nov 5, 02:40 IST.**
-- More of your MVP is now in the agent: your Muse Spark scene reading and your PMV physics set the meeting room's comfort setpoint, and Muse Spark adds scene notes.
-- Muse Wonder also narrates decisions.
-- A live BOPTEST run with all of that on was Quotable again at 19.94 %.
-- The video was re-cut around a live four-pane screen. The deadline moved to the morning of Nov 5, IST.
-- See `docs/META_MODELS.md` and `docs/agent/HANDOFF.md`.
-
-While you were away, Person B's lead session built your MVP (`third_level_improvement` at `b653cbf`, left untouched) into SpotCool's agent, `packages/agent` on `agent/main`. It was integrated end to end with this world. The live status is `docs/agent/HANDOFF.md`.
-
-**The result.** On a paced BOPTEST run of `hybrid_tuesday` (`runs/ag3-boptest-agent-s60`), the agent saved **19.94 % HVAC energy** against the baseline. The report says **Quotable**.
-- It perceived each zone with your SAM 3.1 call on CCTV clips (MEVA, CC BY 4.0), and got occupancy right on 240 of 240 zone-steps.
-- All 30 writes took effect one step after their decision, and the heartbeat never timed out.
-- Comfort where people were: 2.13 against 0.33 K·h.
-- On screen it reads "SpotCool saved (SAM 3.1 perception, in simulation)". The figures are in `docs/release/numbers.md`.
-
-**What of yours is in it,** and where:
-- **`domain/geometry.py`:** your SAM request shape and `parse_sam_output`.
-- **`domain/louvers.py`:** `locate`, `project_floor_point`, `louver_angles_to`, `louver_aim`, for the meeting room's VRF louvers.
-- **`services/meta/stt.py`:** your speech-to-text request, re-done async against the endpoint's real reply shape.
-- **Chat replies:** your `state_card` idea feeds the replies from muse-wonder.
-- **The model choices,** through the same Meta API.
-
-**What isn't in it, and why** (`docs/agent/HANDOFF.md`, "What was cut"):
-- **The supervisor and the plan search on the BMS:** model calls stay out of the 15 s actuation path, and moving occupied setpoints counts as discomfort in the comfort KPI.
-- **The overlay and render images, and the turn JSON:** never store frames.
-- **RabbitMQ and the clip windows,** and **legacy mode.**
-- **Your model's energy estimate:** never quoted.
-
-The building policy is the stub's (§11), fed by SAM's counts. The VRF comfort path with your PMV, and your supervisor for the VRF, are on the backlog.
-
-**How to run it:** `packages/agent/README.md`. In short: `uv run spotcool-agent run --vision meta --env-file <key file>` before the world, and add `--vrf --stt meta --llm meta` for the louvers and voice.
-
-**URGENT: rotate the Meta and Baseten keys.** The repo history holds the old ones, and the agent currently runs on that Meta key from a file outside the repo.
-
-This document replaces the earlier chat notes. Everything in them is folded in here, and the changes since are listed in §15.
-
----
+Everything the simulated building (`packages/world`) offers an agent: its addresses, the BACnet points and priorities, the heartbeat, the meeting room's VRF gateway, the cameras, the room calendar, complaints and the dashboard's events. SpotCool's agent (`packages/agent`) uses only these, so it would run unchanged against a real building that offers the same. The spec was written for the agent's developer, so "you" is the agent. Every figure we quote is in [`release/numbers.md`](release/numbers.md).
 
 ## 1. The short version
 
@@ -93,10 +51,9 @@ B builds everything your agent connects to, because there is no real building:
 
 - **Repo:** `IAMMOJAHID/SpotCool-AI`.
 - **Branches:**
-  - `main` (release) and `dev` (A+B integration) are shared.
-  - `world/main` is B's trunk, holding every finished world work package.
-  - Your work is on `spotcool_agent`.
-  - B's branches are `wp/<id>-<slug>`, merged into `world/main` one at a time after review, with green CI.
+  - `main` (release) and `dev` (integration) are shared.
+  - `world/main` holds every finished work package of the world.
+  - The world's work branches were `wp/<id>-<slug>`, merged into `world/main` one at a time after review, with green CI.
 - **Contracts:** `packages/contracts`, Python ≥ 3.11 and Pydantic v2. In a uv workspace, depend on `spotcool-contracts` with `[tool.uv.sources] spotcool-contracts = { workspace = true }`.
 
 | You want | Use |
@@ -109,7 +66,7 @@ B builds everything your agent connects to, because there is no real building:
 | Dashboard envelope | `EventEnvelope`, `EventType` and `EventSource` (`events.py`) |
 | JSON Schema, for non-Python code | `uv run python packages/contracts/scripts/export_schemas.py` |
 
-- **Changing a contract** needs both of us. Ask through Person B; B's lead owns `packages/contracts`.
+- **Changing a contract** needs both of us. The world's lead owns `packages/contracts`.
 
 ## 4. Every interface at a glance
 
@@ -354,40 +311,7 @@ Separately, a **live phone camera** segment shows the VRF louver demo (§6).
 
 ## 14. Shared rules
 
-- **Credits and spend:** Person A owns the Meta credits. B spends nothing and uses only free, open-source and free-tier tools.
-- **Pull requests:** opening one on this repo triggers two Claude review workflows that spend the repo's `ANTHROPIC_API_KEY`. B merges its own branches locally. The `world/main` → `dev` integration PR is planned together.
+- **Spend:** the Meta API is the only paid service; everything else is free, open source or free tier.
+- **Pull requests:** branches are merged locally, without PRs.
 - **API keys** stay in the backend `.env`, never in the browser or the repo.
 - **Camera frames and audio** are never stored on disk.
-
-## 15. Changes since the earlier notes
-
-| What changed | Effect on you |
-|---|---|
-| `wp/wp0-core-contracts` fast-forwarded to `f2d849b` | None to the interface. The fixes are world-side: BOPTEST read keys, and an exact `OCC-SENSOR` description |
-| Standby hysteresis now sits **above** the active setpoint (after a review) | The airflow shut-off keeps working all day instead of only once. An empty zone floats from the setpoint to about 0.5–0.9 K above it |
-| Standby also requires 06:00–19:00 | Standby ends exactly at 19:00. BOPTEST reports values one stamp late, so the setpoint alone would have run standby to 19:15 |
-| Points without data carry fault flags | Check `statusFlags` and `reliability` |
-| Release at 19:00; readings describe the step that ended | Covered in §5.4 and §11 |
-| **Nov 2–3:** the timeline sits on the 15-minute grid (door 10:00–10:45, complaint 14:15) | Times in §12 |
-| Calendar dates are 2026-01-01 plus `SIM-CLOCK` seconds, `timeZone: "UTC"` | §8 |
-| `/chat` and `/voice` must answer within 10 s; the world doesn't retry a timeout | §9 |
-| `/ws/agent` is publish-only, with limits: 64 KB, 20 a second, no images | §9 |
-| The dashboard calls `/chat` and `/voice` from the browser with `X-SpotCool-Client: dashboard` | Allow CORS for `POST` with `content-type` and `x-spotcool-client` (§9) |
-| The dashboard reads the stub's event shapes until you tell us yours | Send your `perception`, `decision`, `explanation` and `chat` fields (§9, §16) |
-| Contracts 0.1.1: `run_status` can be `cancelled` | None; it's additive |
-| The BMS power points are each meter's mean over the last step | Read them as step means (§5.1) |
-| The VRF gateway is built: brand refusals, real time, write only on change | §6 |
-| BOPTEST runs survive a dropped connection between the world and BOPTEST | None. Keep your PC on one network during a run |
-| Our stub agent backs off from an operator at priority 8, and commands at each step's close | Your agent should also leave a point an operator holds |
-| Our result: 19.94 % with the stub, as an upper bound | §10. Quote nothing higher. "Up to 60 %" isn't supported by any run |
-| Published figures checked against their sources: Kastle's 56.1 % is badge swipes against February 2020, not a share of desks; PNNL's 17.8 % against 5.9 % is whole-building energy, on average | Use `docs/release/numbers.md`'s wording in anything you write |
-| The video pipeline is built (WP9); the draft cut waits for footage | The louvers shot needs your agent (§16 item 6) |
-
-## 16. What B needs from you
-
-1. **The policy:** confirm that `OCC-SENSOR` plus `CLG-SP` at priority 10 works for you, with the heartbeat and the 19:00 release.
-2. **Your endpoints:** the host and port (default `http://127.0.0.1:8002`) and the `/chat` and `/voice` handling as described in §9. Tell us whether you run on the same PC as the world (§5.5).
-3. **Your dashboard events:** the `data` fields of `perception` (counts and masks per camera), `decision` and `explanation`, so WP7 can draw them.
-4. **More read points?** Anything else you need from the BMS or the VRF unit. That's a contract change, so ask early.
-5. **Integration slot:** as soon as you can on Nov 3–4 (IST), run your agent against the world on BOPTEST, paced at speed 60 (about 20 minutes). It's the only run that gives SpotCool's own figure; without it the video quotes only our stub's upper bound.
-6. **The louvers take, right after it:** about 15 minutes. Your agent aims the meeting room's VRF louvers at a person on the phone camera (`live`) while our `scripts/video/take.py phone_vrf --agent http://<agent>:8002` records the screen. It's the video's only live shot of your agent.

@@ -113,7 +113,7 @@ def test_the_wp12_live_drop_card_is_refused():
 
 
 def test_a_switch_to_a_quotable_run_needs_its_source_and_new_narration():
-    # Person A's run replaces the stub run on the card, but the beat and narration still don't.
+    # the agent's run replaces the stub run on the card, but the beat and narration still don't.
     quotable = card(
         "eval-agent-quotable", stub=False, figures=("12.30 %", "250.0", "285.0", "0.50", "0.33")
     )

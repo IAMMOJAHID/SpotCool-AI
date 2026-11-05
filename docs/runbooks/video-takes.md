@@ -23,8 +23,8 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
 
    Then, while a run starts, its console names each camera's source once per scene: `camera cam-<zone>: scene <scene> from <...>/clips/<zone>_<scene>.mp4` (or a dataset segment), never `from synthetic frames`. The catalog (`curl http://127.0.0.1:8081/cameras`) lists each camera with `"source": "scenario"` or `"dataset"`; it says `scenario` for synthetic frames too, so the console line is the check.
 3. The dashboard is built: `cd apps/dashboard && npm ci && npm run build`. The world serves it on port 8090.
-4. One network for the whole session ([boptest-codespace.md](boptest-codespace.md), step 1). For Person A's PC, the [firewall rules](windows-firewall.md).
-5. **One dashboard tab only**, in video mode: `http://127.0.0.1:8090/?mode=video`. Add `&agent=http://<agent>:8002` when Person A's agent runs. Its six camera tiles use all six of Edge's connections to the world, so a second tab starves them.
+4. One network for the whole session ([boptest-codespace.md](boptest-codespace.md), step 1). For the agent's PC, the [firewall rules](windows-firewall.md).
+5. **One dashboard tab only**, in video mode: `http://127.0.0.1:8090/?mode=video`. Add `&agent=http://<agent>:8002` when SpotCool's agent runs. Its six camera tiles use all six of Edge's connections to the world, so a second tab starves them.
    - In a scripted take, the tab is OBS's `Dashboard browser` source, and `take.py` sets its URL (with `--agent`, the `&agent=` part).
    - Close the dashboard in Edge while a take runs.
 6. Every run stops with **Ctrl+C**, never by closing its window or killing the process. Ctrl+C stops the BOPTEST tests and writes the run's manifest. A second Ctrl+C cancels at once.
@@ -42,7 +42,7 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
 
 ## The building segment: replay a recorded run
 
-1. **Record the run** once, paced. With Person A's agent:
+1. **Record the run** once, paced. With SpotCool's agent:
 
    ```bash
    uv run spotcool-world run --plant boptest-local --speed 60 --run-id take-building
@@ -80,7 +80,7 @@ Background: [AGENTS.md, Running the world](../../packages/world/AGENTS.md#runnin
    ```
 
    The world prints `VRF <this PC's address>:47810 (BACnet/IP)`. The agent finds it by itself (`Model_Name` gives the brand). Walk across the phone's view: `IDU-VANE-H` steps Pos1 to Pos5 (the agent's log and the dashboard show each `decision`).
-3. Record the take. With `$SPOTCOOL_WORLD_LIVE_CAMERA_URL` set, it points OBS's `Phone camera` source at the phone's `/video` stream. It opens the dashboard with `&agent=`, and switches between `PhoneCam` and `Dashboard+Camera` at the cues. Person A's agent aims the louvers, and the AC panel shows them slew at 15 deg/s:
+3. Record the take. With `$SPOTCOOL_WORLD_LIVE_CAMERA_URL` set, it points OBS's `Phone camera` source at the phone's `/video` stream. It opens the dashboard with `&agent=`, and switches between `PhoneCam` and `Dashboard+Camera` at the cues. SpotCool's agent aims the louvers, and the AC panel shows them slew at 15 deg/s:
 
    ```bash
    uv run python scripts/video/take.py phone_vrf --agent http://127.0.0.1:8002

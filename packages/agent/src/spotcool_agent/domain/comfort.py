@@ -1,10 +1,10 @@
-"""Thermal comfort (ISO 7730 / ASHRAE 55): Person A's physics, near verbatim and pure.
+"""Thermal comfort (ISO 7730 / ASHRAE 55): the MVP's physics, near verbatim and pure.
 
 ``pmv_ppd``, ``relative_air_speed``, ``dynamic_clo``, ``occupant_pmv`` and
-``comfort_temperature`` are A's (``app/spotcool/physics.py`` on branch
+``comfort_temperature`` are the MVP's (``app/spotcool/physics.py`` on branch
 ``third_level_improvement``), and so are the clothing and activity tables
 (``app/spotcool/perception.py``). ``Occupant`` keeps the fields these functions read. What is
-the agent's own: ``occupants`` (a scene's people as occupants, A's fusion rule without the
+The agent's own: ``occupants`` (a scene's people as occupants, the MVP's fusion rule without the
 motion and sunlight terms) and ``comfort_setpoint`` (the meeting room's target).
 
 No model call happens here: a scene reader says what people wear and do, and these functions
@@ -39,16 +39,16 @@ ACTIVITY_MET = {
     "exercising": 3.0,
 }
 CHAIR_CLO = 0.1
-"""What an office chair adds to a seated person's insulation (A's)."""
+"""What an office chair adds to a seated person's insulation (the MVP's)."""
 STILL_AIR_MPS = 0.1
-"""The air speed at an occupant without a modelled jet: A's floor in ``occupant_air_speed``."""
+"""The air speed at an occupant without a modelled jet: the MVP's floor in ``occupant_air_speed``."""
 DEFAULT_RH_PCT = 50.0
 """The room's relative humidity when nothing measures it (the VRF gateway has no RH point)."""
 
 
 @dataclass(frozen=True)
 class Occupant:
-    """One person for the comfort model (A's ``Occupant``, without its floor position)."""
+    """One person for the comfort model (the MVP's ``Occupant``, without its floor position)."""
 
     weight: float
     met: float

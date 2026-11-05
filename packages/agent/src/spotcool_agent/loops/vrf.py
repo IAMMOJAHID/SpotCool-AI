@@ -22,7 +22,7 @@ socket), and finds people with a vision provider whose budget is its own (2 call
    call cap is used up it stops looking and releases the vanes; the building is not touched.
 5. **Aim.** Everyone seen is located on the floor and weighted by their box's area; the
    louvers aim at the weighted centroid, and swing when the people are spread too wide
-   (``domain/louvers.py``: Person A's geometry and rule, mapped onto the brand's positions).
+   (``domain/louvers.py``: the MVP's geometry and rule, mapped onto the brand's positions).
    With nobody seen for ``hold_s``, the vanes are released: the unit goes back to its
    relinquish default. A draft complaint sets the vertical vane to Pos1 (a level throw) and
    pauses the aiming for ``draft_hold_s``.
@@ -36,7 +36,7 @@ socket), and finds people with a vision provider whose budget is its own (2 call
 
 7. **Comfort** (with a scene reader, ``--no-comfort`` turns it off). Every ``comfort_every_s``
    while people are seen, a task of its own takes a live snapshot and asks the scene reader
-   (Muse Spark) who is there; Person A's comfort physics (``domain/comfort.py``) then gives the
+   (Muse Spark) who is there; the MVP's comfort physics (``domain/comfort.py``) then gives the
    air temperature at PMV 0 for them, at 50 % RH (the gateway has no RH point), on the
    setpoint's grid within ``COMFORT_BAND_C`` (23-26 degC). It is written to ``IDU-SP`` by the same rules, and
    explained when it changes. A complaint's override comes before it, and the operator before

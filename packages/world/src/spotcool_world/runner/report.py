@@ -7,7 +7,7 @@ The series come from the record's raw measurements, through the ``TelemetryProce
 ``metered_summary`` (a state lacking a value is left out, its power still counted), and the
 people from its ``scenario_state`` events. The KPIs are the final ones in the manifest. The KPI
 table shows each run's energy two ways, the plant's own (``ener_tot`` times the floor area) and
-the world's step-mean integration, energy saved both ways, and the steps whose power fell back
+The world's step-mean integration, energy saved both ways, and the steps whose power fell back
 to its end-of-step value. Below it, ``verdict`` says whether the plants' own saving may be
 quoted (``quote_blockers``). The report adds recovery times, which the contract's ``KpiData``
 has no field for. A stub run's report (``stub_agent`` in the manifest's settings) opens with
@@ -75,7 +75,7 @@ HONESTY_NOTE = (
     "include zones the scenario leaves empty."
 )
 """The report's honesty note, word for word."""
-STUB_AGENT_NOTE = "(stub agent: perfect perception from the scenario script, not Person A's agent)"
+STUB_AGENT_NOTE = "(stub agent: perfect perception from the scenario script, not SpotCool's agent)"
 """How a stub run is labelled: at the top of its report and in ``spotcool-world run``'s output."""
 POWER_CHART = "power_energy.png"
 ZONES_CHART = "zone_temperatures.png"

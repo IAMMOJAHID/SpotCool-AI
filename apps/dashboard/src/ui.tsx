@@ -36,7 +36,7 @@ export function Tag({ kind, children }: { kind: TagKind; children: ReactNode }) 
 export function StubTag() {
   return (
     <Tag kind="stub">
-      <span title="Stub agent: perfect perception from the scenario script, not Person A's agent">stub</span>
+      <span title="Stub agent: perfect perception from the scenario script, not SpotCool's agent">stub</span>
     </Tag>
   );
 }

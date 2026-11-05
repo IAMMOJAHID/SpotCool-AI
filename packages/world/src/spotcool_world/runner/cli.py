@@ -79,7 +79,7 @@ def _parser() -> argparse.ArgumentParser:
         "--stub-agent",
         action="store_true",
         help="also run the stub agent: a BACnet client with ground-truth perception that stands "
-        "in for Person A's agent",
+        "in for SpotCool's agent",
     )
     run.add_argument(
         "--dry-run",

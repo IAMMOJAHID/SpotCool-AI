@@ -24,7 +24,7 @@ SpotCool uses the cameras a building already has to see, zone by zone, whether a
   - **a booked room** is pre-cooled from 30 minutes before its booking;
   - **at 19:00** everything is released;
   - **an operator** writing at priority 8 always wins: the agent reads each point's priority array first, and backs off from any slot 1 to 9.
-- **The meeting room.** The VRF unit's louvers follow a person on the room's camera (in the demo, a recorded clip played as that camera; SAM 3.1 and the louvers run live on its frames). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled). Every 60 s, Meta's **`muse-spark-1.3`** reads what the people wear and do, and Person A's PMV comfort physics turns that into the unit's setpoint, within 23-26 °C. A complaint or an operator comes first.
+- **The meeting room.** The VRF unit's louvers follow a person on the room's camera (in the demo, a recorded clip played as that camera; SAM 3.1 and the louvers run live on its frames). The agent locates them from the camera's pose and aims the vanes, for each brand's vane positions (Mitsubishi, Daikin and LG are modelled). Every 60 s, Meta's **`muse-spark-1.3`** reads what the people wear and do, and the MVP's PMV comfort physics turns that into the unit's setpoint, within 23-26 °C. A complaint or an operator comes first.
 - **Complaints.** An occupant types or says "it's too cold in here". Voice is transcribed by Meta's **`muse-voice-transcribe-1.0`**. Keywords, then **`muse-wonder-1.0`**, work out the intent (cold, hot, draft, stuffy). The agent adjusts the meeting room's unit (setpoint, fan or vane), and muse-wonder answers in plain words, with a template as the fallback. Complaints never touch the BMS zones.
 - **Explanations and the privacy view.** Muse Spark adds scene notes on occupied zones, **`muse-wonder-1.0`** sums up each step's decisions in one sentence, and **`muse-image-1.0`** can redraw each camera as an illustration for the dashboard. All of them are display only: they never write to the BMS or delay a building step.
 - **Outside the measured result.** The louvers, complaints, comfort setpoint, scene notes, narration and privacy view are a live demo, not part of the 19.94 %, and the VRF unit's power enters no saving.
@@ -174,7 +174,7 @@ All five are called through the Meta AI API at `api.meta.ai/v1`.
 | Model | What SpotCool uses it for |
 |---|---|
 | `sam-3.1` | Perception: the people in each zone's CCTV snapshot (the building loop), and the person the meeting room's louvers follow (the VRF loop) |
-| `muse-spark-1.3` | The scene: what people wear and do, open doors and windows. It sets the meeting room's comfort setpoint, through Person A's PMV physics, and writes scene notes on the zones, explanations only |
+| `muse-spark-1.3` | The scene: what people wear and do, open doors and windows. It sets the meeting room's comfort setpoint, through the MVP's PMV physics, and writes scene notes on the zones, explanations only |
 | `muse-wonder-1.0` | Chat: the intent of a complaint the keywords can't settle, and the plain-words reply; a one-sentence narration of each step's decisions |
 | `muse-voice-transcribe-1.0` | Voice complaints: the occupant's recording, transcribed in memory |
 | `muse-image-1.0` | A privacy view: each camera redrawn as an illustration for the dashboard's `?privacy=on` (with `--render meta`), display only. The prompt asks for faceless figures; nothing verifies a render has none |
@@ -187,8 +187,9 @@ The algorithms around each model, step by step: [`docs/META_MODELS.md`](docs/MET
 
 ## Team and credits
 
-- **Person A** built the agent MVP that SpotCool's agent was ported from: SAM perception, louver geometry, Muse Spark scene reading, PMV comfort physics, the privacy render. All of these were ported; A's plan search and supervisor weren't. The MVP stays as it was on branch `third_level_improvement`.
-- **Person B** built the world, the dashboard and the video, and integrated A's MVP into `packages/agent`.
+- Built by the SpotCool team during the hackathon.
+- **The agent** was ported from the team's first prototype, the MVP, which stays as it was on branch `third_level_improvement`: its SAM perception, louver geometry, Muse Spark scene reading, PMV comfort physics and privacy render. Its plan search and supervisor weren't ported.
+- **The simulated building** (`packages/world`), **the dashboard** and **the video** were built for SpotCool from scratch.
 - The repo is owned by [IAMMOJAHID](https://github.com/IAMMOJAHID).
 
 **Data and tools** (full ledger, with every package's licence: [`CREDITS.md`](CREDITS.md)):

@@ -8,7 +8,7 @@ included, in runs/<run_id>/; BusPublisher puts the events on the bus.
   TickSource -> ScenarioProcessor(hybrid_tuesday) -> EmptyZoneStandby -> ParallelPipeline[
   RC spotcool || RC baseline] -> Telemetry -> Kpi -> EventEmitter -> Recorder -> BusPublisher
 
-EmptyZoneStandby stands in for Person A's agent so the two runs differ: it reads the
+EmptyZoneStandby stands in for SpotCool's agent so the two runs differ: it reads the
 scenario's ground truth, which the real agent never sees, and puts each empty zone on standby
 (cooling setpoint 28 degC, damper shut). Then the report turns the run into report.md and
 charts (the report extra). The run takes a few seconds.

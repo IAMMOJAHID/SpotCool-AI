@@ -4,7 +4,7 @@ After a building step has made its writes, ``offer()`` starts a background readi
 occupied zone's snapshot, the step's own, already in memory, at most once every
 ``every_steps`` steps per zone. A zone whose last reading is still running is skipped. Each
 reading has ``TIMEOUT_S`` and goes out as an ``explanation`` ("Muse Spark, West: 1 person,
-typical office clothing; a door is open"); when its count disagrees with SAM 3.1's (Person A's
+typical office clothing; a door is open"); when its count disagrees with SAM 3.1's (the MVP's
 rule, ``explain.counts_disagree``), a second one says the policy keeps SAM's. A reading that
 fails says nothing. The frame is dropped when the reading ends.
 

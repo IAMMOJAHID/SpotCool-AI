@@ -14,7 +14,7 @@ export interface Config {
   eventsUrl: string;
   /** Base URL of the world's camera server. */
   camerasUrl: string;
-  /** Base URL of Person A's agent, or null when none is configured. */
+  /** Base URL of SpotCool's agent, or null when none is configured. */
   agentUrl: string | null;
   /** The agent's `host:port`, shown next to hold-to-talk. */
   agentHost: string | null;

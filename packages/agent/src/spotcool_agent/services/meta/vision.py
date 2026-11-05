@@ -1,6 +1,6 @@
 """SamVision: people counted by SAM 3.1 on the Meta AI API.
 
-The request is Person A's (``_sam_image`` in the MVP's ``perception.py``): one user message
+The request is the MVP's (``_sam_image`` in the MVP's ``perception.py``): one user message
 with the concept as text and the snapshot as a base64 JPEG data URL, and
 ``metadata={"include_confidence": "true"}``. The answer is parsed by ``parse_sam_output``; the
 first frame's boxes below ``min_confidence`` are dropped. A 429 is retried once, after a short
@@ -21,7 +21,7 @@ from spotcool_agent.services.vision import VisionError, VisionService, image_siz
 
 SAM_MODEL = "sam-3.1"
 MIN_CONFIDENCE = 0.3
-"""Boxes SAM is less sure of than this are dropped (A's ``SAM_MIN_CONFIDENCE``)."""
+"""Boxes SAM is less sure of than this are dropped (the MVP's ``SAM_MIN_CONFIDENCE``)."""
 RETRY_429_S = 0.5
 """The pause before the one retry of a rate-limited (429) request."""
 TRACE_BOXES = 6

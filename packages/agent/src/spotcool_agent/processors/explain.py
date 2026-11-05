@@ -106,7 +106,7 @@ def scene_note(zone: Zone, scene: Scene) -> str:
 
 
 def counts_disagree(sam: int, spark: int) -> bool:
-    """Person A's cross-check: the two counts differ by more than 2, or by 30 % of the larger."""
+    """The MVP's cross-check: the two counts differ by more than 2, or by 30 % of the larger."""
     return abs(spark - sam) > max(2.0, 0.3 * max(sam, spark))
 
 

@@ -1,4 +1,4 @@
-"""Interface contracts between the SpotCool agent (Person A) and the simulated world (Person B).
+"""Interface contracts between the SpotCool agent and the simulated world.
 
 Everything that crosses the boundary between the two sides is defined here and nowhere else:
 BACnet point maps, VRF vendor profiles, the camera catalog, the room calendar, occupant

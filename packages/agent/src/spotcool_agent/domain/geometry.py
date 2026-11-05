@@ -1,6 +1,6 @@
 """Detections from a vision model, and SAM 3.1's text output parsed into them.
 
-``Detection``, ``parse_sam_output`` and their patterns are Person A's, from the MVP
+``Detection``, ``parse_sam_output`` and their patterns are the MVP's, from the MVP
 (``app/spotcool/perception.py`` on ``third_level_improvement``, ``b653cbf``), kept near-verbatim:
 typed, documented, and ``Detection`` frozen. SAM 3.1 answers in ``response.output_text``, one
 token per object, in the image's pixels with the image's size:

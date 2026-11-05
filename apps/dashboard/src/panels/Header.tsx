@@ -43,7 +43,7 @@ export const Header = memo(function Header(props: {
       <div className="status">
         {props.stub && (
           <Tag kind="stub">
-            <span title="Perfect perception from the scenario script, not Person A's agent">Stub agent</span>
+            <span title="Perfect perception from the scenario script, not SpotCool's agent">Stub agent</span>
           </Tag>
         )}
         <span className={`run run-${status}`} data-testid="run-status" title={run?.message ?? undefined}>

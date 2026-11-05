@@ -421,7 +421,7 @@ async def test_spark_sets_the_comfort_setpoint_while_people_are_seen() -> None:
     assert scene.asked == [("cam-meeting-live", 2)]  # SAM's count goes with the frame
     clock.now += 1.0
     await loop.tick()
-    assert gateway.arrays["IDU-SP"][9] == 24.5  # A's 24.415 degC on the 0.5 grid
+    assert gateway.arrays["IDU-SP"][9] == 24.5  # the MVP's 24.415 degC on the 0.5 grid
     explained = [data["text"] for kind, data in events if kind is EventType.EXPLANATION]
     assert (
         "Muse Spark: 2 people, seated, typical office clothing (0.71 clo, 1.1 met) -> comfort "

@@ -1,8 +1,8 @@
-"""StubAgentWorker: a stand-in for Person A's agent (the ``bacnet`` extra).
+"""StubAgentWorker: a stand-in for SpotCool's agent (the ``bacnet`` extra).
 
 THIS IS A STUB, NOT PERSON A'S AGENT. It exists so the world can be run, scored and filmed
 without A. It talks real BACnet/IP to the BMS, over loopback or the LAN and on its own UDP port,
-exactly as A's agent will. Its perception, though, is perfect, and openly so: it reads the
+exactly as the agent will. Its perception, though, is perfect, and openly so: it reads the
 scenario's ground truth (the ``scenario_state`` events on ``"events"``, people per zone), which
 a real agent must never read, and every event it publishes says ``stub: true``.
 
@@ -21,7 +21,7 @@ What it does (``StubPolicy`` decides, the worker writes):
 It commands the zones at the close of each step (the step's ``tick`` event): the people from
 that step's state, the bookings and 19:00 judged at the next step's start. Every write takes
 effect from the next step in a paced run whose step leaves time for the stub's round trips; at
-speed 0 they lag by 2-4 steps. The world never waits for an agent, Person A's included. Every
+speed 0 they lag by 2-4 steps. The world never waits for an agent, SpotCool's agent included. Every
 write happens only on a change. Before writing a zone point, value or release, at 19:00 and at
 ``stop()`` included, the stub reads its priority array:
 

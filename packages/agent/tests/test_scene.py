@@ -88,7 +88,7 @@ def test_a_scene_parses_from_a_code_fence_and_refuses_a_temperature() -> None:
     with pytest.raises(ValueError):
         parse_scene(json.dumps({**ANSWER, "room_temperature_c": 27.5}))  # never accepted
     with pytest.raises(ValueError):
-        parse_scene(json.dumps({**ANSWER, "sunlight": "some"}))  # not one of A's levels
+        parse_scene(json.dumps({**ANSWER, "sunlight": "some"}))  # not one of the MVP's levels
     with pytest.raises(ValueError):
         parse_scene("I see two people.")
 

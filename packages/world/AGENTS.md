@@ -1,15 +1,15 @@
 # AGENTS.md: spotcool-world
 
-Every agent working in `packages/world/` (Claude Code reads it through `CLAUDE.md`, Antigravity
+Every agent working in `packages/world/` (
 reads it directly) follows this guide. The repo-wide rules in the root `AGENTS.md` still apply.
 
 ## Overview
 
-`spotcool-world` is Person B's simulated building: everything Person A's agent connects to when
+`spotcool-world` is the simulated building: everything SpotCool's agent connects to when
 there is no real building. That means two copies of a physics-grade office (BOPTEST), a BACnet
 BMS, a VRF gateway, CCTV cameras, room bookings, scripted occupants, the telemetry and the
-recorder. The test of success: swap the world's adapters for real hardware and A's code does
-not change. Everything that crosses to A is defined in `packages/contracts` (only the lead
+recorder. The test of success: swap the world's adapters for real hardware and the agent's code does
+not change. Everything that crosses to the agent is defined in `packages/contracts` (only the lead
 edits it).
 
 The package follows [pipecat](https://github.com/pipecat-ai/pipecat)'s architecture: frames
@@ -200,7 +200,7 @@ Payloads are the contract models from `spotcool_contracts.events`. `SetpointComm
   traceback's local variables, so `logger.exception` (or `opt(exception=...)`) can leak audio or
   camera bytes into the log. Log `type(exc).__name__` and the message instead.
 - **Contracts are the boundary.** Reuse `spotcool_contracts` models and point maps; never copy
-  or redefine them here. Units on the wire to A are BMS units; convert with `adapters.units`.
+  or redefine them here. Units on the wire to the agent are BMS units; convert with `adapters.units`.
 - **Plants speak BOPTEST's REST names.** `create_plant(settings, run)` picks the provider. Every
   plant checks override names against the catalog (`services/boptest/catalog.py`) and reports
   an overwritten signal under its input's `_u` key, as BOPTEST's REST API does. BOPTEST inputs
@@ -358,7 +358,7 @@ Windows. Menu names are those of current YABE; older builds say "Add device" and
 `transports/bacnet/vrf.py`'s `BacnetVrfGateway` is VRF-Gateway-MeetingRoom (device 2001, UDP
 47810): the BACnet gateway of the South meeting room's VRF indoor unit, built from
 `load_point_map("vrf_gateway")` (10 objects) and behaving like the real gateway of the brand
-`vrf_profile` names (`load_vrf_profiles()`: `mitsubishi`, `daikin` or `lg`). Person A's agent
+`vrf_profile` names (`load_vrf_profiles()`: `mitsubishi`, `daikin` or `lg`). SpotCool's agent
 aims its louvers at a person on the live phone camera; the dashboard's AC panel animates it.
 
 - **Wall time, outside the pipeline.** It is a live device for the phone-camera take: a write
@@ -493,7 +493,7 @@ cues and clothing. `load_scenario`, `lint` and `compile_scenario` turn it into a
 
 ## Cameras
 
-The camera system plays a video recorder for A's agent: a catalog, one snapshot per camera, and
+The camera system plays a video recorder for the agent: a catalog, one snapshot per camera, and
 an MJPEG stream for the dashboard. The providers need the `cameras` extra; the base, the
 dataset indexes and `CameraSceneProcessor` need only the core.
 
@@ -779,11 +779,11 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   <address>:<port> is in use ...`, `VRF UDP ...`), a server's as
   soon as the runner starts (the run is then cancelled, after the plants' start). For a run on
   this PC only, with no firewall prompt, set `SPOTCOOL_WORLD_BMS_ADDRESS=127.0.0.1` and
-  `SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1`. For A's agent or a browser on another PC, allow the
+  `SPOTCOOL_WORLD_HTTP_HOST=127.0.0.1`. For the agent or a browser on another PC, allow the
   ports through the firewall (Windows notes).
 - **Logging.** `run` and `replay` log to stderr at `log_level`, with `diagnose=False` and
   `backtrace=False`, so a traceback never prints local variables that hold audio or frames.
-- **Without A's agent**, nothing answers the occupants' complaints: each is reported
+- **Without the agent**, nothing answers the occupants' complaints: each is reported
   `delivered: false`. On Windows a refused connection takes about 2 s per attempt, so a run at
   full speed ends about 7 s after the 14:15 complaint, while the occupant worker finishes it.
 - **Replay** (`Replay` in `runner/assembly.py`). `spotcool-world replay <run_id> [--config FILE]
@@ -798,7 +798,7 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
 - **The PC stays on one network for the whole run.** The BMS binds the PC's IPv4 address when
   the run starts, and the port forward to the Codespace dies with the network. Windows may move
   a laptop to another saved Wi-Fi network mid-run (on 2 November, from 192.168.234.x to
-  192.168.1.x): the BMS then reports that its address is gone, A's agent can no longer reach
+  192.168.1.x): the BMS then reports that its address is gone, the agent can no longer reach
   it, and the run must start again. Before a run, set every other saved network to connect
   manually (`netsh wlan show profiles` lists them):
 
@@ -807,7 +807,7 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
   ```
 
 - **Supervise the port forward.** BACnet is UDP and a Codespace forward carries only TCP, so
-  every run with A's agent runs the world on the laptop and reaches BOPTEST through
+  every run with the agent runs the world on the laptop and reaches BOPTEST through
   `gh codespace ports forward`. A forward that exits (a dropped tunnel) is restarted by a loop
   in its own terminal, outside the world:
 
@@ -854,17 +854,17 @@ uv run python packages/world/examples/foundational/10_full_world.py   # the same
 
 ## The stub agent
 
-`stub_agent/` (extra `bacnet`) stands in for Person A's agent, so the world can be run, scored
-and filmed without A. It is a stub and says so everywhere: A's agent must never read ground
+`stub_agent/` (extra `bacnet`) stands in for SpotCool's agent, so the world can be run, scored
+and filmed without A. It is a stub and says so everywhere: the agent must never read ground
 truth.
 
 - **Turning it on.** `spotcool-world run --stub-agent`, or the setting `stub_agent`
   (`SPOTCOOL_WORLD_STUB_AGENT=true`), which the manifest records. A stub run's id ends in
   `-stub`, and its printout and the top of its report say `STUB_AGENT_NOTE`: "(stub agent:
-  perfect perception from the scenario script, not Person A's agent)".
+  perfect perception from the scenario script, not SpotCool's agent)".
 - **A real BACnet/IP client.** `StubAgentWorker(device)`, given the BMS's `ip:port`, is a
   BACpypes3 device (`SpotCool-Stub-Agent`, instance 1900) on its own UDP port, any free one on
-  the BMS's address, writing over loopback or the LAN exactly as A's agent will. Each request
+  the BMS's address, writing over loopback or the LAN exactly as the agent will. Each request
   waits 1 s for its answer and is resent once (`APDU_TIMEOUT_MS`, `APDU_RETRIES`), so one the
   BMS never answers costs about 2 s, not BACpypes3's 12.
 - **Perfect perception, openly.** It reads the scenario's ground truth: the `scenario_state` and
@@ -887,7 +887,7 @@ truth.
   released from 19:00, as the BMS takes them. The tick event comes after `bms.input()` has
   taken the step's commands, so every write takes effect from the next step in a paced run
   whose step leaves time for the stub's round trips; at speed 0 they lag by 2-4 steps. The
-  world never waits for an agent: Person A's faces the same world. The evals check each
+  world never waits for an agent: SpotCool's agent faces the same world. The evals check each
   write's lag from the saved record. Don't move the commands to the `scenario_state`: that
   event races the tick through the pipeline, so some writes would take effect a step sooner,
   depending on BACnet latency.
@@ -936,7 +936,7 @@ truth.
 | `src/spotcool_world/workers/` | `BaseWorker`, `PipelineWorker`, `OccupantWorker`, `HttpServerWorker` (serves any FastAPI app on a host and port), `VrfWorker` (the VRF unit in wall time) |
 | `src/spotcool_world/bus/` | `Bus` protocol, `InProcessBus` |
 | `src/spotcool_world/runner/` | `WorkerRunner`, the `spotcool-world` CLI (`run`, `replay`, `report`, `lint`, `probe`), `assembly.py` (`World`, `Replay`), `report.py` (run reports) |
-| `src/spotcool_world/stub_agent/` | `StubAgentWorker`: a BACnet client with openly perfect perception, for runs without Person A's agent |
+| `src/spotcool_world/stub_agent/` | `StubAgentWorker`: a BACnet client with openly perfect perception, for runs without SpotCool's agent |
 | `src/spotcool_world/clocks/` | `SimClock`, `WallPacer` |
 | `src/spotcool_world/observers/` | `BaseObserver`, `LogObserver`, `StepTimingObserver` |
 | `src/spotcool_world/services/` | `PlantService`, `CameraService`, `CameraSystem`, `WorldSettings`, `create_plant`, `create_cameras`; providers in `boptest/`, `rc/`, `replay/`, `clips/`, `datasets/`, `live/` |
@@ -959,7 +959,6 @@ Outside this package, at the repo root:
 | `scripts/footage/` | The footage pipeline: normalize clips, extract audio, dataset indexes (WP8) |
 | `scripts/video/`, `video/` | The demo video built from code: storyboard, narration, sources, motion graphics, takes, assembly, QA (WP9; start at `video/README.md`) |
 | `docs/release/numbers.md` | Every figure the video may show, with its source |
-| `docs/status/HANDOFF.md` | Person B's status, decisions and next actions |
 
 ## Code style
 
@@ -977,7 +976,7 @@ Outside this package, at the repo root:
 - Comment only the why the code cannot show. A known shortcut gets
   `# shortcut: <the limit>, <when to upgrade>`.
 - **No deprecation shims.** When you rename or change an API, update every caller in the same
-  WP and delete the old name. Nothing outside this repo imports `spotcool_world`: Person A
+  WP and delete the old name. Nothing outside this repo imports `spotcool_world`: the agent
   depends only on `packages/contracts`, which is versioned and changed only by the lead.
   (Pipecat's deprecation rules exist for its external users.)
 
@@ -1119,7 +1118,7 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   Add Remote Bacnet/IP node: `1001 - 127.0.0.1:47809`. No Who-Is broadcast is needed.
 - A port already in use fails `BacnetBmsTransport.start()` with `[WinError 10048] Only one usage
   of each socket address`: another BACnet program (or YABE in exclusive-socket mode) holds it.
-- **The firewall blocks the HTTP servers from other PCs**: A's agent and a browser there. Allow
+- **The firewall blocks the HTTP servers from other PCs**: the agent and a browser there. Allow
   TCP 8081 (cameras and calendar) and 8090 (the dashboard) once, in an elevated PowerShell (add
   `Public` to `-Profile` if Windows calls the network public, as it usually does a phone's
   hotspot; undo with `Remove-NetFirewallRule -DisplayName "SpotCool HTTP"`). The phone needs no
@@ -1133,7 +1132,7 @@ This covers comments, docstrings, commit messages, changelog fragments and PR de
   1. On the Android phone, install "IP Webcam" (by Pavel Khlebovich) from Google Play. In its
      settings, set Video preferences > Video resolution to 1280x720.
   2. Put the phone and this PC on one network: turn the phone's hotspot on and join it from the
-     PC, or join both to the same Wi-Fi. A's PC joins that network too, to reach the world.
+     PC, or join both to the same Wi-Fi. The agent's PC joins that network too, to reach the world.
   3. Plug the phone into a charger, then tap "Start server" at the bottom of the app's settings.
      The screen shows the phone's address, such as `http://192.168.43.1:8080`. Newer Android
      versions pick a new hotspot subnet each time, so read it every time.

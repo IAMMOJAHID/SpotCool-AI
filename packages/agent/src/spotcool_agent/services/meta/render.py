@@ -1,7 +1,7 @@
 """MuseImageRender: a camera snapshot redrawn by ``muse-image-1.0``, asked for faceless figures.
 
-The request is Person A's (``render_privacy_snapshot`` in the MVP's ``app/spotcool/media.py``
-on branch ``third_level_improvement``): ``images.edit`` with the frame as ``frame.jpg``, A's
+The request is the MVP's (``render_privacy_snapshot`` in the MVP's ``app/spotcool/media.py``
+on branch ``third_level_improvement``): ``images.edit`` with the frame as ``frame.jpg``, the MVP's
 ``PRIVACY_RENDER_PROMPT`` and ``n=1``. The lead's probe (Nov 4) took 24 s and answered with a
 280 KB ``b64_json`` and no URL; a live call through this class (Nov 5) took 25.16 s and answered
 WEBP 2048x1152. The image that comes back is fully decoded, so a truncated one is refused, and
@@ -32,7 +32,7 @@ PRIVACY_RENDER_PROMPT = (
     "Keep the room layout, furniture, doors, windows and the position, posture and clothing colours of every person. "
     "People must be faceless, featureless figures. Do not add or remove people or objects and do not add any text."
 )  # fmt: skip
-"""Person A's prompt, word for word."""
+"""The MVP's prompt, word for word."""
 
 
 def as_jpeg(image: bytes) -> tuple[bytes, str]:

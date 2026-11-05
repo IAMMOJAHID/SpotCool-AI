@@ -1,7 +1,7 @@
 [project]
 name = "spotcool-contracts"
 version = "0.1.1"
-description = "Interface contracts between the SpotCool agent (Person A) and the simulated world (Person B)."
+description = "Interface contracts between the SpotCool agent and the simulated world."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "BSD-2-Clause" }

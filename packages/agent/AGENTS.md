@@ -21,7 +21,7 @@ one-sentence narration of each step that wrote. AG9 added `muse-image-1.0`'s pri
 of the cameras (`--render`, off by default), served at `/privacy/<camera>.jpg` for the
 dashboard's `?privacy=on`, display only. **None of it changes a BMS write.**
 
-It speaks only the building's interfaces (`docs/integration/PERSON_A_HANDOFF.md` sections
+It speaks only the building's interfaces (`docs/INTERFACES.md` sections
 4-9), as defined in `packages/contracts`. **It never imports `spotcool_world`**: its tests and
 evals may, to run the world on loopback.
 
@@ -95,13 +95,13 @@ too, every 0.25 s:
    than one already applied is dropped. Each result is a `perception` with
    `masks: {"cam-meeting-live": [...]}` and `people: {}`. When its call cap is used up, it stops
    looking and releases the vanes; the building is not touched.
-4. **Aim** (`domain/louvers.py`, Person A's `locate`, `louver_angles_to` and `louver_aim`):
+4. **Aim** (`domain/louvers.py`, the MVP's `locate`, `louver_angles_to` and `louver_aim`):
    every person seen, weighted by box area; the camera's pose from `--vrf-camera-height-m`,
-   `--vrf-camera-tilt-deg`, `--vrf-camera-hfov-deg` (A's 2.8 m, 30 deg, 90 deg; the unit under
+   `--vrf-camera-tilt-deg`, `--vrf-camera-hfov-deg` (the MVP's 2.8 m, 30 deg, 90 deg; the unit under
    it at 2.6 m, aiming at 1.1 m). Vertical = -tilt and horizontal = pan (x -1 with
    `--vrf-mirror`), clamped and snapped to the profile's nearest position; when the pan spread
    exceeds 1.5 x the 15 deg beam, Swing, on the horizontal axis, or on the vertical one when the
-   brand has no horizontal axis (A's swing is one flag). An axis the brand lacks is never
+   brand has no horizontal axis (the MVP's swing is one flag). An axis the brand lacks is never
    written (Daikin and LG horizontal); LG gets Swing or a release (its default, Pos3, is swing
    off). Nobody seen for `--vrf-hold-s` (10 s): the vanes are released.
 5. **Write**, through an `Actuator` of the gateway's points (`IDU-VANE-V`, `IDU-VANE-H`,
@@ -113,7 +113,7 @@ too, every 0.25 s:
 6. **Comfort** (AG8; with a scene reader, `--no-comfort` turns it off). Every
    `comfort_every_s` (60) while people are seen, a task of its own snapshots the live camera
    and asks the scene reader (Muse Spark, `--scene`) who is there, with SAM's count as a hint.
-   Person A's `comfort_temperature` (`domain/comfort.py`) gives the air temperature at PMV 0
+   The MVP's `comfort_temperature` (`domain/comfort.py`) gives the air temperature at PMV 0
    in still air (0.1 m/s) at 50 % RH (the gateway has no RH point), put on the 0.5 grid within
    16-30 degC and written to `IDU-SP` by the same actuator rules (reason "comfort: PMV 0 for
    the people seen"), explained when it changes. Precedence: the operator (back-off), then a
@@ -142,7 +142,7 @@ too, every 0.25 s:
    A complaint is about the meeting room when its `room_hint` is `meeting-south`, or a real
    occupant (`source: occupant`, the dashboard) gives no room; any other, or no intent, changes
    nothing. **The BMS zones are never written from a complaint.**
-4. **Answered.** `LLMService` writes at most two sentences (8 s) from A's `state_card` idea:
+4. **Answered.** `LLMService` writes at most two sentences (8 s) from the MVP's `state_card` idea:
    the last perception's zone counts, the unit's `IDU-ROOM-T`, `IDU-SP`, fan and vanes, and the
    action; otherwise a template ("Thanks, I've raised the meeting room's setpoint to 25.0 degC
    and turned its fan down to Low."). One `chat` and one `explanation` per complaint; the
@@ -182,7 +182,7 @@ The world never waits for the agent, so each round fits in the step it starts in
 6. Only then, in the background and never awaited by the step: with a scene reader,
    `SceneNotes` (`loops/scene.py`) reads each occupied zone's snapshot of that step at most
    every `scene_every_steps` (4), skipping a zone still being read (30 s each), and publishes
-   "Muse Spark, West: 1 person, typical office clothing; a door is open", plus A's cross-check
+   "Muse Spark, West: 1 person, typical office clothing; a door is open", plus the MVP's cross-check
    ("SAM 3.1 saw N, Muse Spark M: the policy keeps SAM's") when |Spark - SAM| > max(2, 0.3 *
    max). With `--llm meta`, `Narrator` (`loops/narration.py`) makes one call (8 s, one at a
    time) when the step's writes changed what the actuator holds, grounded on each written
@@ -210,21 +210,21 @@ step with no count at all, or the model-call cap used up, releases everything.
 | Provider | Where | For |
 |---|---|---|
 | `VisionService` | `services/vision.py` | the base: `detect(jpeg, concept, timeout_s, *, camera_id)` -> `Detections`, or `VisionError` |
-| `SamVision` | `services/meta/vision.py` | SAM 3.1: Person A's request, boxes below 0.3 dropped, one retry on HTTP 429 only |
+| `SamVision` | `services/meta/vision.py` | SAM 3.1: the MVP's request, boxes below 0.3 dropped, one retry on HTTP 429 only |
 | `MetaClient` | `services/meta/client.py` | one budget: an `AsyncOpenAI` made in the running loop, a limiter, a ledger (model, purpose, latency, ok; never pixels or audio) and a call cap, through `call()`. One per budget: the building's SAM (5 at once, `--sam-call-cap` 600, AG1's), the VRF loop's SAM (2, `--vrf-call-cap` 3000), the language services' (2, `--llm-call-cap` 200), the scene's (3, `--scene-call-cap` 300) and the renders' (1, `--render-call-cap` 60) |
-| `BlobVision` | `services/fake/blob.py` | the world's synthetic frames: saturated blobs over 400 pixels, exact there |
+| `BlobVision` | `services/fake/blob.py` | The world's synthetic frames: saturated blobs over 400 pixels, exact there |
 | `ScriptedVision` | `services/fake/scripted.py` | fixed counts per camera, for unit tests and dry runs |
 | `STTService` | `services/stt.py` | the base: `transcribe(wav, timeout_s)` -> text, or `STTError` |
-| `MetaSTT` | `services/meta/stt.py` | `muse-voice-transcribe-1.0`: Person A's multipart request with httpx, 6 s, no retries, the audio in memory; the reply's `transcript` (or its turns'); a ledger line per call |
+| `MetaSTT` | `services/meta/stt.py` | `muse-voice-transcribe-1.0`: the MVP's multipart request with httpx, 6 s, no retries, the audio in memory; the reply's `transcript` (or its turns'); a ledger line per call |
 | `FakeSTT` | `services/fake/stt.py` | a fixed transcript; by default none (it hears nothing), for tests and `--stt fake` |
 | `LLMService` | `services/llm.py` | the base: `complete(prompt, timeout_s, *, purpose)` -> text, or `LLMError` |
 | `MetaLLM` | `services/meta/llm.py` | `muse-wonder-1.0` on the language services' `MetaClient`; 8 s |
 | `FakeLLM` | `services/fake/llm.py` | scripted answers by purpose (`classify`, `reply`, `narrate`), for tests and `--llm fake` |
-| `SceneService` | `services/scene.py` | the base: `assess(jpeg, sam_count, timeout_s, *, camera_id)` -> `Scene` (`domain/scene.py`, A's enums, extra keys forbidden), or `SceneError` |
-| `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: A's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 30 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
+| `SceneService` | `services/scene.py` | the base: `assess(jpeg, sam_count, timeout_s, *, camera_id)` -> `Scene` (`domain/scene.py`, the MVP's enums, extra keys forbidden), or `SceneError` |
+| `SparkScene` | `services/meta/scene.py` | `muse-spark-1.3`: the MVP's `SCENE_INSTRUCTIONS`, adapted to one frame and a JSON-only answer; 30 s, no retries; on a `MetaClient` of its own (3 at once, `--scene-call-cap` 300) |
 | `FakeScene` | `services/fake/scene.py` | a scripted scene (one seated office worker by default); `None` fails |
 | `RenderService` | `services/render.py` | the base: `render(jpeg, timeout_s, *, camera_id)` -> JPEG bytes, or `RenderError` (`CallCapReached` at the cap) |
-| `MuseImageRender` | `services/meta/render.py` | `muse-image-1.0`: Person A's `images.edit` with `PRIVACY_RENDER_PROMPT`, `n=1`; 45 s, no retries; the `b64_json` checked and kept as a JPEG; on a `MetaClient` of its own (1 at once, `--render-call-cap` 60) |
+| `MuseImageRender` | `services/meta/render.py` | `muse-image-1.0`: the MVP's `images.edit` with `PRIVACY_RENDER_PROMPT`, `n=1`; 45 s, no retries; the `b64_json` checked and kept as a JPEG; on a `MetaClient` of its own (1 at once, `--render-call-cap` 60) |
 | `FakeRender` | `services/fake/render.py` | a small solid JPEG for every render |
 
 No service logs what was said, asked or answered, only lengths. Each Meta request logs a
@@ -232,7 +232,7 @@ No service logs what was said, asked or answered, only lengths. Each Meta reques
 `--no-meta-trace`): the endpoint, the `x-request-id` (also in the ledger's `Call`), the rate
 limit left, and sizes, box pixels, confidences and intent labels only. `parse_sam_output` and
 `Detection` (`domain/geometry.py`), the louver geometry (`domain/louvers.py`) and the comfort
-physics and its clo and met tables (`domain/comfort.py`) are Person A's, near-verbatim. Muse
+physics and its clo and met tables (`domain/comfort.py`) are the MVP's, near-verbatim. Muse
 Spark's trace gives the people, a clothing tally and the doors; the narration's, its length;
 Muse Image's, the frame's and the render's sizes, never the image or its base64.
 
@@ -294,7 +294,7 @@ Muse Image's, the frame's and the render's sizes, never the image or its base64.
   world's synthetic frames, the dashboard transport, the server, the settings and the dry run,
   and integration tests against the world's real BMS, camera, calendar and dashboard servers on
   loopback (`bacnet`-marked where they open UDP sockets).
-- AG4: A's geometry with A's numbers and the vanes per brand (`test_louvers.py`); the VRF loop
+- AG4: the MVP's geometry with the MVP's numbers and the vanes per brand (`test_louvers.py`); the VRF loop
   on a fake gateway and clock: aim, hold and release, the write rate, stale looks, each
   override and its decay, the draft pause (`test_vrf_loop.py`); intents, other-zone
   complaints, the reply and its template fallback (`test_complaints.py`); `MetaSTT` on the
@@ -306,14 +306,14 @@ Muse Image's, the frame's and the render's sizes, never the image or its base64.
   `spotcool_world`; no ground-truth feed named in the source; an audit hook on `open` scoped to
   stacks with agent code, while the agent works against the world's servers, sees no file
   opened to write, and the logs and console hold no JPEG bytes.
-- AG8: A's comfort functions against values computed by A's own `physics.py`
+- AG8: the MVP's comfort functions against values computed by the MVP's own `physics.py`
   (`test_comfort.py`); the scene schema, `SparkScene` on a fake client (its trace, an invalid
   or late answer), the scene notes' cadence and cross-check, the narration
   (`test_scene.py`); the comfort setpoint, its precedence, its clamp, and no write on an
   invalid scene or `--no-comfort` (`test_vrf_loop.py`); **the building loop's BMS writes,
   decisions and explanations identical with and without the scene notes and narration**
   (`test_building_loop.py`); Spark in the audit-hook test.
-- AG9: `MuseImageRender` on a fake client (A's prompt, the trace's sizes, no base64, a PNG
+- AG9: `MuseImageRender` on a fake client (the MVP's prompt, the trace's sizes, no base64, a PNG
   kept as a JPEG; no image, bad base64, not an image, late), the render loop's order, skips, retries, one warning per failure type, new runs
   and call cap, `/privacy` (404, the latest, `no-store`, CORS), `--render` off by default
   (`test_render.py`); **the BMS writes identical with and without the render loop**

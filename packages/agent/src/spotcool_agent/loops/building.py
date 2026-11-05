@@ -62,7 +62,7 @@ SNAPSHOT_TIMEOUT_S = 2.0
 SETTLE_S = 1.0
 """Wall seconds from a ``SIM-CLOCK`` change to the snapshots, so the cameras show the step."""
 CONCEPT = "humans"
-"""What the vision provider counts (A's ``SAM_PERSON_CONCEPT``)."""
+"""What the vision provider counts (the MVP's ``SAM_PERSON_CONCEPT``)."""
 
 
 def deadline_after(seen_at: float, step_wall_s: float) -> float:

@@ -56,7 +56,7 @@ export const AgentPanel = memo(function AgentPanel(props: { items: DashboardStat
   );
 });
 
-/** One line for an agent event: the stub's fields, or Person A's `text`, or the data itself. */
+/** One line for an agent event: the stub's fields, or the agent's `text`, or the data itself. */
 export function describe(item: AgentItem): string {
   const d = item.data;
   if (typeof d.text === 'string') return d.text;
